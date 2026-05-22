@@ -1,5 +1,5 @@
 {
-  "display_name": "菜单清理者",
+  "display_name": "菜单精简器",
   "loading_order": 15,
   "requires": [],
   "optional": [],
@@ -7,5 +7,5 @@
   "css": "style.css",
   "author": "Harrishao",
   "version": "1.0.0",
-  "description": "动态扫描并选择性隐藏酒馆展开面板中的菜单项，告别用不到的功能按钮"
+  "description": "选择性隐藏酒馆展开面板中的菜单项，告别用不到的功能按钮"
 }
