@@ -285,6 +285,28 @@ function openPopup() {
   document.getElementById("menu-cleaner-backdrop").style.display = "block";
   document.getElementById("menu-cleaner-popup").style.display = "flex";
   refreshPopup();
+  positionPopup();
+}
+
+function positionPopup() {
+  const popup = document.getElementById("menu-cleaner-popup");
+  if (!popup) return;
+  const vh = window.innerHeight;
+  const vw = window.innerWidth;
+  const popupHeight = popup.scrollHeight;
+  const margin = Math.max(20, vh * 0.05);
+  const availableHeight = vh - margin * 2;
+
+  if (popupHeight > availableHeight) {
+    popup.style.top = margin + "px";
+    popup.style.transform = "translate(-50%, 0)";
+    popup.style.maxHeight = availableHeight + "px";
+  } else {
+    popup.style.top = "50%";
+    popup.style.transform = "translate(-50%, -50%)";
+    popup.style.maxHeight = "85vh";
+  }
+  popup.style.maxWidth = Math.min(560, vw - 20) + "px";
 }
 
 function closePopup() {
@@ -301,6 +323,7 @@ function refreshPopup() {
   const scanResults = scanAllPanels();
   body.innerHTML = buildCategoryHTML(scanResults);
   bindToggleEvents();
+  positionPopup();
 }
 
 // ── Build category UI ───────────────────────────────────────────────
@@ -394,6 +417,13 @@ function setupKeyboard() {
       if (popup && popup.style.display !== "none") {
         closePopup();
       }
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    const popup = document.getElementById("menu-cleaner-popup");
+    if (popup && popup.style.display !== "none") {
+      positionPopup();
     }
   });
 }
