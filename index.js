@@ -60,7 +60,7 @@ const PANEL_GROUPS = [
   },
   {
     id: "topSettings",
-    name: "顶部菜单栏",
+    name: "顶部导航栏",
     // No buttonId — this panel is always visible
     items: [
       { selector: "#ai-config-button",           label: "预设" },
@@ -151,7 +151,7 @@ function injectMenuEntry() {
   container.innerHTML = `
     <div id="menu-cleaner-btn" class="list-group-item flex-container flexGap5 interactable">
       <div class="fa-solid fa-broom extensionsMenuExtensionButton"></div>
-      <span>菜单清理者</span>
+      <span>精简目录</span>
     </div>
   `;
   menu.appendChild(container);
@@ -170,7 +170,7 @@ function injectSettingsEntry() {
   const html = `
     <div id="menu-cleaner-settings" class="inline-drawer">
       <div class="inline-drawer-toggle inline-drawer-header">
-        <b>🧹 菜单清理者</b>
+        <b>精简目录</b>
         <span style="font-size:0.8em;color:var(--muted);margin-left:8px">v1.0.0</span>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down interactable"></div>
       </div>
@@ -181,7 +181,7 @@ function injectSettingsEntry() {
             <span>启用扩展</span>
           </label>
           <p style="color:var(--muted);font-size:0.85em;margin:4px 0;">
-            点击扩展菜单中的 <b>🧹 菜单清理者</b> 打开操作面板，选择要隐藏的原生菜单项。
+            点击扩展菜单中的 <b>精简目录</b> 打开操作面板，选择要隐藏的原生菜单项。
           </p>
           <button id="menu-cleaner-open-popup" class="menu_button">打开操作面板</button>
         </div>
@@ -211,7 +211,7 @@ function createPopupDOM() {
     <div id="menu-cleaner-backdrop" class="menu-cleaner-backdrop"></div>
     <div id="menu-cleaner-popup" class="menu-cleaner-popup">
       <div class="menu-cleaner-popup-header">
-        <h2>🧹 菜单清理者</h2>
+        <h2>精简目录</h2>
         <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
       </div>
       <div id="menu-cleaner-popup-body" class="menu-cleaner-popup-body"></div>
