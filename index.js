@@ -79,7 +79,8 @@ const PANEL_GROUPS = [
 // These are always hidden when the extension is enabled — no toggle offered.
 const ALWAYS_HIDDEN_SELECTORS = [
   "#rm_api_block > div.flex-container.flexFlowColumn > #openai_api > div.flex-container.flex > #test_api_button",
-  "#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p"
+  "#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p",
+  "#rm_extensions_block > div > div.alignitemscenter.flex-container.justifyCenter.wide100p"
 ];
 
 // ── Settings ────────────────────────────────────────────────────────
