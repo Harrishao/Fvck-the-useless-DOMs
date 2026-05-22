@@ -1,0 +1,15 @@
+# Playwright MCP 测试产物
+.playwright-mcp/
+
+# Claude Code 内部文件
+.claude/
+
+# 参考文档和需求文档
+reference/
+可展开列表.md
+*.md
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini

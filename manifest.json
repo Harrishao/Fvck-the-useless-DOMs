@@ -1,0 +1,11 @@
+{
+  "display_name": "菜单清理者",
+  "loading_order": 15,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Harrishao",
+  "version": "1.0.0",
+  "description": "动态扫描并选择性隐藏酒馆展开面板中的菜单项，告别用不到的功能按钮"
+}
