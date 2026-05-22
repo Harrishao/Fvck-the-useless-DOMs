@@ -282,7 +282,7 @@ function openPopup() {
     // Could show a toast, but just enable silently
   }
   createPopupDOM();
-  document.getElementById("menu-cleaner-backdrop").style.display = "block";
+  document.getElementById("menu-cleaner-backdrop").style.display = "flex";
   document.getElementById("menu-cleaner-popup").style.display = "flex";
   refreshPopup();
 }

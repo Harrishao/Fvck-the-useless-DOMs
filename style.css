@@ -6,19 +6,20 @@
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(2px);
   z-index: 9998;
+  justify-content: center;
+  align-items: safe center;
+  padding: 40px 0;
   animation: menu-cleaner-fadein 0.2s ease;
+  overflow-y: auto;
 }
 
 /* ── Popup ───────────────────────────────────────────────────── */
 .menu-cleaner-popup {
   display: none;
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   width: 560px;
   max-width: 95vw;
-  max-height: 80vh;
+  max-height: 85vh;
+  margin: auto;
   background: var(--SmartThemeBlurTintColor, #1a1b22);
   border: 1px solid var(--SmartThemeBorderColor, #333);
   border-radius: 14px;
@@ -26,6 +27,7 @@
   z-index: 9999;
   flex-direction: column;
   animation: menu-cleaner-scalein 0.2s ease;
+  overflow: hidden;
 }
 
 .menu-cleaner-popup-header {
