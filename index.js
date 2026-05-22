@@ -211,7 +211,7 @@ function createPopupDOM() {
     <div id="menu-cleaner-backdrop" class="menu-cleaner-backdrop"></div>
     <div id="menu-cleaner-popup" class="menu-cleaner-popup">
       <div class="menu-cleaner-popup-header">
-        <h2>c</h2>
+        <h2>菜单精简器</h2>
         <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
       </div>
       <div id="menu-cleaner-popup-body" class="menu-cleaner-popup-body"></div>
