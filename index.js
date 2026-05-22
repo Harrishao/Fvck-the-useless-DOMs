@@ -2,10 +2,11 @@ import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
 
 const STORAGE_KEY = "menu_cleaner";
+const MC_ATTR = "data-mc-id";
 
 const defaultSettings = {
   enabled: true,
-  hiddenSelectors: {}  // { "#option_toggle_AN": true, "#data_bank_wand_container": true, ... }
+  hiddenSelectors: {}  // { "[data-mc-id=\"xxx\"]": true, "#someId": true, ... }
 };
 
 let settings = {};
@@ -15,72 +16,146 @@ const PANEL_CONFIGS = [
   {
     buttonId: "#options_button",
     name: "选项菜单",
-    containerSelector: "#options .options-content",
-    itemSelector: ":scope > *",
-    getItemInfo(el) {
-      if (el.tagName === "HR") return { type: "separator" };
+    panelPrefix: "opt",
+    containers: [
+      { selector: "#options .options-content", itemSelector: ":scope > *" }
+    ],
+    extractItems(el, _containerIdx) {
+      if (el.tagName === "HR") return [{ type: "separator" }];
       const span = el.querySelector("span");
-      return {
+      const label = span?.textContent?.trim() || el.textContent?.trim() || "(unnamed)";
+      const nativeId = el.id || "";
+      return [{
         type: "item",
-        id: el.id || "",
-        label: span?.textContent?.trim() || el.textContent?.trim() || "(unnamed)",
-        selector: el.id ? `#${el.id}` : buildFallbackSelector(el),
+        nativeId,
+        label,
+        element: el,
         currentlyHidden: isElementHidden(el)
-      };
+      }];
     }
   },
   {
     buttonId: "#extensionsMenuButton",
     name: "扩展菜单",
-    containerSelector: "#extensionsMenu",
-    itemSelector: ":scope > .extension_container",
-    getItemInfo(el) {
-      const listItem = el.querySelector(".list-group-item");
-      const span = listItem?.querySelector("span");
-      const isEmpty = !listItem;
-      const rawLabel = span?.textContent?.trim() || listItem?.textContent?.trim() || "";
-      return {
-        type: isEmpty ? "empty" : "item",
-        id: el.id || "",
-        label: rawLabel || el.id?.replace(/_wand_container$/, "").replace(/_/g, " ") || "(empty slot)",
-        selector: el.id ? `#${el.id}` : buildFallbackSelector(el),
-        currentlyHidden: isElementHidden(el),
-        isEmpty
-      };
+    panelPrefix: "extm",
+    containers: [
+      // Match .extension_container AND [id$=_wand_container] to catch all container patterns.
+      // Also match plain divs that contain .list-group-item children.
+      { selector: "#extensionsMenu", itemSelector: ":scope > .extension_container, :scope > [id$='_wand_container']" }
+    ],
+    extractItems(container, _containerIdx) {
+      const results = [];
+      // Get ALL .list-group-item children
+      const listItems = container.querySelectorAll(":scope > .list-group-item");
+      listItems.forEach(li => {
+        const span = li.querySelector("span");
+        const label = span?.textContent?.trim() || li.textContent?.replace(/\s+/g, " ").trim() || "";
+        results.push({
+          type: "item",
+          nativeId: li.id || container.id || "",
+          label: label || container.id?.replace(/_wand_container$/, "").replace(/_/g, " ") || "(unnamed)",
+          element: li,
+          currentlyHidden: isElementHidden(li)
+        });
+      });
+      // Scan recursively for wand-buttons that may be nested inside wrappers
+      const customBtns = container.querySelectorAll("[id$='-wand-button'], [id*='wand-button']");
+      customBtns.forEach(btn => {
+        if (btn.classList.contains("list-group-item")) return;
+        // Only pick up direct wand buttons, not ones already inside a captured .list-group-item
+        if (btn.closest(".list-group-item")) return;
+        results.push({
+          type: "item",
+          nativeId: btn.id || "",
+          label: btn.textContent?.trim() || btn.id || "(custom button)",
+          element: btn,
+          currentlyHidden: isElementHidden(btn)
+        });
+      });
+      // Also scan top-level items that are direct children of #extensionsMenu but not .extension_container
+      // (e.g., plain div containers added by other extensions)
+      if (results.length === 0 && !container.classList.contains("extension_container")) {
+        // This might be a plain div container — check its direct children
+        const directItems = container.querySelectorAll(":scope > .list-group-item, :scope > [id$='-wand-button']");
+        directItems.forEach(item => {
+          const span = item.querySelector("span");
+          const label = span?.textContent?.trim() || item.textContent?.replace(/\s+/g, " ").trim() || "";
+          results.push({
+            type: "item",
+            nativeId: item.id || "",
+            label: label || item.id || "(unnamed)",
+            element: item,
+            currentlyHidden: isElementHidden(item)
+          });
+        });
+      }
+      // If no items found at all, mark as empty
+      if (results.length === 0) {
+        results.push({
+          type: "empty",
+          nativeId: container.id || "",
+          label: container.id?.replace(/_wand_container$/, "").replace(/_/g, " ") || "(empty slot)",
+          element: container,
+          currentlyHidden: false
+        });
+      }
+      return results;
     }
   },
   {
     buttonId: "#extensions-settings-button",
     name: "扩展设置",
-    containerSelector: "#extensions_settings",
-    itemSelector: ":scope > *",
-    getItemInfo(el) {
-      if (el.tagName === "HR") return { type: "separator" };
-      const label = extractFirstText(el);
-      return {
+    panelPrefix: "exts",
+    containers: [
+      { selector: "#extensions_settings", itemSelector: ":scope > *" },
+      { selector: "#extensions_settings2", itemSelector: ":scope > *" }
+    ],
+    extractItems(el, _containerIdx) {
+      if (el.tagName === "HR") return [{ type: "separator" }];
+      // Some items are containers with nested children (e.g. #translation_container > div)
+      // Check if this element has sub-items that should be scanned individually
+      const nestedItems = el.querySelectorAll(":scope > .list-group-item, :scope > [id$='-wand-button']");
+      if (nestedItems.length > 0) {
+        const results = [];
+        nestedItems.forEach(child => {
+          const label = extractLabel(child);
+          results.push({
+            type: "item",
+            nativeId: child.id || "",
+            label: label || "(unnamed)",
+            element: child,
+            currentlyHidden: isElementHidden(child)
+          });
+        });
+        return results;
+      }
+      const label = extractLabel(el);
+      return [{
         type: "item",
-        id: el.id || "",
-        label: label || el.id?.replace(/_container$/, "").replace(/_/g, " ") || "(unnamed)",
-        selector: el.id ? `#${el.id}` : buildFallbackSelector(el),
+        nativeId: el.id || "",
+        label,
+        element: el,
         currentlyHidden: isElementHidden(el)
-      };
+      }];
     }
   },
   {
     buttonId: "#sys-settings-button",
     name: "系统设置",
-    containerSelector: "#top-settings-holder",
-    itemSelector: ":scope > *",
-    getItemInfo(el) {
-      if (el.tagName === "HR") return { type: "separator" };
-      const label = extractFirstText(el);
-      return {
+    panelPrefix: "sys",
+    containers: [
+      { selector: "#top-settings-holder", itemSelector: ":scope > *" }
+    ],
+    extractItems(el, _containerIdx) {
+      if (el.tagName === "HR") return [{ type: "separator" }];
+      const label = extractLabel(el);
+      return [{
         type: "item",
-        id: el.id || "",
-        label: label || el.id || "(unnamed)",
-        selector: el.id ? `#${el.id}` : buildFallbackSelector(el),
+        nativeId: el.id || "",
+        label,
+        element: el,
         currentlyHidden: isElementHidden(el)
-      };
+      }];
     }
   }
 ];
@@ -91,31 +166,50 @@ function isElementHidden(el) {
   return style.display === "none" || el.classList.contains("displayNone") || el.style.display === "none";
 }
 
-function buildFallbackSelector(el) {
-  const parent = el.parentElement;
-  if (!parent) return null;
-  const index = [...parent.children].indexOf(el) + 1;
-  const tag = el.tagName.toLowerCase();
-  const classes = el.className ? "." + el.className.split(" ").filter(c => c).join(".") : "";
-  const parentSel = parent.id ? `#${parent.id}` : parent.className ? `.${parent.className.split(" ")[0]}` : parent.tagName.toLowerCase();
-  return `${parentSel} > ${tag}${classes}:nth-child(${index})`;
-}
-
-function extractFirstText(el) {
+function extractLabel(el) {
+  // Try text nodes directly
   for (const child of el.childNodes) {
     if (child.nodeType === Node.TEXT_NODE) {
       const t = child.textContent.trim();
-      if (t) return t;
+      if (t && t.length < 80) return t;
     }
   }
-  const h3 = el.querySelector("h3, h4, .drawer-header, .inline-drawer-toggle, b, strong");
-  if (h3) return h3.textContent.trim().substring(0, 50);
-  const text = el.textContent.trim();
-  return text.substring(0, 60) || "";
+  // Try headings
+  const heading = el.querySelector("h3, h4, .drawer-header, .inline-drawer-toggle, b, strong, [data-i18n]");
+  if (heading) {
+    const t = heading.textContent.trim();
+    if (t && t.length < 80) return t;
+  }
+  // Fallback: first meaningful text
+  const text = el.textContent.trim().replace(/\s+/g, " ");
+  if (text.length <= 60) return text;
+  return text.substring(0, 60) + "...";
 }
 
-function escapeCSS(sel) {
-  return sel.replace(/:/g, "\\:");
+function sanitizeForId(str) {
+  // Generate a stable, CSS-safe identifier from label text
+  return str
+    .replace(/[^a-zA-Z0-9一-鿿㐀-䶿_-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .substring(0, 40);
+}
+
+// ── mc-id system ────────────────────────────────────────────────────
+function generateMcId(panelPrefix, label, seenLabels) {
+  const base = sanitizeForId(label) || "unnamed";
+  let key = base;
+  let counter = 1;
+  while (seenLabels.has(key)) {
+    counter++;
+    key = `${base}_${counter}`;
+  }
+  seenLabels.add(key);
+  return `mc-${panelPrefix}-${key}`;
+}
+
+function mcSelector(mcId) {
+  return `[${MC_ATTR}="${mcId}"]`;
 }
 
 // ── Settings ────────────────────────────────────────────────────────
@@ -133,24 +227,48 @@ function saveSettings() {
 // ── Scanning ────────────────────────────────────────────────────────
 function scanAllPanels() {
   const results = [];
+
   for (const config of PANEL_CONFIGS) {
-    const container = document.querySelector(config.containerSelector);
-    if (!container) {
-      results.push({ config, items: [], error: "panel not found" });
-      continue;
+    const allItems = [];
+    const seenLabels = new Set();
+    let anyContainerFound = false;
+
+    for (let ci = 0; ci < config.containers.length; ci++) {
+      const containerDef = config.containers[ci];
+      const container = document.querySelector(containerDef.selector);
+      if (!container) continue;
+      anyContainerFound = true;
+
+      const rawElements = container.querySelectorAll(containerDef.itemSelector);
+      rawElements.forEach(el => {
+        const extracted = config.extractItems(el, ci);
+        extracted.forEach(item => {
+          if (item.type === "separator") {
+            allItems.push(item);
+          } else if (item.type === "item" || item.type === "empty") {
+            // Generate mc-id and tag the element
+            const mcId = generateMcId(config.panelPrefix, item.label, seenLabels);
+            item.mcId = mcId;
+            item.selector = mcSelector(mcId);
+            if (item.element) {
+              item.element.setAttribute(MC_ATTR, mcId);
+            }
+            // Merge with saved settings
+            const savedHidden = settings.hiddenSelectors[item.selector];
+            item.isHidden = savedHidden !== undefined ? savedHidden : item.currentlyHidden;
+            allItems.push(item);
+          }
+        });
+      });
     }
-    const rawItems = container.querySelectorAll(config.itemSelector);
-    const items = [];
-    rawItems.forEach(el => {
-      const info = config.getItemInfo(el);
-      if (info.selector) {
-        const savedHidden = settings.hiddenSelectors[info.selector];
-        info.isHidden = savedHidden !== undefined ? savedHidden : info.currentlyHidden;
-      }
-      items.push(info);
+
+    results.push({
+      config,
+      items: allItems,
+      error: anyContainerFound ? null : "panel not found"
     });
-    results.push({ config, items, error: null });
   }
+
   return results;
 }
 
@@ -166,7 +284,7 @@ function applyHides() {
   const rules = [];
   for (const [selector, hidden] of Object.entries(settings.hiddenSelectors)) {
     if (hidden) {
-      rules.push(`${escapeCSS(selector)} { display: none !important; }`);
+      rules.push(`${selector} { display: none !important; }`);
     }
   }
   styleEl.textContent = rules.join("\n");
@@ -230,7 +348,6 @@ function injectSettingsEntry() {
   `;
   target.insertAdjacentHTML("beforeend", html);
 
-  // bind events
   const toggleEl = target.querySelector("#menu-cleaner-settings .inline-drawer-toggle");
   const contentEl = target.querySelector("#menu-cleaner-settings .inline-drawer-content");
   toggleEl?.addEventListener("click", () => {
@@ -278,9 +395,6 @@ function createPopupDOM() {
 }
 
 function openPopup() {
-  if (!settings.enabled) {
-    // Could show a toast, but just enable silently
-  }
   createPopupDOM();
   document.getElementById("menu-cleaner-backdrop").style.display = "block";
   document.getElementById("menu-cleaner-popup").style.display = "flex";
@@ -346,11 +460,11 @@ function buildCategoryHTML(scanResults) {
     } else {
       for (const item of items) {
         if (item.type === "separator") {
-          html += `<div class="menu-cleaner-item menu-cleaner-separator"><span>── 分隔线 ──</span><label class="menu-cleaner-toggle"></label></div>`;
+          html += `<div class="menu-cleaner-item menu-cleaner-separator"><span>── 分隔线 ──</span><span></span></div>`;
         } else if (item.type === "empty") {
           html += `<div class="menu-cleaner-item menu-cleaner-empty" style="opacity:0.5;">
                      <span>${escHtml(item.label)}</span>
-                     <span style="font-size:0.75em;color:var(--muted);">(未加载)</span>
+                     <span style="font-size:0.75em;color:var(--muted);">(扩展未安装)</span>
                    </div>`;
         } else {
           const hidden = settings.hiddenSelectors[item.selector] ?? item.currentlyHidden;
@@ -379,7 +493,6 @@ function escHtml(str) {
 
 // ── Toggle events ───────────────────────────────────────────────────
 function bindToggleEvents() {
-  // Category collapse/expand
   document.querySelectorAll(".menu-cleaner-category-header").forEach(header => {
     header.addEventListener("click", () => {
       const categoryId = header.dataset.category;
@@ -392,7 +505,6 @@ function bindToggleEvents() {
     });
   });
 
-  // Checkbox toggles
   document.querySelectorAll(".menu-cleaner-checkbox").forEach(cb => {
     cb.addEventListener("change", (e) => {
       const selector = e.target.dataset.selector;
@@ -405,11 +517,11 @@ function bindToggleEvents() {
 }
 
 function clearAllHides() {
-  let styleEl = document.getElementById("menu-cleaner-styles");
+  const styleEl = document.getElementById("menu-cleaner-styles");
   if (styleEl) styleEl.textContent = "";
 }
 
-// ── Keyboard shortcut ───────────────────────────────────────────────
+// ── Keyboard ────────────────────────────────────────────────────────
 function setupKeyboard() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
@@ -428,17 +540,87 @@ function setupKeyboard() {
   });
 }
 
+// ── Panel button hooks ──────────────────────────────────────────────
+// When user clicks a panel button, the panel may be created/revealed.
+// We re-scan to tag new elements with data-mc-id, then re-apply hides.
+function hookPanelButtons() {
+  for (const config of PANEL_CONFIGS) {
+    const btn = document.querySelector(config.buttonId);
+    if (!btn || btn._mcHooked) continue;
+    btn._mcHooked = true;
+    btn.addEventListener("click", () => {
+      setTimeout(() => {
+        if (!settings.enabled) return;
+        scanAllPanels();
+        applyHides();
+      }, 350);
+    });
+  }
+}
+
+// ── MutationObserver ────────────────────────────────────────────────
+// Watches for panel containers being added to the DOM so we can tag
+// them with data-mc-id and re-apply hiding rules.
+let _observer = null;
+function setupObserver() {
+  if (_observer) return;
+  _observer = new MutationObserver((mutations) => {
+    let shouldRefresh = false;
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        // Check if any added node is or contains one of our panel containers
+        for (const config of PANEL_CONFIGS) {
+          for (const cdef of config.containers) {
+            if (node.matches?.(cdef.selector) || node.querySelector?.(cdef.selector)) {
+              shouldRefresh = true;
+              break;
+            }
+          }
+          if (shouldRefresh) break;
+        }
+        if (shouldRefresh) break;
+      }
+      if (shouldRefresh) break;
+    }
+    if (shouldRefresh && settings.enabled) {
+      setTimeout(() => {
+        scanAllPanels();
+        applyHides();
+      }, 400);
+    }
+  });
+  _observer.observe(document.body, { childList: true, subtree: true });
+}
+
 // ── Init ────────────────────────────────────────────────────────────
 function init() {
   loadSettings();
   injectMenuEntry();
   injectSettingsEntry();
   setupKeyboard();
+  setupObserver();
+
+  // Retry hooking panel buttons if they don't exist yet at init time
+  let hookAttempts = 0;
+  function tryHook() {
+    hookPanelButtons();
+    const allHooked = PANEL_CONFIGS.every(c => document.querySelector(c.buttonId)?._mcHooked);
+    if (!allHooked && hookAttempts < 10) {
+      hookAttempts++;
+      setTimeout(tryHook, 800);
+    }
+  }
 
   if (settings.enabled) {
-    applyHides();
+    setTimeout(() => {
+      tryHook();
+      scanAllPanels();
+      applyHides();
+    }, 1500);
+  } else {
+    setTimeout(tryHook, 2000);
   }
 }
 
-// Run when SillyTavern loads this module
 init();
