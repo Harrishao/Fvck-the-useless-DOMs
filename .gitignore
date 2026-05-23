@@ -8,7 +8,6 @@
 # 参考文档和需求文档
 reference/
 可展开列表.md
-*.md
 
 # 系统文件
 .DS_Store
