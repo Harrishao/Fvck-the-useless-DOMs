@@ -258,7 +258,7 @@ function positionPopup() {
   const popupWidth = popup.offsetWidth;
 
   // Center with safety margin (same approach as hide-helper)
-  const top = Math.max(margin, (vh - popupHeight) / 2);
+  const top = Math.max(margin, (vh - popupHeight) / 2.5);
   const left = Math.max(margin, (vw - popupWidth) / 2);
 
   popup.style.top = top + "px";
