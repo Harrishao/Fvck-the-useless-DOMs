@@ -1,11 +1,11 @@
 {
-  "display_name": "菜单精简器",
+  "display_name": "原生菜单精简器",
   "loading_order": 15,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
-  "version": "0.1.2",
+  "version": "1.0.3",
   "author": "Harrishao",
-  "description": "选择性隐藏酒馆展开面板中的菜单项，告别用不到的功能按钮"
+  "description": "选择性隐藏酒馆原生菜单项，告别用不到的功能按钮"
 }
