@@ -39,12 +39,10 @@
 .menu-cleaner-popup {
   display: none;
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /* top / left / transform are set by JS positionPopup() */
   width: 560px;
-  max-width: calc(100vw - 20px);
-  max-height: calc(100vh - 20px);
+  max-width: 90%;
+  max-height: 90vh;
   background: var(--SmartThemeBlurTintColor, #1a1b22);
   border: 1px solid var(--SmartThemeBorderColor, #333);
   border-radius: 14px;

@@ -245,17 +245,24 @@ function positionPopup() {
   const vw = window.innerWidth;
   const margin = 10;
 
-  popup.style.top = "50%";
-  popup.style.left = "50%";
-  popup.style.transform = "translate(-50%, -50%)";
-  popup.style.maxHeight = (vh - margin * 2) + "px";
+  // Apply size constraints first so we can measure the real dimensions
+  popup.style.maxHeight = "90vh";
   popup.style.maxWidth = Math.min(560, vw - margin * 2) + "px";
-  
-  // Ensure popup stays within viewport
-  const rect = popup.getBoundingClientRect();
-  if (rect.bottom > vh) {
-    // Adjust if needed, but maxHeight should handle it
-  }
+
+  // Temporarily pin to origin to get an accurate measurement
+  popup.style.top = "0";
+  popup.style.left = "0";
+  popup.style.transform = "none";
+
+  const popupHeight = popup.offsetHeight;
+  const popupWidth = popup.offsetWidth;
+
+  // Center with safety margin (same approach as hide-helper)
+  const top = Math.max(margin, (vh - popupHeight) / 2);
+  const left = Math.max(margin, (vw - popupWidth) / 2);
+
+  popup.style.top = top + "px";
+  popup.style.left = left + "px";
 }
 
 // ── Build popup content from hardcoded data ─────────────────────────
