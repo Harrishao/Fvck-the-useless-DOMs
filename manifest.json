@@ -6,6 +6,5 @@
   "js": "index.js",
   "css": "style.css",
   "author": "Harrishao",
-  "version": "1.0.0",
   "description": "选择性隐藏酒馆展开面板中的菜单项，告别用不到的功能按钮"
 }

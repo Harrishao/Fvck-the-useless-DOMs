@@ -13,6 +13,18 @@
 }
 
 /* ── Popup ───────────────────────────────────────────────────── */
+.menu-cleaner-popup,
+.menu-cleaner-popup-header,
+.menu-cleaner-popup-body,
+.menu-cleaner-category,
+.menu-cleaner-item {
+  writing-mode: horizontal-tb;
+}
+
+.menu-cleaner-popup button {
+  writing-mode: horizontal-tb;
+}
+
 .menu-cleaner-popup {
   display: none;
   position: fixed;
@@ -176,4 +188,11 @@
 @keyframes menu-cleaner-scalein {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* ── Force horizontal text ────────────────────────────────────── */
+#menu-cleaner-settings,
+#menu-cleaner-settings *,
+#menu-cleaner-open-popup {
+  writing-mode: horizontal-tb;
 }

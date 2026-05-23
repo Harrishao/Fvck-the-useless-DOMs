@@ -93,8 +93,9 @@ const defaultSettings = {
 let settings = {};
 
 function loadSettings() {
-  extension_settings[STORAGE_KEY] = extension_settings[STORAGE_KEY] || {};
-  Object.assign(extension_settings[STORAGE_KEY], defaultSettings, extension_settings[STORAGE_KEY]);
+  const saved = extension_settings[STORAGE_KEY] || {};
+  // saved overrides defaults — preserves user's hiddenSelectors across refreshes
+  extension_settings[STORAGE_KEY] = Object.assign({}, defaultSettings, saved);
   settings = extension_settings[STORAGE_KEY];
 }
 
