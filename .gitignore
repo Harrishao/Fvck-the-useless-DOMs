@@ -3,6 +3,7 @@
 
 # Claude Code 内部文件
 .claude/
+.idea/
 
 # 参考文档和需求文档
 reference/
