@@ -12,19 +12,23 @@
   animation: menu-cleaner-fadein 0.2s ease;
 }
 
-/* ── Popup ───────────────────────────────────────────────────── */
+/* ── Force horizontal text for all elements ──────────────────── */
+#menu-cleaner-popup,
+#menu-cleaner-popup *,
+#menu-cleaner-settings,
+#menu-cleaner-settings *,
+#menu-cleaner-open-popup,
+#menu-cleaner-wand-container,
+#menu-cleaner-wand-container *,
 .menu-cleaner-popup,
-.menu-cleaner-popup-header,
-.menu-cleaner-popup-body,
-.menu-cleaner-category,
-.menu-cleaner-item {
-  writing-mode: horizontal-tb;
+.menu-cleaner-popup *,
+.menu-cleaner-backdrop {
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  white-space: normal !important;
 }
 
-.menu-cleaner-popup button {
-  writing-mode: horizontal-tb;
-}
-
+/* ── Popup ───────────────────────────────────────────────────── */
 .menu-cleaner-popup {
   display: none;
   position: fixed;
@@ -32,8 +36,8 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: 560px;
-  max-width: 95vw;
-  max-height: 85vh;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 20px);
   background: var(--SmartThemeBlurTintColor, #1a1b22);
   border: 1px solid var(--SmartThemeBorderColor, #333);
   border-radius: 14px;
@@ -188,11 +192,4 @@
 @keyframes menu-cleaner-scalein {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
-
-/* ── Force horizontal text ────────────────────────────────────── */
-#menu-cleaner-settings,
-#menu-cleaner-settings *,
-#menu-cleaner-open-popup {
-  writing-mode: horizontal-tb;
 }

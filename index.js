@@ -244,20 +244,20 @@ function positionPopup() {
   if (!popup) return;
   const vh = window.innerHeight;
   const vw = window.innerWidth;
-  const popupHeight = popup.scrollHeight;
-  const margin = Math.max(20, vh * 0.05);
-  const availableHeight = vh - margin * 2;
+  const margin = 10;
 
-  if (popupHeight > availableHeight) {
-    popup.style.top = margin + "px";
-    popup.style.transform = "translate(-50%, 0)";
-    popup.style.maxHeight = availableHeight + "px";
-  } else {
-    popup.style.top = "50%";
-    popup.style.transform = "translate(-50%, -50%)";
-    popup.style.maxHeight = "85vh";
+  // Always position from top-left corner with proper bounds
+  popup.style.top = margin + "px";
+  popup.style.left = "50%";
+  popup.style.transform = "translateX(-50%)";
+  popup.style.maxHeight = (vh - margin * 2) + "px";
+  popup.style.maxWidth = Math.min(560, vw - margin * 2) + "px";
+  
+  // Ensure popup stays within viewport
+  const rect = popup.getBoundingClientRect();
+  if (rect.bottom > vh) {
+    // Adjust if needed, but maxHeight should handle it
   }
-  popup.style.maxWidth = Math.min(560, vw - 20) + "px";
 }
 
 // ── Build popup content from hardcoded data ─────────────────────────
