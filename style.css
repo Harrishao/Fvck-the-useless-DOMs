@@ -28,6 +28,13 @@
   white-space: normal !important;
 }
 
+/* ── Buttons: prevent text from wrapping vertically ─────────── */
+#menu-cleaner-open-popup,
+#menu-cleaner-close {
+  white-space: nowrap !important;
+  flex-shrink: 0;
+}
+
 /* ── Popup ───────────────────────────────────────────────────── */
 .menu-cleaner-popup {
   display: none;

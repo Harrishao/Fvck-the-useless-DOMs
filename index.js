@@ -172,7 +172,6 @@ function injectSettingsEntry() {
     <div id="menu-cleaner-settings" class="inline-drawer">
       <div class="inline-drawer-toggle inline-drawer-header">
         <b>菜单精简器</b>
-        <span style="font-size:0.8em;color:var(--muted);margin-left:8px">v1.0.0</span>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down interactable"></div>
       </div>
       <div class="inline-drawer-content">
@@ -182,7 +181,7 @@ function injectSettingsEntry() {
             <span>启用扩展</span>
           </label>
           <p style="color:var(--muted);font-size:0.85em;margin:4px 0;">
-            点击扩展菜单中的 <b>菜单精简器</b> 打开操作面板，选择要隐藏的原生菜单项。
+            点击魔棒菜单中的 <b>菜单精简器</b> 打开操作面板，选择要隐藏的原生菜单项。
           </p>
           <button id="menu-cleaner-open-popup" class="menu_button">打开操作面板</button>
         </div>
@@ -246,10 +245,9 @@ function positionPopup() {
   const vw = window.innerWidth;
   const margin = 10;
 
-  // Always position from top-left corner with proper bounds
-  popup.style.top = margin + "px";
+  popup.style.top = "50%";
   popup.style.left = "50%";
-  popup.style.transform = "translateX(-50%)";
+  popup.style.transform = "translate(-50%, -50%)";
   popup.style.maxHeight = (vh - margin * 2) + "px";
   popup.style.maxWidth = Math.min(560, vw - margin * 2) + "px";
   
