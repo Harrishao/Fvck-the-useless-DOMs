@@ -31,6 +31,12 @@ const PANEL_GROUPS = [
     id: "extensionsMenu",
     name: "魔棒",
     buttonId: "#extensionsMenuButton",
+    discovery: {
+      containers: ["#extensionsMenu"],
+      itemMatch: ".list-group-item",
+      labelIn: "span",
+      exclude: ["#menu-cleaner-btn"]
+    },
     items: [
       { selector: "#manageAttachments",          label: "打开数据库" },
       { selector: "#attachFile",                 label: "附加文件" },
@@ -149,25 +155,47 @@ function discoverItems(group) {
   if (!group.discovery) return [];
   const discovered = [];
   const seen = new Set();
+  const excludeSet = new Set(group.discovery.exclude || []);
 
   for (const containerSel of group.discovery.containers) {
     const container = document.querySelector(containerSel);
     if (!container) continue;
 
-    for (const child of container.children) {
-      const header = child.querySelector(group.discovery.hasHeader);
-      if (!header) continue;
+    if (group.discovery.itemMatch) {
+      // Mode: find individual items matching a selector within visible children
+      for (const child of container.children) {
+        if (getComputedStyle(child).display === "none") continue;
+        const items = child.querySelectorAll(group.discovery.itemMatch);
+        for (const item of items) {
+          if (!item.id) { item.id = "menu-cleaner-auto-" + (autoIdSeq++); }
+          const selector = "#" + item.id;
+          if (seen.has(selector) || excludeSet.has(selector)) continue;
+          seen.add(selector);
 
-      const labelEl = header.querySelector(group.discovery.labelInHeader);
-      const label = labelEl?.textContent?.trim();
-      if (!label) continue;
+          const labelEl = item.querySelector(group.discovery.labelIn);
+          const label = labelEl ? labelEl.textContent.trim() : item.textContent.trim();
+          if (!label) continue;
 
-      if (!child.id) { child.id = "menu-cleaner-auto-" + (autoIdSeq++); }
-      const selector = "#" + child.id;
-      if (seen.has(selector)) continue;
-      seen.add(selector);
+          discovered.push({ selector, label });
+        }
+      }
+    } else {
+      // Mode: match container children that have a specific header element
+      for (const child of container.children) {
+        const header = child.querySelector(group.discovery.hasHeader);
+        if (!header) continue;
 
-      discovered.push({ selector, label });
+        const labelEl = header.querySelector(group.discovery.labelInHeader);
+        const label = labelEl?.textContent?.trim();
+        if (!label) continue;
+
+        if (!child.id) { child.id = "menu-cleaner-auto-" + (autoIdSeq++); }
+        const selector = "#" + child.id;
+        if (seen.has(selector)) continue;
+        seen.add(selector);
+
+        discovered.push({ selector, label });
+      }
     }
   }
   return discovered;
@@ -381,6 +409,7 @@ function bindPopupEvents() {
       if (body) {
         body.classList.toggle("collapsed");
         arrow.textContent = body.classList.contains("collapsed") ? "▶" : "▼";
+        positionPopup();
       }
     });
   });

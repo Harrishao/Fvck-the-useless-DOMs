@@ -30,7 +30,8 @@
 
 /* ── Buttons: prevent text from wrapping vertically ─────────── */
 #menu-cleaner-open-popup,
-#menu-cleaner-close {
+#menu-cleaner-close,
+#menu-cleaner-rescan {
   white-space: nowrap !important;
   flex-shrink: 0;
 }
