@@ -2,6 +2,7 @@ import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
 
 const STORAGE_KEY = "menu_cleaner";
+let autoIdSeq = 0;
 
 // ── Hardcoded native elements (MVP1) ──────────────────────────────
 // Each group maps to a panel. Only native SillyTavern elements are listed.
@@ -45,6 +46,11 @@ const PANEL_GROUPS = [
     id: "extensionsSettings",
     name: "扩展设置",
     buttonId: "#extensions-settings-button",
+    discovery: {
+      containers: ["#extensions_settings", "#extensions_settings2"],
+      hasHeader: ".inline-drawer-header",
+      labelInHeader: "b, [data-i18n]"
+    },
     items: [
       { selector: "#assets_container",           label: "下载扩展和资源菜单" },
       { selector: "#expressions_container",      label: "角色表情" },
@@ -87,7 +93,8 @@ const ALWAYS_HIDDEN_SELECTORS = [
 // ── Settings ────────────────────────────────────────────────────────
 const defaultSettings = {
   enabled: true,
-  hiddenSelectors: {}  // { "#selector": true } means hidden (toggle OFF)
+  hiddenSelectors: {},
+  discoveryCache: {}  // { groupId: [{selector, label}, ...] }
 };
 
 let settings = {};
@@ -135,6 +142,45 @@ function applyHides() {
 function clearAllHides() {
   const styleEl = document.getElementById("menu-cleaner-styles");
   if (styleEl) styleEl.textContent = "";
+}
+
+// ── Dynamic discovery ──────────────────────────────────────────────
+function discoverItems(group) {
+  if (!group.discovery) return [];
+  const discovered = [];
+  const seen = new Set();
+
+  for (const containerSel of group.discovery.containers) {
+    const container = document.querySelector(containerSel);
+    if (!container) continue;
+
+    for (const child of container.children) {
+      const header = child.querySelector(group.discovery.hasHeader);
+      if (!header) continue;
+
+      const labelEl = header.querySelector(group.discovery.labelInHeader);
+      const label = labelEl?.textContent?.trim();
+      if (!label) continue;
+
+      if (!child.id) { child.id = "menu-cleaner-auto-" + (autoIdSeq++); }
+      const selector = "#" + child.id;
+      if (seen.has(selector)) continue;
+      seen.add(selector);
+
+      discovered.push({ selector, label });
+    }
+  }
+  return discovered;
+}
+
+function refreshDiscoveryCache() {
+  for (const group of PANEL_GROUPS) {
+    if (!group.discovery) continue;
+    const allDiscovered = discoverItems(group);
+    const hardcodedSet = new Set(group.items.map(i => i.selector));
+    settings.discoveryCache[group.id] = allDiscovered.filter(d => !hardcodedSet.has(d.selector));
+  }
+  saveSettings();
 }
 
 // ── UI: Entry in extensionsMenu ─────────────────────────────────────
@@ -212,7 +258,10 @@ function createPopupDOM() {
     <div id="menu-cleaner-popup" class="menu-cleaner-popup">
       <div class="menu-cleaner-popup-header">
         <h2>原生菜单精简器</h2>
-        <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
+        <div class="menu-cleaner-popup-actions">
+          <button id="menu-cleaner-rescan" class="menu_button">🔄 重新扫描</button>
+          <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
+        </div>
       </div>
       <div id="menu-cleaner-popup-body" class="menu-cleaner-popup-body"></div>
     </div>
@@ -221,6 +270,10 @@ function createPopupDOM() {
 
   document.getElementById("menu-cleaner-close")?.addEventListener("click", closePopup);
   document.getElementById("menu-cleaner-backdrop")?.addEventListener("click", closePopup);
+  document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => {
+    refreshDiscoveryCache();
+    refreshPopup();
+  });
 }
 
 function openPopup() {
@@ -273,11 +326,14 @@ function refreshPopup() {
   let html = "";
 
   for (const group of PANEL_GROUPS) {
+    const cached = settings.discoveryCache[group.id] || [];
+    const totalCount = group.items.length + cached.length;
+
     html += `<div class="menu-cleaner-category">`;
     html += `<div class="menu-cleaner-category-header" data-group="${group.id}">
                <span class="menu-cleaner-category-arrow">▶</span>
                <strong>${group.name}</strong>
-               <span class="menu-cleaner-category-count">${group.items.length} 项</span>
+               <span class="menu-cleaner-category-count">${totalCount} 项</span>
              </div>`;
     html += `<div class="menu-cleaner-category-body collapsed" data-group="${group.id}">`;
 
@@ -290,6 +346,20 @@ function refreshPopup() {
                    <span class="menu-cleaner-slider"></span>
                  </label>
                </div>`;
+    }
+
+    if (cached.length > 0) {
+      html += `<div class="menu-cleaner-separator">── 扩展注入 ──</div>`;
+      for (const item of cached) {
+        const isHidden = settings.hiddenSelectors[item.selector] === true;
+        html += `<div class="menu-cleaner-item menu-cleaner-item-discovered" data-selector="${escHtml(item.selector)}">
+                   <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
+                   <label class="menu-cleaner-toggle">
+                     <input type="checkbox" class="menu-cleaner-checkbox" data-selector="${escHtml(item.selector)}" ${isHidden ? "" : "checked"}>
+                     <span class="menu-cleaner-slider"></span>
+                   </label>
+                 </div>`;
+      }
     }
 
     html += `</div></div>`;
@@ -358,6 +428,7 @@ function init() {
   injectMenuEntry();
   injectSettingsEntry();
   setupKeyboard();
+  refreshDiscoveryCache();
 
   if (settings.enabled) {
     applyHides();
