@@ -259,7 +259,7 @@ function createPopupDOM() {
       <div class="menu-cleaner-popup-header">
         <h2>原生菜单精简器</h2>
         <div class="menu-cleaner-popup-actions">
-          <button id="menu-cleaner-rescan" class="menu_button">🔄 重新扫描</button>
+          <button id="menu-cleaner-rescan" class="menu_button">重新扫描</button>
           <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
         </div>
       </div>
