@@ -3,6 +3,7 @@ import { saveSettingsDebounced } from "../../../../script.js";
 
 const STORAGE_KEY = "menu_cleaner";
 let autoIdSeq = 0;
+let activeTab = "hide"; // "hide" or "reorder"
 
 // ── Hardcoded native elements (MVP1) ──────────────────────────────
 // Each group maps to a panel. Only native SillyTavern elements are listed.
@@ -12,6 +13,7 @@ const PANEL_GROUPS = [
     id: "options",
     name: "左下菜单",
     buttonId: "#options_button",
+    reorder: { container: "#options" },
     items: [
       { selector: "#option_toggle_AN",           label: "作者注释" },
       { selector: "#option_toggle_CFG",          label: "CFG缩放" },
@@ -31,6 +33,7 @@ const PANEL_GROUPS = [
     id: "extensionsMenu",
     name: "魔棒",
     buttonId: "#extensionsMenuButton",
+    reorder: { container: "#extensionsMenu" },
     discovery: {
       containers: ["#extensionsMenu"],
       itemMatch: ".list-group-item",
@@ -53,6 +56,7 @@ const PANEL_GROUPS = [
     id: "extensionsSettings",
     name: "扩展设置",
     buttonId: "#extensions-settings-button",
+    reorder: { container: "#extensions_settings" },
     discovery: {
       containers: ["#extensions_settings", "#extensions_settings2"],
       hasHeader: ".inline-drawer-header",
@@ -112,7 +116,8 @@ const ALWAYS_HIDDEN_SELECTORS = [
 const defaultSettings = {
   enabled: true,
   hiddenSelectors: {},
-  discoveryCache: {}  // { groupId: [{selector, label}, ...] }
+  discoveryCache: {},  // { groupId: [{selector, label}, ...] }
+  reorder: {}          // { groupId: [selector, ...] }
 };
 
 let settings = {};
@@ -160,6 +165,87 @@ function applyHides() {
 function clearAllHides() {
   const styleEl = document.getElementById("menu-cleaner-styles");
   if (styleEl) styleEl.textContent = "";
+}
+
+// ── Reorder helpers ─────────────────────────────────────────────────
+function findReorderUnit(el, container) {
+  if (!el || el === container) return null;
+  if (el.parentNode === container) return el;
+  let unit = el;
+  while (unit.parentNode && unit.parentNode !== container) {
+    unit = unit.parentNode;
+  }
+  return unit.parentNode === container ? unit : el;
+}
+
+function getReorderItems(groupId) {
+  const group = PANEL_GROUPS.find(g => g.id === groupId);
+  if (!group) return [];
+
+  let order = settings.reorder[groupId];
+  if (!order || order.length === 0) {
+    order = group.items.map(i => i.selector);
+    const cached = settings.discoveryCache[groupId] || [];
+    for (const c of cached) order.push(c.selector);
+  }
+
+  const labelMap = {};
+  for (const item of group.items) labelMap[item.selector] = item.label;
+  const cached = settings.discoveryCache[groupId] || [];
+  for (const item of cached) labelMap[item.selector] = item.label;
+
+  const result = [];
+  const seen = new Set();
+  for (const selector of order) {
+    if (seen.has(selector)) continue;
+    seen.add(selector);
+    if (settings.hiddenSelectors[selector]) continue;
+    result.push({ selector, label: labelMap[selector] || selector });
+  }
+
+  for (const item of group.items) {
+    if (!seen.has(item.selector) && !settings.hiddenSelectors[item.selector]) {
+      seen.add(item.selector);
+      result.push({ selector: item.selector, label: item.label });
+    }
+  }
+  for (const item of cached) {
+    if (!seen.has(item.selector) && !settings.hiddenSelectors[item.selector]) {
+      seen.add(item.selector);
+      result.push({ selector: item.selector, label: item.label });
+    }
+  }
+
+  return result;
+}
+
+function applyReorder(groupId) {
+  const order = settings.reorder[groupId];
+  if (!order || order.length === 0) return;
+
+  const group = PANEL_GROUPS.find(g => g.id === groupId);
+  if (!group || !group.reorder) return;
+
+  const container = document.querySelector(group.reorder.container);
+  if (!container) return;
+
+  for (const selector of order) {
+    if (settings.hiddenSelectors[selector]) continue;
+    const el = document.querySelector(selector);
+    if (!el) continue;
+    const unit = findReorderUnit(el, container);
+    if (unit) {
+      container.appendChild(unit);
+    }
+  }
+}
+
+function applyAllReorders() {
+  for (const group of PANEL_GROUPS) {
+    if (group.reorder) {
+      applyReorder(group.id);
+    }
+  }
 }
 
 // ── Dynamic discovery ──────────────────────────────────────────────
@@ -322,6 +408,10 @@ function createPopupDOM() {
           <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
         </div>
       </div>
+      <div class="menu-cleaner-tabs">
+        <div class="menu-cleaner-tab active" data-tab="hide">隐藏元素</div>
+        <div class="menu-cleaner-tab" data-tab="reorder">重排序</div>
+      </div>
       <div id="menu-cleaner-popup-body" class="menu-cleaner-popup-body"></div>
     </div>
   `;
@@ -332,6 +422,11 @@ function createPopupDOM() {
   document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => {
     refreshDiscoveryCache();
     refreshPopup();
+  });
+
+  // Tab switching
+  document.querySelectorAll(".menu-cleaner-tab").forEach(tab => {
+    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
   });
 }
 
@@ -348,6 +443,135 @@ function closePopup() {
   const popup = document.getElementById("menu-cleaner-popup");
   if (backdrop) backdrop.style.display = "none";
   if (popup) popup.style.display = "none";
+}
+
+function switchTab(tabName) {
+  activeTab = tabName;
+  document.querySelectorAll(".menu-cleaner-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === tabName);
+  });
+  refreshPopup();
+}
+
+function renderReorderView() {
+  const body = document.getElementById("menu-cleaner-popup-body");
+  if (!body) return;
+
+  const reorderGroups = PANEL_GROUPS.filter(g => g.reorder);
+  let html = "";
+
+  for (const group of reorderGroups) {
+    const items = getReorderItems(group.id);
+    html += `<div class="menu-cleaner-category">`;
+    html += `<div class="menu-cleaner-category-header" data-group="${group.id}">
+               <span class="menu-cleaner-category-arrow">▶</span>
+               <strong>${group.name}</strong>
+               <span class="menu-cleaner-category-count">${items.length} 项</span>
+             </div>`;
+    html += `<div class="menu-cleaner-category-body collapsed" data-group="${group.id}">`;
+
+    if (items.length === 0) {
+      html += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
+    } else {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        html += `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${group.id}" data-index="${i}">
+                   <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
+                   <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
+                 </div>`;
+      }
+    }
+
+    html += `</div></div>`;
+  }
+
+  body.innerHTML = html;
+
+  // Bind category collapse
+  document.querySelectorAll(".menu-cleaner-category-header").forEach(header => {
+    header.addEventListener("click", () => {
+      const groupId = header.dataset.group;
+      const catBody = document.querySelector(`.menu-cleaner-category-body[data-group="${groupId}"]`);
+      const arrow = header.querySelector(".menu-cleaner-category-arrow");
+      if (catBody) {
+        catBody.classList.toggle("collapsed");
+        arrow.textContent = catBody.classList.contains("collapsed") ? "▶" : "▼";
+        positionPopup();
+      }
+    });
+  });
+
+  // Bind drag-and-drop
+  bindReorderDragEvents();
+
+  positionPopup();
+}
+
+function bindReorderDragEvents() {
+  let draggedItem = null;
+  let draggedGroup = null;
+  let draggedIndex = -1;
+
+  document.querySelectorAll(".menu-cleaner-reorder-item").forEach(item => {
+    item.addEventListener("dragstart", (e) => {
+      draggedItem = item;
+      draggedGroup = item.dataset.group;
+      draggedIndex = parseInt(item.dataset.index);
+      item.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", item.dataset.selector);
+    });
+
+    item.addEventListener("dragend", () => {
+      item.classList.remove("dragging");
+      document.querySelectorAll(".menu-cleaner-reorder-item").forEach(el => {
+        el.classList.remove("drag-over");
+      });
+      draggedItem = null;
+      draggedGroup = null;
+      draggedIndex = -1;
+    });
+
+    item.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (item !== draggedItem && item.dataset.group === draggedGroup) {
+        item.classList.add("drag-over");
+      }
+    });
+
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("drag-over");
+    });
+
+    item.addEventListener("drop", (e) => {
+      e.preventDefault();
+      item.classList.remove("drag-over");
+      if (!draggedItem || item === draggedItem) return;
+      if (item.dataset.group !== draggedGroup) return;
+
+      const groupId = draggedGroup;
+      const items = getReorderItems(groupId);
+      const fromIndex = draggedIndex;
+      const toIndex = parseInt(item.dataset.index);
+
+      if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
+
+      // Reorder
+      const moved = items.splice(fromIndex, 1)[0];
+      items.splice(toIndex, 0, moved);
+
+      // Save new order
+      settings.reorder[groupId] = items.map(i => i.selector);
+      saveSettings();
+
+      // Apply to DOM
+      applyReorder(groupId);
+
+      // Refresh view
+      renderReorderView();
+    });
+  });
 }
 
 function positionPopup() {
@@ -379,6 +603,14 @@ function positionPopup() {
 
 // ── Build popup content from hardcoded data ─────────────────────────
 function refreshPopup() {
+  if (activeTab === "reorder") {
+    renderReorderView();
+    return;
+  }
+  renderHideView();
+}
+
+function renderHideView() {
   const body = document.getElementById("menu-cleaner-popup-body");
   if (!body) return;
 
@@ -491,10 +723,14 @@ function init() {
   refreshDiscoveryCache();
 
   // Delayed re-scan catches extensions that inject buttons after init
-  setTimeout(() => refreshDiscoveryCache(), 3000);
+  setTimeout(() => {
+    refreshDiscoveryCache();
+    applyAllReorders();
+  }, 3000);
 
   if (settings.enabled) {
     applyHides();
+    setTimeout(() => applyAllReorders(), 500);
   }
 }
 

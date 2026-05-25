@@ -195,6 +195,95 @@
   transform: translateX(18px);
 }
 
+/* ── Tab Navigation ──────────────────────────────────────────── */
+.menu-cleaner-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--SmartThemeBorderColor, #333);
+  flex-shrink: 0;
+}
+
+.menu-cleaner-tab {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  cursor: pointer;
+  font-size: 0.92em;
+  color: var(--SmartThemeBodyColor, #888);
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s, background 0.15s;
+  user-select: none;
+}
+
+.menu-cleaner-tab:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.menu-cleaner-tab.active {
+  color: #fff;
+  border-bottom-color: #7c5cff;
+}
+
+/* ── Reorder Items ───────────────────────────────────────────── */
+.menu-cleaner-reorder-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 18px 7px 28px;
+  cursor: default;
+  transition: background 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.menu-cleaner-reorder-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.menu-cleaner-reorder-item > span:last-child {
+  flex: 1;
+  font-size: 0.92em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-cleaner-reorder-empty {
+  padding: 12px 18px 12px 36px;
+  font-size: 0.85em;
+  color: var(--SmartThemeBodyColor, #888);
+  opacity: 0.6;
+}
+
+/* ── Drag Handle ─────────────────────────────────────────────── */
+.menu-cleaner-drag-handle {
+  cursor: grab;
+  color: #666;
+  font-size: 1.1em;
+  letter-spacing: -2px;
+  user-select: none;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.menu-cleaner-drag-handle:hover {
+  color: #aaa;
+}
+
+.menu-cleaner-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* ── Drag States ─────────────────────────────────────────────── */
+.menu-cleaner-reorder-item.dragging {
+  opacity: 0.4;
+  background: rgba(124, 92, 255, 0.1);
+}
+
+.menu-cleaner-reorder-item.drag-over {
+  border-left-color: #7c5cff;
+  background: rgba(124, 92, 255, 0.08);
+}
+
 /* ── Animations ──────────────────────────────────────────────── */
 @keyframes menu-cleaner-fadein {
   from { opacity: 0; }
