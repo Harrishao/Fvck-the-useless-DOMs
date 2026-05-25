@@ -170,12 +170,11 @@ function clearAllHides() {
 // ── Reorder helpers ─────────────────────────────────────────────────
 function findReorderUnit(el, container) {
   if (!el || el === container) return null;
-  if (el.parentNode === container) return el;
   let unit = el;
-  while (unit.parentNode && unit.parentNode !== container) {
+  while (unit && unit.parentNode !== container) {
     unit = unit.parentNode;
   }
-  return unit.parentNode === container ? unit : el;
+  return unit && unit.parentNode === container ? unit : null;
 }
 
 function getReorderItems(groupId) {
@@ -457,18 +456,25 @@ function renderReorderView() {
   const body = document.getElementById("menu-cleaner-popup-body");
   if (!body) return;
 
+  // Save which groups are currently expanded
+  const expanded = new Set();
+  document.querySelectorAll(".menu-cleaner-category-body:not(.collapsed)").forEach(b => {
+    expanded.add(b.dataset.group);
+  });
+
   const reorderGroups = PANEL_GROUPS.filter(g => g.reorder);
   let html = "";
 
   for (const group of reorderGroups) {
     const items = getReorderItems(group.id);
+    const isExpanded = expanded.has(group.id);
     html += `<div class="menu-cleaner-category">`;
     html += `<div class="menu-cleaner-category-header" data-group="${group.id}">
-               <span class="menu-cleaner-category-arrow">▶</span>
+               <span class="menu-cleaner-category-arrow">${isExpanded ? "▼" : "▶"}</span>
                <strong>${group.name}</strong>
                <span class="menu-cleaner-category-count">${items.length} 项</span>
              </div>`;
-    html += `<div class="menu-cleaner-category-body collapsed" data-group="${group.id}">`;
+    html += `<div class="menu-cleaner-category-body${isExpanded ? "" : " collapsed"}" data-group="${group.id}">`;
 
     if (items.length === 0) {
       html += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
