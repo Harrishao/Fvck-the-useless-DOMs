@@ -263,6 +263,19 @@ function applyAllReorders() {
   }
 }
 
+function resetAllReorders() {
+  for (const group of PANEL_GROUPS) {
+    if (!group.reorder) continue;
+    const defaultOrder = group.items.map(i => i.selector);
+    const cached = settings.discoveryCache[group.id] || [];
+    for (const c of cached) defaultOrder.push(c.selector);
+    settings.reorder[group.id] = defaultOrder;
+    applyReorder(group.id);
+  }
+  saveSettings();
+  renderReorderView();
+}
+
 // ── Dynamic discovery ──────────────────────────────────────────────
 function discoverItems(group) {
   if (!group.discovery) return [];
@@ -420,6 +433,7 @@ function createPopupDOM() {
         <h2>酒馆菜单精简器</h2>
         <div class="menu-cleaner-popup-actions">
           <button id="menu-cleaner-rescan" class="menu_button">重新扫描</button>
+          <button id="menu-cleaner-reset-order" class="menu_button" style="display:none">恢复原始排序</button>
           <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
         </div>
       </div>
@@ -438,6 +452,7 @@ function createPopupDOM() {
     refreshDiscoveryCache();
     refreshPopup();
   });
+  document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());
 
   // Tab switching
   document.querySelectorAll(".menu-cleaner-tab").forEach(tab => {
@@ -465,6 +480,8 @@ function switchTab(tabName) {
   document.querySelectorAll(".menu-cleaner-tab").forEach(t => {
     t.classList.toggle("active", t.dataset.tab === tabName);
   });
+  const resetBtn = document.getElementById("menu-cleaner-reset-order");
+  if (resetBtn) resetBtn.style.display = tabName === "reorder" ? "" : "none";
   refreshPopup();
 }
 
