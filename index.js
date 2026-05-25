@@ -246,7 +246,7 @@ function injectMenuEntry() {
   container.innerHTML = `
     <div id="menu-cleaner-btn" class="list-group-item flex-container flexGap5 interactable">
       <div class="fa-solid fa-broom extensionsMenuExtensionButton"></div>
-      <span>原生菜单精简器</span>
+      <span>酒馆菜单精简器</span>
     </div>
   `;
   menu.appendChild(container);
@@ -265,7 +265,7 @@ function injectSettingsEntry() {
   const html = `
     <div id="menu-cleaner-settings" class="inline-drawer">
       <div class="inline-drawer-toggle inline-drawer-header">
-        <b>原生菜单精简器</b>
+        <b>酒馆菜单精简器</b>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down interactable"></div>
       </div>
       <div class="inline-drawer-content">
@@ -275,7 +275,7 @@ function injectSettingsEntry() {
             <span>启用扩展</span>
           </label>
           <p style="color:var(--muted);font-size:0.85em;margin:4px 0;">
-            点击魔棒菜单中的 <b>原生菜单精简器</b> 打开操作面板，选择要隐藏的原生菜单项。
+            点击魔棒菜单中的 <b>酒馆菜单精简器</b> 打开操作面板，选择要隐藏的原生菜单项。
           </p>
           <button id="menu-cleaner-open-popup" class="menu_button">打开操作面板</button>
         </div>
@@ -305,7 +305,7 @@ function createPopupDOM() {
     <div id="menu-cleaner-backdrop" class="menu-cleaner-backdrop"></div>
     <div id="menu-cleaner-popup" class="menu-cleaner-popup">
       <div class="menu-cleaner-popup-header">
-        <h2>原生菜单精简器</h2>
+        <h2>酒馆菜单精简器</h2>
         <div class="menu-cleaner-popup-actions">
           <button id="menu-cleaner-rescan" class="menu_button">重新扫描</button>
           <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
@@ -397,7 +397,7 @@ function refreshPopup() {
     }
 
     if (cached.length > 0) {
-      html += `<div class="menu-cleaner-separator">── 扩展注入 ──</div>`;
+      html += `<div class="menu-cleaner-separator">由插件引入</div>`;
       for (const item of cached) {
         const isHidden = settings.hiddenSelectors[item.selector] === true;
         html += `<div class="menu-cleaner-item menu-cleaner-item-discovered" data-selector="${escHtml(item.selector)}">
