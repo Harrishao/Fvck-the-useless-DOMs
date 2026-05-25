@@ -86,6 +86,18 @@ const PANEL_GROUPS = [
       { selector: "#persona-management-button",  label: "USER设置" },
       { selector: "#rightNavHolder",             label: "角色卡" }
     ]
+  },
+  {
+    id: "presetSettings",
+    name: "预设设置",
+    buttonId: "#ai-config-button",
+    items: [
+      { selector: "#range_block_openai > div:nth-child(1), #range_block_openai > div:nth-child(2), #range_block_openai > div:nth-child(3), #range_block_openai > div:nth-child(4)", label: "上下文长度及备选回复" },
+      { selector: "#range_block_openai > div:nth-child(11), #range_block_openai > div:nth-child(12), #range_block_openai > div:nth-child(13), #range_block_openai > div:nth-child(14), #range_block_openai > div:nth-child(15), #range_block_openai > div:nth-child(16), #range_block_openai > div:nth-child(17), #range_block_openai > div:nth-child(18)", label: "可调参数" },
+      { selector: "#range_block_openai > div.inline-drawer.m-t-1.wide100p, #range_block_openai > div:nth-child(20), #range_block_openai > div:nth-child(21), #openai_settings > div:nth-child(1) > div:nth-child(1), #openai_settings > div:nth-child(1) > div.inline-drawer.wide100p.flexFlowColumn.marginBot10", label: "提示词格式相关" },
+      { selector: "#openai_settings > div:nth-child(1) > div:nth-child(3), #openai_settings > div:nth-child(1) > div:nth-child(4), #openai_settings > div:nth-child(1) > div:nth-child(5), #openai_settings > div:nth-child(1) > div:nth-child(6), #openai_settings > div:nth-child(1) > div:nth-child(7), #openai_settings > div:nth-child(1) > div:nth-child(8), #openai_settings > div:nth-child(1) > div:nth-child(9), #openai_settings > div:nth-child(1) > div:nth-child(10), #openai_settings > div:nth-child(1) > div:nth-child(11), #openai_settings > div:nth-child(1) > div:nth-child(12), #openai_settings > div:nth-child(1) > div:nth-child(13), #openai_settings > div.range-block.m-t-1", label: "复选框和下拉菜单" },
+      { selector: "#openai_settings > div.range-block.m-b-1", label: "预设条目" }
+    ]
   }
 ];
 
@@ -93,8 +105,7 @@ const PANEL_GROUPS = [
 const ALWAYS_HIDDEN_SELECTORS = [
   "#rm_api_block > div.flex-container.flexFlowColumn > #openai_api > div.flex-container.flex > #test_api_button",
   "#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p",
-  "#rm_extensions_block > div > div.alignitemscenter.flex-container.justifyCenter.wide100p",
-  "#rm_extensions_block > div > hr"
+  "#rm_extensions_block > div > div.alignitemscenter.flex-container.justifyCenter.wide100p"
 ];
 
 // ── Settings ────────────────────────────────────────────────────────
