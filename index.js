@@ -35,7 +35,8 @@ const PANEL_GROUPS = [
       containers: ["#extensionsMenu"],
       itemMatch: ".list-group-item",
       labelIn: "span",
-      exclude: ["#menu-cleaner-btn"]
+      exclude: ["#menu-cleaner-btn"],
+      alsoMatchChildren: true
     },
     items: [
       { selector: "#manageAttachments",          label: "打开数据库" },
@@ -165,18 +166,37 @@ function discoverItems(group) {
       // Mode: find individual items matching a selector within visible children
       for (const child of container.children) {
         if (getComputedStyle(child).display === "none") continue;
+        const matchedElements = new Set();
         const items = child.querySelectorAll(group.discovery.itemMatch);
         for (const item of items) {
+          if (item.style.display === "none") continue;
           if (!item.id) { item.id = "menu-cleaner-auto-" + (autoIdSeq++); }
           const selector = "#" + item.id;
           if (seen.has(selector) || excludeSet.has(selector)) continue;
           seen.add(selector);
+          matchedElements.add(item);
 
           const labelEl = item.querySelector(group.discovery.labelIn);
           const label = labelEl ? labelEl.textContent.trim() : item.textContent.trim();
           if (!label) continue;
 
           discovered.push({ selector, label });
+        }
+
+        if (group.discovery.alsoMatchChildren) {
+          for (const directChild of child.children) {
+            if (matchedElements.has(directChild)) continue;
+            if (directChild.style.display === "none") continue;
+            const span = directChild.querySelector("span");
+            if (!span) continue;
+            const labelText = span.textContent.trim();
+            if (!labelText) continue;
+            if (!directChild.id) { directChild.id = "menu-cleaner-auto-" + (autoIdSeq++); }
+            const selector = "#" + directChild.id;
+            if (seen.has(selector) || excludeSet.has(selector)) continue;
+            seen.add(selector);
+            discovered.push({ selector, label: labelText });
+          }
         }
       }
     } else {
@@ -458,6 +478,9 @@ function init() {
   injectSettingsEntry();
   setupKeyboard();
   refreshDiscoveryCache();
+
+  // Delayed re-scan catches extensions that inject buttons after init
+  setTimeout(() => refreshDiscoveryCache(), 3000);
 
   if (settings.enabled) {
     applyHides();
