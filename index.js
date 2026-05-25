@@ -168,15 +168,6 @@ function clearAllHides() {
 }
 
 // ── Reorder helpers ─────────────────────────────────────────────────
-function findReorderUnit(el, container) {
-  if (!el || el === container) return null;
-  let unit = el;
-  while (unit && unit.parentNode !== container) {
-    unit = unit.parentNode;
-  }
-  return unit && unit.parentNode === container ? unit : null;
-}
-
 function getReorderItems(groupId) {
   const group = PANEL_GROUPS.find(g => g.id === groupId);
   if (!group) return [];
@@ -222,20 +213,45 @@ function applyReorder(groupId) {
   const order = settings.reorder[groupId];
   if (!order || order.length === 0) return;
 
-  const group = PANEL_GROUPS.find(g => g.id === groupId);
-  if (!group || !group.reorder) return;
-
-  const container = document.querySelector(group.reorder.container);
-  if (!container) return;
-
+  // Collect all visible elements for this group
+  const els = [];
   for (const selector of order) {
     if (settings.hiddenSelectors[selector]) continue;
     const el = document.querySelector(selector);
-    if (!el) continue;
-    const unit = findReorderUnit(el, container);
-    if (unit) {
-      container.appendChild(unit);
+    if (el) els.push(el);
+  }
+
+  if (els.length < 2) return;
+
+  // Find the deepest common ancestor that contains all elements
+  let container = els[0].parentNode;
+  while (container) {
+    let ok = true;
+    for (const el of els) {
+      if (!container.contains(el)) { ok = false; break; }
     }
+    if (ok) break;
+    container = container.parentNode;
+  }
+  if (!container) return;
+
+  // Walk each element up to its direct child of the container (= reorder unit)
+  const units = [];
+  const seen = new Set();
+  for (const el of els) {
+    let unit = el;
+    while (unit.parentNode && unit.parentNode !== container) {
+      unit = unit.parentNode;
+    }
+    if (unit.parentNode === container && !seen.has(unit)) {
+      seen.add(unit);
+      units.push(unit);
+    }
+  }
+
+  // Move each unit to the end in desired order
+  for (const unit of units) {
+    container.appendChild(unit);
   }
 }
 
