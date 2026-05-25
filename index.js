@@ -397,7 +397,7 @@ function refreshPopup() {
     }
 
     if (cached.length > 0) {
-      html += `<div class="menu-cleaner-separator">由插件引入</div>`;
+      html += `<div class="menu-cleaner-separator">————由插件引入————</div>`;
       for (const item of cached) {
         const isHidden = settings.hiddenSelectors[item.selector] === true;
         html += `<div class="menu-cleaner-item menu-cleaner-item-discovered" data-selector="${escHtml(item.selector)}">
