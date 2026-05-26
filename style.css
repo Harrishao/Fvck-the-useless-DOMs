@@ -242,9 +242,6 @@
   cursor: default;
   transition: background 0.15s;
   border-left: 3px solid transparent;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .menu-cleaner-reorder-item:hover {
@@ -273,8 +270,6 @@
   font-size: 1.1em;
   letter-spacing: -2px;
   user-select: none;
-  -webkit-user-select: none;
-  touch-action: none;
   flex-shrink: 0;
   transition: color 0.15s;
 }
