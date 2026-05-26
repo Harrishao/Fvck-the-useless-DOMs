@@ -137,10 +137,10 @@ function saveSettings() {
 
 // ── CSS injection ───────────────────────────────────────────────────
 function applyHides() {
-  let styleEl = document.getElementById("menu-cleaner-styles");
+  let styleEl = document.getElementById("menu-cleaner-hides");
   if (!styleEl) {
     styleEl = document.createElement("style");
-    styleEl.id = "menu-cleaner-styles";
+    styleEl.id = "menu-cleaner-hides";
     document.head.appendChild(styleEl);
   }
 
@@ -164,7 +164,7 @@ function applyHides() {
 }
 
 function clearAllHides() {
-  const styleEl = document.getElementById("menu-cleaner-styles");
+  const styleEl = document.getElementById("menu-cleaner-hides");
   if (styleEl) styleEl.textContent = "";
 }
 
@@ -360,11 +360,28 @@ function discoverItems(group) {
 }
 
 function refreshDiscoveryCache() {
+  // Ensure columns are merged before scanning so late-loaded elements
+  // injected into #extensions_settings2 are moved to the visible column.
+  mergeExtensionSettingsColumns();
+
   for (const group of PANEL_GROUPS) {
     if (!group.discovery) continue;
     const allDiscovered = discoverItems(group);
     const hardcodedSet = new Set(group.items.map(i => i.selector));
-    settings.discoveryCache[group.id] = allDiscovered.filter(d => !hardcodedSet.has(d.selector));
+    const newItems = allDiscovered.filter(d => !hardcodedSet.has(d.selector));
+    settings.discoveryCache[group.id] = newItems;
+
+    // Append newly discovered selectors to the reorder list so they
+    // participate in future reorders.
+    if (group.reorder && newItems.length > 0) {
+      if (!settings.reorder[group.id]) settings.reorder[group.id] = [];
+      const existing = new Set(settings.reorder[group.id]);
+      for (const item of newItems) {
+        if (!existing.has(item.selector)) {
+          settings.reorder[group.id].push(item.selector);
+        }
+      }
+    }
   }
   saveSettings();
 }
@@ -463,6 +480,7 @@ function createPopupDOM() {
   document.getElementById("menu-cleaner-backdrop")?.addEventListener("click", closePopup);
   document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => {
     refreshDiscoveryCache();
+    applyAllReorders();
     refreshPopup();
   });
   document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());

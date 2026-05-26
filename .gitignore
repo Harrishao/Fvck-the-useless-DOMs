@@ -7,6 +7,9 @@
 
 # 参考文档和需求文档
 reference/
+*.png
+*.md
+!README.md
 可展开列表.md
 待办事项.md
 工作日志.md
