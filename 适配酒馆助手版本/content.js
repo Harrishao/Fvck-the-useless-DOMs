@@ -843,10 +843,45 @@
     var draggedItem = null;
     var draggedGroup = null;
     var draggedIndex = -1;
+    var touchGhost = null;
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var touchMoved = false;
+
+    function doReorder(fromIndex, toIndex, groupId) {
+      var reorderItems = getReorderItems(groupId);
+      if (fromIndex < 0 || fromIndex >= reorderItems.length || toIndex < 0 || toIndex >= reorderItems.length) return;
+
+      var moved = reorderItems.splice(fromIndex, 1)[0];
+      reorderItems.splice(toIndex, 0, moved);
+
+      settings.reorder[groupId] = reorderItems.map(function (ri) { return ri.selector; });
+      saveSettings();
+      applyReorder(groupId);
+      renderReorderView();
+    }
+
+    function cleanupDrag() {
+      if (draggedItem) draggedItem.classList.remove('dragging');
+      var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
+      for (var ai = 0; ai < allItems.length; ai++) {
+        allItems[ai].classList.remove('drag-over');
+      }
+      if (touchGhost) {
+        touchGhost.remove();
+        touchGhost = null;
+      }
+      draggedItem = null;
+      draggedGroup = null;
+      draggedIndex = -1;
+      touchMoved = false;
+    }
 
     var items = doc.querySelectorAll('.menu-cleaner-reorder-item');
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
+
+      // ── Native HTML5 DnD (desktop) ──────────────────────────
 
       item.addEventListener('dragstart', function (e) {
         draggedItem = this;
@@ -858,14 +893,7 @@
       });
 
       item.addEventListener('dragend', function () {
-        this.classList.remove('dragging');
-        var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
-        for (var ai = 0; ai < allItems.length; ai++) {
-          allItems[ai].classList.remove('drag-over');
-        }
-        draggedItem = null;
-        draggedGroup = null;
-        draggedIndex = -1;
+        cleanupDrag();
       });
 
       item.addEventListener('dragover', function (e) {
@@ -885,21 +913,90 @@
         this.classList.remove('drag-over');
         if (!draggedItem || this === draggedItem) return;
         if (this.dataset.group !== draggedGroup) return;
+        doReorder(draggedIndex, parseInt(this.dataset.index), draggedGroup);
+        cleanupDrag();
+      });
 
-        var groupId = draggedGroup;
-        var reorderItems = getReorderItems(groupId);
-        var fromIndex = draggedIndex;
-        var toIndex = parseInt(this.dataset.index);
+      // ── Touch polyfill (mobile) ─────────────────────────────
 
-        if (fromIndex < 0 || fromIndex >= reorderItems.length || toIndex < 0 || toIndex >= reorderItems.length) return;
+      item.addEventListener('touchstart', function (e) {
+        if (e.touches.length !== 1) return;
+        e.preventDefault();
+        var touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchMoved = false;
 
-        var moved = reorderItems.splice(fromIndex, 1)[0];
-        reorderItems.splice(toIndex, 0, moved);
+        draggedItem = this;
+        draggedGroup = this.dataset.group;
+        draggedIndex = parseInt(this.dataset.index);
+        this.classList.add('dragging');
 
-        settings.reorder[groupId] = reorderItems.map(function (ri) { return ri.selector; });
-        saveSettings();
-        applyReorder(groupId);
-        renderReorderView();
+        // Create ghost element that follows the finger
+        touchGhost = this.cloneNode(true);
+        touchGhost.style.position = 'fixed';
+        touchGhost.style.zIndex = '100001';
+        touchGhost.style.pointerEvents = 'none';
+        touchGhost.style.opacity = '0.85';
+        touchGhost.style.width = this.offsetWidth + 'px';
+        touchGhost.style.left = (touch.clientX - this.offsetWidth / 2) + 'px';
+        touchGhost.style.top = (touch.clientY - 20) + 'px';
+        touchGhost.classList.add('dragging');
+        doc.body.appendChild(touchGhost);
+      });
+
+      item.addEventListener('touchmove', function (e) {
+        if (!draggedItem) return;
+        e.preventDefault();
+        touchMoved = true;
+        var touch = e.touches[0];
+
+        // Move ghost
+        if (touchGhost) {
+          touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
+          touchGhost.style.top = (touch.clientY - 20) + 'px';
+        }
+
+        // Hide ghost briefly so it doesn't block elementFromPoint
+        if (touchGhost) touchGhost.style.display = 'none';
+        var target = doc.elementFromPoint(touch.clientX, touch.clientY);
+        if (touchGhost) touchGhost.style.display = '';
+
+        var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
+
+        // Manage drag-over classes
+        var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
+        for (var ai = 0; ai < allItems.length; ai++) {
+          if (allItems[ai] === targetItem && allItems[ai] !== draggedItem && allItems[ai].dataset.group === draggedGroup) {
+            allItems[ai].classList.add('drag-over');
+          } else {
+            allItems[ai].classList.remove('drag-over');
+          }
+        }
+      });
+
+      item.addEventListener('touchend', function (e) {
+        if (!draggedItem) return;
+        e.preventDefault();
+
+        if (touchMoved) {
+          var touch = e.changedTouches[0];
+          if (touchGhost) touchGhost.style.display = 'none';
+          var target = doc.elementFromPoint(touch.clientX, touch.clientY);
+          if (touchGhost) touchGhost.style.display = '';
+
+          var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
+          if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
+            targetItem.classList.remove('drag-over');
+            doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+          }
+        }
+
+        cleanupDrag();
+      });
+
+      item.addEventListener('touchcancel', function () {
+        cleanupDrag();
       });
     }
   }
