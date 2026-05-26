@@ -270,6 +270,7 @@
   font-size: 1.1em;
   letter-spacing: -2px;
   user-select: none;
+  touch-action: none;
   flex-shrink: 0;
   transition: color 0.15s;
 }

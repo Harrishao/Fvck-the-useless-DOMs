@@ -527,7 +527,7 @@ function renderReorderView() {
     } else {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        html += `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${group.id}" data-index="${i}">
+        html += `<div class="menu-cleaner-reorder-item" data-selector="${escHtml(item.selector)}" data-group="${group.id}" data-index="${i}">
                    <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
                    <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
                  </div>`;
@@ -563,65 +563,99 @@ function bindReorderDragEvents() {
   let draggedItem = null;
   let draggedGroup = null;
   let draggedIndex = -1;
+  let ghost = null;
+  let currentTarget = null;
 
-  document.querySelectorAll(".menu-cleaner-reorder-item").forEach(item => {
-    item.addEventListener("dragstart", (e) => {
-      draggedItem = item;
-      draggedGroup = item.dataset.group;
-      draggedIndex = parseInt(item.dataset.index);
-      item.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", item.dataset.selector);
-    });
+  function doReorder(fromIndex, toIndex, groupId) {
+    const items = getReorderItems(groupId);
+    if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
 
-    item.addEventListener("dragend", () => {
-      item.classList.remove("dragging");
-      document.querySelectorAll(".menu-cleaner-reorder-item").forEach(el => {
-        el.classList.remove("drag-over");
-      });
-      draggedItem = null;
-      draggedGroup = null;
-      draggedIndex = -1;
-    });
+    const moved = items.splice(fromIndex, 1)[0];
+    items.splice(toIndex, 0, moved);
 
-    item.addEventListener("dragover", (e) => {
+    settings.reorder[groupId] = items.map(i => i.selector);
+    saveSettings();
+    applyReorder(groupId);
+    renderReorderView();
+  }
+
+  function cleanup() {
+    if (draggedItem) draggedItem.classList.remove("dragging");
+    if (currentTarget) currentTarget.classList.remove("drag-over");
+    if (ghost) { ghost.remove(); ghost = null; }
+    draggedItem = null;
+    draggedGroup = null;
+    draggedIndex = -1;
+    currentTarget = null;
+  }
+
+  document.querySelectorAll(".menu-cleaner-drag-handle").forEach(handle => {
+    handle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      if (item !== draggedItem && item.dataset.group === draggedGroup) {
-        item.classList.add("drag-over");
+      handle.setPointerCapture(e.pointerId);
+
+      draggedItem = handle.closest(".menu-cleaner-reorder-item");
+      if (!draggedItem) return;
+      draggedGroup = draggedItem.dataset.group;
+      draggedIndex = parseInt(draggedItem.dataset.index);
+      draggedItem.classList.add("dragging");
+
+      ghost = draggedItem.cloneNode(true);
+      ghost.style.position = "fixed";
+      ghost.style.zIndex = "100001";
+      ghost.style.pointerEvents = "none";
+      ghost.style.opacity = "0.85";
+      ghost.style.width = draggedItem.offsetWidth + "px";
+      ghost.style.left = (e.clientX - draggedItem.offsetWidth / 2) + "px";
+      ghost.style.top = (e.clientY - 12) + "px";
+      ghost.classList.add("dragging");
+      document.body.appendChild(ghost);
+    });
+
+    handle.addEventListener("pointermove", (e) => {
+      if (!draggedItem) return;
+      e.preventDefault();
+
+      if (ghost) {
+        ghost.style.left = (e.clientX - ghost.offsetWidth / 2) + "px";
+        ghost.style.top = (e.clientY - 12) + "px";
+      }
+
+      if (ghost) ghost.style.display = "none";
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      if (ghost) ghost.style.display = "";
+
+      const targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+
+      if (currentTarget !== targetItem) {
+        if (currentTarget) currentTarget.classList.remove("drag-over");
+        currentTarget = targetItem;
+        if (currentTarget && currentTarget !== draggedItem && currentTarget.dataset.group === draggedGroup) {
+          currentTarget.classList.add("drag-over");
+        }
       }
     });
 
-    item.addEventListener("dragleave", () => {
-      item.classList.remove("drag-over");
+    handle.addEventListener("pointerup", (e) => {
+      if (!draggedItem) return;
+      e.preventDefault();
+      handle.releasePointerCapture(e.pointerId);
+
+      if (ghost) ghost.style.display = "none";
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      if (ghost) ghost.style.display = "";
+
+      const targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+      if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
+        targetItem.classList.remove("drag-over");
+        doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+      }
+
+      cleanup();
     });
 
-    item.addEventListener("drop", (e) => {
-      e.preventDefault();
-      item.classList.remove("drag-over");
-      if (!draggedItem || item === draggedItem) return;
-      if (item.dataset.group !== draggedGroup) return;
-
-      const groupId = draggedGroup;
-      const items = getReorderItems(groupId);
-      const fromIndex = draggedIndex;
-      const toIndex = parseInt(item.dataset.index);
-
-      if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
-
-      // Reorder
-      const moved = items.splice(fromIndex, 1)[0];
-      items.splice(toIndex, 0, moved);
-
-      // Save new order
-      settings.reorder[groupId] = items.map(i => i.selector);
-      saveSettings();
-
-      // Apply to DOM
-      applyReorder(groupId);
-
-      // Refresh view
-      renderReorderView();
+    handle.addEventListener("pointercancel", () => {
+      cleanup();
     });
   });
 }
