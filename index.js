@@ -1,5 +1,6 @@
 import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
+import { registerSlashCommand } from "../../../slash-commands.js";
 
 const STORAGE_KEY = "menu_cleaner";
 let autoIdSeq = 0;
@@ -38,7 +39,7 @@ const PANEL_GROUPS = [
       containers: ["#extensionsMenu"],
       itemMatch: ".list-group-item",
       labelIn: "span",
-      exclude: ["#menu-cleaner-btn"],
+      exclude: [],
       alsoMatchChildren: true
     },
     items: [
@@ -255,7 +256,18 @@ function applyReorder(groupId) {
   }
 }
 
+function mergeExtensionSettingsColumns() {
+  const col1 = document.querySelector('#extensions_settings');
+  const col2 = document.querySelector('#extensions_settings2');
+  if (!col1 || !col2) return;
+  while (col2.firstChild) {
+    col1.appendChild(col2.firstChild);
+  }
+  col2.style.display = 'none';
+}
+
 function applyAllReorders() {
+  mergeExtensionSettingsColumns();
   for (const group of PANEL_GROUPS) {
     if (group.reorder) {
       applyReorder(group.id);
@@ -264,6 +276,7 @@ function applyAllReorders() {
 }
 
 function resetAllReorders() {
+  mergeExtensionSettingsColumns();
   for (const group of PANEL_GROUPS) {
     if (!group.reorder) continue;
     const defaultOrder = group.items.map(i => i.selector);
@@ -399,7 +412,7 @@ function injectSettingsEntry() {
             <input id="menu-cleaner-enable" type="checkbox" ${settings.enabled ? "checked" : ""}>
             <span>启用扩展</span>
           </label>
-          <p style="color:var(--muted);font-size:0.85em;margin:4px 0;">
+          <p style="color:#888;font-size:0.85em;margin:4px 0;">
             点击魔棒菜单中的 <b>酒馆菜单精简器</b> 打开操作面板，选择要隐藏的原生菜单项。
           </p>
           <button id="menu-cleaner-open-popup" class="menu_button">打开操作面板</button>
@@ -753,13 +766,30 @@ function setupKeyboard() {
   });
 }
 
+// ── Slash command ─────────────────────────────────────────────────
+function registerSlashCmd() {
+  try {
+    registerSlashCommand(
+      "menucleaner",
+      () => { openPopup(); return ""; },
+      [],
+      "打开酒馆菜单精简器操作面板"
+    );
+    console.debug("[MenuCleaner] 已注册 /menucleaner 命令");
+  } catch (e) {
+    console.debug("[MenuCleaner] 斜杠命令注册失败", e);
+  }
+}
+
 // ── Init ────────────────────────────────────────────────────────────
 function init() {
   loadSettings();
+  mergeExtensionSettingsColumns();
   injectMenuEntry();
   injectSettingsEntry();
   setupKeyboard();
   refreshDiscoveryCache();
+  registerSlashCmd();
 
   // Delayed re-scan catches extensions that inject buttons after init
   setTimeout(() => {
@@ -769,7 +799,10 @@ function init() {
 
   if (settings.enabled) {
     applyHides();
-    setTimeout(() => applyAllReorders(), 500);
+    setTimeout(() => {
+      mergeExtensionSettingsColumns();
+      applyAllReorders();
+    }, 500);
   }
 }
 

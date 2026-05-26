@@ -39,6 +39,14 @@
 
 /* ── Popup ───────────────────────────────────────────────────── */
 .menu-cleaner-popup {
+  /* Declare theme variable defaults so the linter knows they exist.
+     SillyTavern defines the same variables on :root/body at runtime;
+     those inherited values are the primary source — these only serve
+     as local fallbacks and to satisfy the IDE. */
+  --SmartThemeBlurTintColor: #1a1b22;
+  --SmartThemeBorderColor: #333;
+  --SmartThemeBodyColor: #888;
+
   display: none;
   position: fixed;
   /* top / left / transform are set by JS positionPopup() */
