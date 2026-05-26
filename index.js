@@ -563,9 +563,43 @@ function bindReorderDragEvents() {
   let draggedItem = null;
   let draggedGroup = null;
   let draggedIndex = -1;
+  let touchGhost = null;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchMoved = false;
 
-  document.querySelectorAll(".menu-cleaner-reorder-item").forEach(item => {
-    item.addEventListener("dragstart", (e) => {
+  function doReorder(fromIndex, toIndex, groupId) {
+    const items = getReorderItems(groupId);
+    if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
+
+    const moved = items.splice(fromIndex, 1)[0];
+    items.splice(toIndex, 0, moved);
+
+    settings.reorder[groupId] = items.map(function(i) { return i.selector; });
+    saveSettings();
+    applyReorder(groupId);
+    renderReorderView();
+  }
+
+  function cleanupDrag() {
+    if (draggedItem) draggedItem.classList.remove("dragging");
+    document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(el) {
+      el.classList.remove("drag-over");
+    });
+    if (touchGhost) {
+      touchGhost.remove();
+      touchGhost = null;
+    }
+    draggedItem = null;
+    draggedGroup = null;
+    draggedIndex = -1;
+    touchMoved = false;
+  }
+
+  document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(item) {
+    // ── Native HTML5 DnD (desktop) ──────────────────────────
+
+    item.addEventListener("dragstart", function(e) {
       draggedItem = item;
       draggedGroup = item.dataset.group;
       draggedIndex = parseInt(item.dataset.index);
@@ -574,17 +608,11 @@ function bindReorderDragEvents() {
       e.dataTransfer.setData("text/plain", item.dataset.selector);
     });
 
-    item.addEventListener("dragend", () => {
-      item.classList.remove("dragging");
-      document.querySelectorAll(".menu-cleaner-reorder-item").forEach(el => {
-        el.classList.remove("drag-over");
-      });
-      draggedItem = null;
-      draggedGroup = null;
-      draggedIndex = -1;
+    item.addEventListener("dragend", function() {
+      cleanupDrag();
     });
 
-    item.addEventListener("dragover", (e) => {
+    item.addEventListener("dragover", function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       if (item !== draggedItem && item.dataset.group === draggedGroup) {
@@ -592,36 +620,98 @@ function bindReorderDragEvents() {
       }
     });
 
-    item.addEventListener("dragleave", () => {
+    item.addEventListener("dragleave", function() {
       item.classList.remove("drag-over");
     });
 
-    item.addEventListener("drop", (e) => {
+    item.addEventListener("drop", function(e) {
       e.preventDefault();
       item.classList.remove("drag-over");
       if (!draggedItem || item === draggedItem) return;
       if (item.dataset.group !== draggedGroup) return;
+      doReorder(draggedIndex, parseInt(item.dataset.index), draggedGroup);
+      cleanupDrag();
+    });
 
-      const groupId = draggedGroup;
-      const items = getReorderItems(groupId);
-      const fromIndex = draggedIndex;
-      const toIndex = parseInt(item.dataset.index);
+    // ── Touch polyfill (mobile) ─────────────────────────────
 
-      if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
+    item.addEventListener("touchstart", function(e) {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      var touch = e.touches[0];
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchMoved = false;
 
-      // Reorder
-      const moved = items.splice(fromIndex, 1)[0];
-      items.splice(toIndex, 0, moved);
+      draggedItem = item;
+      draggedGroup = item.dataset.group;
+      draggedIndex = parseInt(item.dataset.index);
+      item.classList.add("dragging");
 
-      // Save new order
-      settings.reorder[groupId] = items.map(i => i.selector);
-      saveSettings();
+      // Create ghost element that follows the finger
+      touchGhost = item.cloneNode(true);
+      touchGhost.style.position = "fixed";
+      touchGhost.style.zIndex = "100001";
+      touchGhost.style.pointerEvents = "none";
+      touchGhost.style.opacity = "0.85";
+      touchGhost.style.width = item.offsetWidth + "px";
+      touchGhost.style.left = (touch.clientX - item.offsetWidth / 2) + "px";
+      touchGhost.style.top = (touch.clientY - 20) + "px";
+      touchGhost.classList.add("dragging");
+      document.body.appendChild(touchGhost);
+    });
 
-      // Apply to DOM
-      applyReorder(groupId);
+    item.addEventListener("touchmove", function(e) {
+      if (!draggedItem) return;
+      e.preventDefault();
+      touchMoved = true;
+      var touch = e.touches[0];
 
-      // Refresh view
-      renderReorderView();
+      // Move ghost
+      if (touchGhost) {
+        touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + "px";
+        touchGhost.style.top = (touch.clientY - 20) + "px";
+      }
+
+      // Hide ghost briefly so it doesn't block elementFromPoint
+      if (touchGhost) touchGhost.style.display = "none";
+      var target = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (touchGhost) touchGhost.style.display = "";
+
+      var targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+
+      // Manage drag-over classes
+      document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(el) {
+        if (el === targetItem && el !== draggedItem && el.dataset.group === draggedGroup) {
+          el.classList.add("drag-over");
+        } else {
+          el.classList.remove("drag-over");
+        }
+      });
+    });
+
+    item.addEventListener("touchend", function(e) {
+      if (!draggedItem) return;
+      e.preventDefault();
+
+      if (touchMoved) {
+        var touch = e.changedTouches[0];
+        if (touchGhost) touchGhost.style.display = "none";
+        var target = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (touchGhost) touchGhost.style.display = "";
+
+        var targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+        if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
+          targetItem.classList.remove("drag-over");
+          doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+        }
+      }
+
+      cleanupDrag();
+    });
+
+    item.addEventListener("touchcancel", function() {
+      cleanupDrag();
     });
   });
 }
