@@ -1,10 +1,12 @@
 import { extension_settings } from "../../../extensions.js";
-import { saveSettingsDebounced } from "../../../../script.js";
+import { saveSettingsDebounced, eventSource, event_types } from "../../../../script.js";
 import { registerSlashCommand } from "../../../slash-commands.js";
 
 const STORAGE_KEY = "menu_cleaner";
 let autoIdSeq = 0;
 let activeTab = "hide"; // "hide" or "reorder"
+let showSettingsPanel = false;
+let rescanTimer = null;
 
 // ── Hardcoded native elements (MVP1) ──────────────────────────────
 // Each group maps to a panel. Only native SillyTavern elements are listed.
@@ -55,7 +57,7 @@ const PANEL_GROUPS = [
   },
   {
     id: "extensionsSettings",
-    name: "扩展设置",
+    name: "扩展菜单",
     buttonId: "#extensions-settings-button",
     reorder: { container: "#extensions_settings" },
     discovery: {
@@ -94,7 +96,7 @@ const PANEL_GROUPS = [
   },
   {
     id: "presetSettings",
-    name: "预设设置",
+    name: "预设菜单",
     buttonId: "#ai-config-button",
     items: [
       { selector: "#range_block_openai > div:nth-child(1), #range_block_openai > div:nth-child(2), #range_block_openai > div:nth-child(3), #range_block_openai > div:nth-child(4)", label: "上下文长度及备选回复" },
@@ -117,8 +119,10 @@ const ALWAYS_HIDDEN_SELECTORS = [
 const defaultSettings = {
   enabled: true,
   hiddenSelectors: {},
-  discoveryCache: {},  // { groupId: [{selector, label}, ...] }
-  reorder: {}          // { groupId: [selector, ...] }
+  discoveryCache: {},  // { groupId: [{selector, label, column?}, ...] }
+  reorder: {},          // { groupId: [selector, ...] }
+  columnMode: "single", // "single" | "dual"
+  rescanToast: false
 };
 
 let settings = {};
@@ -211,25 +215,37 @@ function getReorderItems(groupId) {
 }
 
 function applyReorder(groupId) {
-  const order = settings.reorder[groupId];
+  var order = settings.reorder[groupId];
+  if (!order || order.length === 0) return;
+
+  if (settings.columnMode === "dual" && groupId === "extensionsSettings") {
+    applyDualColumnReorder(groupId);
+    return;
+  }
+
+  applySingleColumnReorder(groupId);
+}
+
+function applySingleColumnReorder(groupId) {
+  var order = settings.reorder[groupId];
   if (!order || order.length === 0) return;
 
   // Collect all visible elements for this group
-  const els = [];
-  for (const selector of order) {
-    if (settings.hiddenSelectors[selector]) continue;
-    const el = document.querySelector(selector);
+  var els = [];
+  for (var i = 0; i < order.length; i++) {
+    if (settings.hiddenSelectors[order[i]]) continue;
+    var el = document.querySelector(order[i]);
     if (el) els.push(el);
   }
 
   if (els.length < 2) return;
 
   // Find the deepest common ancestor that contains all elements
-  let container = els[0].parentNode;
+  var container = els[0].parentNode;
   while (container) {
-    let ok = true;
-    for (const el of els) {
-      if (!container.contains(el)) { ok = false; break; }
+    var ok = true;
+    for (var j = 0; j < els.length; j++) {
+      if (!container.contains(els[j])) { ok = false; break; }
     }
     if (ok) break;
     container = container.parentNode;
@@ -237,10 +253,10 @@ function applyReorder(groupId) {
   if (!container) return;
 
   // Walk each element up to its direct child of the container (= reorder unit)
-  const units = [];
-  const seen = new Set();
-  for (const el of els) {
-    let unit = el;
+  var units = [];
+  var seen = new Set();
+  for (var k = 0; k < els.length; k++) {
+    var unit = els[k];
     while (unit.parentNode && unit.parentNode !== container) {
       unit = unit.parentNode;
     }
@@ -251,12 +267,74 @@ function applyReorder(groupId) {
   }
 
   // Move each unit to the end in desired order
-  for (const unit of units) {
-    container.appendChild(unit);
+  for (var m = 0; m < units.length; m++) {
+    container.appendChild(units[m]);
+  }
+}
+
+function applyDualColumnReorder(groupId) {
+  var order = settings.reorder[groupId];
+  if (!order || order.length === 0) return;
+
+  var col1 = document.querySelector('#extensions_settings');
+  var col2 = document.querySelector('#extensions_settings2');
+  if (!col1) return;
+
+  // Collect which items originated from col2 (column index === 1)
+  var col2Origin = {};
+  var cached = settings.discoveryCache[groupId] || [];
+  for (var c = 0; c < cached.length; c++) {
+    if (cached[c].column === 1) col2Origin[cached[c].selector] = true;
+  }
+
+  // Split order by column
+  var col1Order = [];
+  var col2Order = [];
+  for (var o = 0; o < order.length; o++) {
+    if (settings.hiddenSelectors[order[o]]) continue;
+    if (col2Origin[order[o]]) {
+      col2Order.push(order[o]);
+    } else {
+      col1Order.push(order[o]);
+    }
+  }
+
+  // Reorder within column 1
+  reorderWithinContainer(col1, col1Order);
+  // Reorder within column 2 (if it exists)
+  if (col2) reorderWithinContainer(col2, col2Order);
+}
+
+function reorderWithinContainer(container, order) {
+  if (order.length < 2) return;
+  var els = [];
+  for (var i = 0; i < order.length; i++) {
+    var el = document.querySelector(order[i]);
+    if (el && container.contains(el)) els.push(el);
+  }
+  if (els.length < 2) return;
+
+  // Walk to direct children of the container
+  var units = [];
+  var seen = new Set();
+  for (var k = 0; k < els.length; k++) {
+    var unit = els[k];
+    while (unit.parentNode && unit.parentNode !== container) {
+      unit = unit.parentNode;
+    }
+    if (unit.parentNode === container && !seen.has(unit)) {
+      seen.add(unit);
+      units.push(unit);
+    }
+  }
+
+  for (var m = 0; m < units.length; m++) {
+    container.appendChild(units[m]);
   }
 }
 
 function mergeExtensionSettingsColumns() {
+  if (settings.columnMode === "dual") return; // preserve both columns in dual mode
   const col1 = document.querySelector('#extensions_settings');
   const col2 = document.querySelector('#extensions_settings2');
   if (!col1 || !col2) return;
@@ -264,6 +342,28 @@ function mergeExtensionSettingsColumns() {
     col1.appendChild(col2.firstChild);
   }
   col2.style.display = 'none';
+}
+
+function restoreExtensionSettingsColumns() {
+  const col1 = document.querySelector('#extensions_settings');
+  const col2 = document.querySelector('#extensions_settings2');
+  if (!col1 || !col2) return;
+  col2.style.display = '';
+  const originMap = {};
+  const cached = settings.discoveryCache["extensionsSettings"] || [];
+  for (const item of cached) {
+    if (item.column === 1) originMap[item.selector] = true;
+  }
+  // Move items that originated from col2 back to col2
+  const toMove = [];
+  for (const child of col1.children) {
+    if (child.id && originMap["#" + child.id]) {
+      toMove.push(child);
+    }
+  }
+  for (const child of toMove) {
+    col2.appendChild(child);
+  }
 }
 
 function applyAllReorders() {
@@ -275,8 +375,27 @@ function applyAllReorders() {
   }
 }
 
+function doRescan() {
+  if (settings.columnMode === "single") {
+    mergeExtensionSettingsColumns();
+  } else {
+    restoreExtensionSettingsColumns();
+  }
+  refreshDiscoveryCache();
+  applyAllReorders();
+  refreshPopup();
+  if (settings.rescanToast) {
+    const count = Object.values(settings.discoveryCache).reduce((s, arr) => s + arr.length, 0);
+    if (typeof toastr !== "undefined") toastr.info("已重新扫描，发现 " + count + " 个扩展元素");
+  }
+}
+
 function resetAllReorders() {
-  mergeExtensionSettingsColumns();
+  if (settings.columnMode === "single") {
+    mergeExtensionSettingsColumns();
+  } else {
+    restoreExtensionSettingsColumns();
+  }
   for (const group of PANEL_GROUPS) {
     if (!group.reorder) continue;
     const defaultOrder = group.items.map(i => i.selector);
@@ -289,16 +408,84 @@ function resetAllReorders() {
   renderReorderView();
 }
 
+function applyColumnMode() {
+  if (settings.columnMode === "single") {
+    mergeExtensionSettingsColumns();
+  } else {
+    restoreExtensionSettingsColumns();
+  }
+  refreshDiscoveryCache();
+  applyAllReorders();
+  saveSettings();
+}
+
+// ── Settings panel view ───────────────────────────────────────────────
+function renderSettingsView() {
+  const body = document.getElementById("menu-cleaner-popup-body");
+  if (!body) return;
+
+  let html = `
+    <div class="menu-cleaner-settings-panel">
+      <button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>
+      <button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>
+
+      <div class="menu-cleaner-settings-divider">—————— 扩展菜单分栏选项 ——————</div>
+      <div class="menu-cleaner-settings-radio-group">
+        <label class="menu-cleaner-settings-radio">
+          <input type="radio" name="menu-cleaner-column-mode" value="single" ${settings.columnMode === "single" ? "checked" : ""}>
+          <span>单栏</span>
+        </label>
+        <label class="menu-cleaner-settings-radio">
+          <input type="radio" name="menu-cleaner-column-mode" value="dual" ${settings.columnMode === "dual" ? "checked" : ""}>
+          <span>双栏</span>
+        </label>
+      </div>
+
+      <div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>
+      <div class="menu-cleaner-settings-row">
+        <span>重扫描消息toast</span>
+        <label class="menu-cleaner-toggle">
+          <input type="checkbox" id="menu-cleaner-rescan-toast" ${settings.rescanToast ? "checked" : ""}>
+          <span class="menu-cleaner-slider"></span>
+        </label>
+      </div>
+    </div>
+  `;
+
+  body.innerHTML = html;
+
+  document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => doRescan());
+  document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());
+
+  document.querySelectorAll("input[name='menu-cleaner-column-mode']").forEach(radio => {
+    radio.addEventListener("change", (e) => {
+      settings.columnMode = e.target.value;
+      applyColumnMode();
+      saveSettings();
+    });
+  });
+
+  document.getElementById("menu-cleaner-rescan-toast")?.addEventListener("change", (e) => {
+    settings.rescanToast = e.target.checked;
+    saveSettings();
+  });
+
+  positionPopup();
+}
+
 // ── Dynamic discovery ──────────────────────────────────────────────
 function discoverItems(group) {
   if (!group.discovery) return [];
   const discovered = [];
   const seen = new Set();
   const excludeSet = new Set(group.discovery.exclude || []);
+  const multiContainer = group.discovery.containers.length > 1;
 
-  for (const containerSel of group.discovery.containers) {
+  for (let ci = 0; ci < group.discovery.containers.length; ci++) {
+    const containerSel = group.discovery.containers[ci];
     const container = document.querySelector(containerSel);
     if (!container) continue;
+    const columnIndex = multiContainer ? ci : undefined;
 
     if (group.discovery.itemMatch) {
       // Mode: find individual items matching a selector within visible children
@@ -318,7 +505,9 @@ function discoverItems(group) {
           const label = labelEl ? labelEl.textContent.trim() : item.textContent.trim();
           if (!label) continue;
 
-          discovered.push({ selector, label });
+          const entry = { selector, label };
+          if (columnIndex !== undefined) entry.column = columnIndex;
+          discovered.push(entry);
         }
 
         if (group.discovery.alsoMatchChildren) {
@@ -333,7 +522,9 @@ function discoverItems(group) {
             const selector = "#" + directChild.id;
             if (seen.has(selector) || excludeSet.has(selector)) continue;
             seen.add(selector);
-            discovered.push({ selector, label: labelText });
+            const entry = { selector, label: labelText };
+            if (columnIndex !== undefined) entry.column = columnIndex;
+            discovered.push(entry);
           }
         }
       }
@@ -352,7 +543,9 @@ function discoverItems(group) {
         if (seen.has(selector)) continue;
         seen.add(selector);
 
-        discovered.push({ selector, label });
+        const entry = { selector, label };
+        if (columnIndex !== undefined) entry.column = columnIndex;
+        discovered.push(entry);
       }
     }
   }
@@ -360,19 +553,27 @@ function discoverItems(group) {
 }
 
 function refreshDiscoveryCache() {
-  // Ensure columns are merged before scanning so late-loaded elements
-  // injected into #extensions_settings2 are moved to the visible column.
-  mergeExtensionSettingsColumns();
-
   for (const group of PANEL_GROUPS) {
     if (!group.discovery) continue;
     const allDiscovered = discoverItems(group);
     const hardcodedSet = new Set(group.items.map(i => i.selector));
     const newItems = allDiscovered.filter(d => !hardcodedSet.has(d.selector));
+
+    // Preserve column origin from the previous cache for items that have it
+    const oldCache = settings.discoveryCache[group.id] || [];
+    const oldColMap = {};
+    for (const old of oldCache) {
+      if (old.column !== undefined) oldColMap[old.selector] = old.column;
+    }
+    for (const item of newItems) {
+      if (item.column === undefined && oldColMap[item.selector] !== undefined) {
+        item.column = oldColMap[item.selector];
+      }
+    }
+
     settings.discoveryCache[group.id] = newItems;
 
-    // Append newly discovered selectors to the reorder list so they
-    // participate in future reorders.
+    // Append newly discovered selectors to the reorder list
     if (group.reorder && newItems.length > 0) {
       if (!settings.reorder[group.id]) settings.reorder[group.id] = [];
       const existing = new Set(settings.reorder[group.id]);
@@ -462,12 +663,11 @@ function createPopupDOM() {
       <div class="menu-cleaner-popup-header">
         <h2>酒馆菜单精简器</h2>
         <div class="menu-cleaner-popup-actions">
-          <button id="menu-cleaner-rescan" class="menu_button">重新扫描</button>
-          <button id="menu-cleaner-reset-order" class="menu_button" style="display:none">恢复原始排序</button>
+          <button id="menu-cleaner-settings-btn" class="menu_button">设置</button>
           <button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>
         </div>
       </div>
-      <div class="menu-cleaner-tabs">
+      <div class="menu-cleaner-tabs" id="menu-cleaner-tabs">
         <div class="menu-cleaner-tab active" data-tab="hide">隐藏元素</div>
         <div class="menu-cleaner-tab" data-tab="reorder">重排序</div>
       </div>
@@ -478,12 +678,7 @@ function createPopupDOM() {
 
   document.getElementById("menu-cleaner-close")?.addEventListener("click", closePopup);
   document.getElementById("menu-cleaner-backdrop")?.addEventListener("click", closePopup);
-  document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => {
-    refreshDiscoveryCache();
-    applyAllReorders();
-    refreshPopup();
-  });
-  document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());
+  document.getElementById("menu-cleaner-settings-btn")?.addEventListener("click", toggleSettingsPanel);
 
   // Tab switching
   document.querySelectorAll(".menu-cleaner-tab").forEach(tab => {
@@ -495,7 +690,8 @@ function openPopup() {
   createPopupDOM();
   document.getElementById("menu-cleaner-backdrop").style.display = "block";
   document.getElementById("menu-cleaner-popup").style.display = "flex";
-  refreshPopup();
+  showSettingsPanel = false;
+  updatePopupView();
   positionPopup();
 }
 
@@ -504,6 +700,28 @@ function closePopup() {
   const popup = document.getElementById("menu-cleaner-popup");
   if (backdrop) backdrop.style.display = "none";
   if (popup) popup.style.display = "none";
+  showSettingsPanel = false;
+}
+
+function toggleSettingsPanel() {
+  showSettingsPanel = !showSettingsPanel;
+  updatePopupView();
+  if (!showSettingsPanel) refreshPopup();
+}
+
+function updatePopupView() {
+  const tabsEl = document.getElementById("menu-cleaner-tabs");
+  const body = document.getElementById("menu-cleaner-popup-body");
+  const settingsBtn = document.getElementById("menu-cleaner-settings-btn");
+
+  if (showSettingsPanel) {
+    if (tabsEl) tabsEl.style.display = "none";
+    if (settingsBtn) settingsBtn.textContent = "返回";
+    renderSettingsView();
+  } else {
+    if (tabsEl) tabsEl.style.display = "";
+    if (settingsBtn) settingsBtn.textContent = "设置";
+  }
 }
 
 function switchTab(tabName) {
@@ -511,8 +729,6 @@ function switchTab(tabName) {
   document.querySelectorAll(".menu-cleaner-tab").forEach(t => {
     t.classList.toggle("active", t.dataset.tab === tabName);
   });
-  const resetBtn = document.getElementById("menu-cleaner-reset-order");
-  if (resetBtn) resetBtn.style.display = tabName === "reorder" ? "" : "none";
   refreshPopup();
 }
 
@@ -532,6 +748,8 @@ function renderReorderView() {
   for (const group of reorderGroups) {
     const items = getReorderItems(group.id);
     const isExpanded = expanded.has(group.id);
+    const isDualCol = settings.columnMode === "dual" && group.id === "extensionsSettings";
+
     html += `<div class="menu-cleaner-category">`;
     html += `<div class="menu-cleaner-category-header" data-group="${group.id}">
                <span class="menu-cleaner-category-arrow">${isExpanded ? "▼" : "▶"}</span>
@@ -540,15 +758,25 @@ function renderReorderView() {
              </div>`;
     html += `<div class="menu-cleaner-category-body${isExpanded ? "" : " collapsed"}" data-group="${group.id}">`;
 
-    if (items.length === 0) {
-      html += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
+    if (isDualCol) {
+      const col0Items = items.filter(function(it) {
+        var cached = (settings.discoveryCache[group.id] || []).find(function(c) { return c.selector === it.selector; });
+        return !cached || cached.column !== 1;
+      });
+      const col1Items = items.filter(function(it) {
+        var cached = (settings.discoveryCache[group.id] || []).find(function(c) { return c.selector === it.selector; });
+        return cached && cached.column === 1;
+      });
+
+      html += renderColumnSection(group, col0Items, 0, "栏1 (#extensions_settings)");
+      html += renderColumnSection(group, col1Items, 1, "栏2 (#extensions_settings2)");
     } else {
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        html += `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${group.id}" data-index="${i}">
-                   <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
-                   <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
-                 </div>`;
+      if (items.length === 0) {
+        html += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
+      } else {
+        for (let i = 0; i < items.length; i++) {
+          html += buildReorderItemHTML(items[i], group.id, i, -1);
+        }
       }
     }
 
@@ -577,6 +805,27 @@ function renderReorderView() {
   positionPopup();
 }
 
+function renderColumnSection(group, items, colIndex, label) {
+  let h = `<div class="menu-cleaner-reorder-column-section">`;
+  h += `<div class="menu-cleaner-reorder-column-label">${label} (${items.length} 项)</div>`;
+  if (items.length === 0) {
+    h += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
+  } else {
+    for (let i = 0; i < items.length; i++) {
+      h += buildReorderItemHTML(items[i], group.id, i, colIndex);
+    }
+  }
+  h += `</div>`;
+  return h;
+}
+
+function buildReorderItemHTML(item, groupId, index, colIndex) {
+  return `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${groupId}" data-index="${index}" data-column="${colIndex}">
+            <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
+            <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
+          </div>`;
+}
+
 function bindReorderDragEvents() {
   let draggedItem = null;
   let draggedGroup = null;
@@ -586,7 +835,70 @@ function bindReorderDragEvents() {
   let touchStartY = 0;
   let touchMoved = false;
 
+  function moveElementToColumn(selector, groupId, targetColumn) {
+    // Update or create discoveryCache column origin
+    if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
+    var cached = settings.discoveryCache[groupId];
+    var entry = cached.find(function(c) { return c.selector === selector; });
+    if (entry) {
+      entry.column = targetColumn;
+    } else {
+      // Hardcoded item moved between columns: create a cache entry
+      var elForLabel = document.querySelector(selector);
+      var label = elForLabel ? (elForLabel.textContent || "").trim().substring(0, 40) : selector;
+      cached.push({ selector: selector, label: label, column: targetColumn });
+    }
+
+    // Move DOM element to the appropriate container
+    var el = document.querySelector(selector);
+    if (el) {
+      var containers = [];
+      for (var _g of PANEL_GROUPS) {
+        if (_g.id === groupId && _g.discovery) {
+          containers = _g.discovery.containers;
+        }
+      }
+      if (containers.length > targetColumn) {
+        var targetContainer = document.querySelector(containers[targetColumn]);
+        if (targetContainer && el.parentNode !== targetContainer) {
+          targetContainer.appendChild(el);
+        }
+      }
+    }
+  }
+
   function doReorder(fromIndex, toIndex, groupId) {
+    var fromCol = draggedItem ? draggedItem.dataset.column : "-1";
+    var toCol = doReorder._dropTargetColumn;
+
+    if (fromCol !== "-1" && toCol !== undefined && toCol !== "-1" && fromCol !== toCol) {
+      // Cross-column move
+      var selector = draggedItem.dataset.selector;
+      var items = getReorderItems(groupId);
+      var movedItem = items.find(function(it) { return it.selector === selector; });
+      if (!movedItem) return;
+
+      // Remove from current position in flat list
+      var remaining = items.filter(function(it) { return it.selector !== selector; });
+
+      // Find target item and insert after it
+      var targetItem = items.find(function(it, idx) { return idx === toIndex; });
+      if (targetItem) {
+        var insertIdx = remaining.findIndex(function(it) { return it.selector === targetItem.selector; });
+        remaining.splice(insertIdx + 1, 0, movedItem);
+      } else {
+        remaining.push(movedItem);
+      }
+
+      settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
+      moveElementToColumn(selector, groupId, parseInt(toCol));
+      saveSettings();
+      applyReorder(groupId);
+      renderReorderView();
+      return;
+    }
+
+    // Same-column reorder
     const items = getReorderItems(groupId);
     if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
 
@@ -633,6 +945,7 @@ function bindReorderDragEvents() {
     item.addEventListener("dragover", function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
+      // Allow cross-column drag within same group
       if (item !== draggedItem && item.dataset.group === draggedGroup) {
         item.classList.add("drag-over");
       }
@@ -647,7 +960,10 @@ function bindReorderDragEvents() {
       item.classList.remove("drag-over");
       if (!draggedItem || item === draggedItem) return;
       if (item.dataset.group !== draggedGroup) return;
+      // Store target column for doReorder
+      doReorder._dropTargetColumn = item.dataset.column;
       doReorder(draggedIndex, parseInt(item.dataset.index), draggedGroup);
+      doReorder._dropTargetColumn = undefined;
       cleanupDrag();
     });
 
@@ -721,7 +1037,9 @@ function bindReorderDragEvents() {
         var targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
         if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
           targetItem.classList.remove("drag-over");
+          doReorder._dropTargetColumn = targetItem.dataset.column;
           doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+          doReorder._dropTargetColumn = undefined;
         }
       }
 
@@ -730,6 +1048,57 @@ function bindReorderDragEvents() {
 
     item.addEventListener("touchcancel", function() {
       cleanupDrag();
+    });
+  });
+
+  // Bind column-section drop (for cross-column drag into empty columns)
+  document.querySelectorAll(".menu-cleaner-reorder-column-section").forEach(function(section) {
+    section.addEventListener("dragover", function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      section.classList.add("drag-over-section");
+    });
+
+    section.addEventListener("dragleave", function(e) {
+      // Only remove if leaving the section (not entering a child)
+      if (!section.contains(e.relatedTarget)) {
+        section.classList.remove("drag-over-section");
+      }
+    });
+
+    section.addEventListener("drop", function(e) {
+      e.preventDefault();
+      section.classList.remove("drag-over-section");
+      if (!draggedItem) return;
+
+      // Determine target column from the section's items
+      var firstItem = section.querySelector(".menu-cleaner-reorder-item");
+      if (!firstItem) {
+        // Empty column: append dragged item to this column
+        var targetCol = -1;
+        // Infer column from section label
+        var label = section.querySelector(".menu-cleaner-reorder-column-label");
+        if (label) {
+          if (label.textContent.indexOf("栏2") !== -1) targetCol = 1;
+          else if (label.textContent.indexOf("栏1") !== -1) targetCol = 0;
+        }
+        if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
+          var selector = draggedItem.dataset.selector;
+          var groupId = draggedGroup;
+          var items = getReorderItems(groupId);
+          var movedItem = items.find(function(it) { return it.selector === selector; });
+          if (movedItem) {
+            var remaining = items.filter(function(it) { return it.selector !== selector; });
+            remaining.push(movedItem);
+            settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
+            moveElementToColumn(selector, groupId, targetCol);
+            saveSettings();
+            applyReorder(groupId);
+            renderReorderView();
+          }
+        }
+        cleanupDrag();
+      }
     });
   });
 }
@@ -889,18 +1258,87 @@ function registerSlashCmd() {
   }
 }
 
+// ── Auto-rescan ──────────────────────────────────────────────────────
+function scheduleAutoRescan() {
+  if (rescanTimer) clearTimeout(rescanTimer);
+  rescanTimer = setTimeout(() => {
+    doRescan();
+    rescanTimer = null;
+  }, 800);
+}
+
+function setupAutoRescan() {
+  // SillyTavern event: chat/character changed
+  try {
+    if (typeof eventSource !== "undefined" && typeof event_types !== "undefined") {
+      eventSource.on(event_types.CHAT_CHANGED, () => {
+        scheduleAutoRescan();
+      });
+      console.debug("[MenuCleaner] 已注册 CHAT_CHANGED 自动重扫描");
+    }
+  } catch (e) {
+    console.debug("[MenuCleaner] 事件监听注册失败", e);
+  }
+
+  // MutationObserver: watch for new elements injected into extension containers
+  const observeContainers = () => {
+    const targets = ["#extensions_settings", "#extensions_settings2"];
+    targets.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.addedNodes.length > 0) {
+            scheduleAutoRescan();
+            return;
+          }
+        }
+      });
+      observer.observe(el, { childList: true, subtree: false });
+    });
+  };
+
+  // Retry until containers exist, then observe
+  let retries = 0;
+  const tryObserve = () => {
+    if (document.querySelector("#extensions_settings")) {
+      observeContainers();
+    } else if (retries < 20) {
+      retries++;
+      setTimeout(tryObserve, 500);
+    }
+  };
+  setTimeout(tryObserve, 1000);
+}
+
 // ── Init ────────────────────────────────────────────────────────────
 function init() {
   loadSettings();
-  mergeExtensionSettingsColumns();
+
+  // Scan first to capture column origins from the natural DOM state,
+  // so dual mode can later restore items to their original columns.
+  refreshDiscoveryCache();
+
+  // Then apply column mode (merge or restore)
+  if (settings.columnMode === "dual") {
+    restoreExtensionSettingsColumns();
+  } else {
+    mergeExtensionSettingsColumns();
+  }
+
   injectMenuEntry();
   injectSettingsEntry();
   setupKeyboard();
-  refreshDiscoveryCache();
   registerSlashCmd();
+  setupAutoRescan();
 
   // Delayed re-scan catches extensions that inject buttons after init
   setTimeout(() => {
+    if (settings.columnMode === "single") {
+      mergeExtensionSettingsColumns();
+    } else {
+      restoreExtensionSettingsColumns();
+    }
     refreshDiscoveryCache();
     applyAllReorders();
   }, 3000);
@@ -908,7 +1346,11 @@ function init() {
   if (settings.enabled) {
     applyHides();
     setTimeout(() => {
-      mergeExtensionSettingsColumns();
+      if (settings.columnMode === "single") {
+        mergeExtensionSettingsColumns();
+      } else {
+        restoreExtensionSettingsColumns();
+      }
       applyAllReorders();
     }, 500);
   }

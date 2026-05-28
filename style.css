@@ -32,7 +32,8 @@
 #menu-cleaner-open-popup,
 #menu-cleaner-close,
 #menu-cleaner-rescan,
-#menu-cleaner-reset-order {
+#menu-cleaner-reset-order,
+#menu-cleaner-settings-btn {
   white-space: nowrap !important;
   flex-shrink: 0;
 }
@@ -291,6 +292,69 @@
 .menu-cleaner-reorder-item.drag-over {
   border-left-color: #7c5cff;
   background: rgba(124, 92, 255, 0.08);
+}
+
+.menu-cleaner-reorder-column-section.drag-over-section {
+  outline: 2px dashed #7c5cff;
+  outline-offset: -2px;
+  border-radius: 4px;
+  background: rgba(124, 92, 255, 0.05);
+}
+
+/* ── Settings Panel ──────────────────────────────────────────── */
+.menu-cleaner-settings-panel {
+  padding: 12px 18px;
+}
+
+.menu-cleaner-settings-btn-full {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.menu-cleaner-settings-divider {
+  text-align: center;
+  color: var(--SmartThemeBodyColor, #888);
+  font-size: 0.8em;
+  padding: 14px 0 10px 0;
+  opacity: 0.7;
+}
+
+.menu-cleaner-settings-radio-group {
+  display: flex;
+  gap: 24px;
+  padding: 8px 0;
+}
+
+.menu-cleaner-settings-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.92em;
+}
+
+.menu-cleaner-settings-radio input[type="radio"] {
+  accent-color: #7c5cff;
+}
+
+.menu-cleaner-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 0.92em;
+}
+
+/* ── Dual-Column Reorder ────────────────────────────────────── */
+.menu-cleaner-reorder-column-section {
+  margin-bottom: 6px;
+}
+
+.menu-cleaner-reorder-column-label {
+  font-size: 0.82em;
+  color: var(--SmartThemeBodyColor, #888);
+  padding: 8px 18px 4px 36px;
+  opacity: 0.75;
 }
 
 /* ── Animations ──────────────────────────────────────────────── */
