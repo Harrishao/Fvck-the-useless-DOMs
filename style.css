@@ -306,9 +306,31 @@
   padding: 12px 18px;
 }
 
-.menu-cleaner-settings-btn-full {
+button.menu-cleaner-settings-btn-full {
+  display: block;
   width: 100%;
-  margin-bottom: 8px;
+  padding: 10px 8px;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.92em;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+button.menu-cleaner-settings-btn-full:last-child {
+  border-bottom: none;
+}
+
+button.menu-cleaner-settings-btn-full:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+button.menu-cleaner-settings-btn-full:active {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .menu-cleaner-settings-divider {
@@ -321,16 +343,27 @@
 
 .menu-cleaner-settings-radio-group {
   display: flex;
-  gap: 24px;
-  padding: 8px 0;
+  flex-direction: column;
+  padding: 4px 0;
 }
 
 .menu-cleaner-settings-radio {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 10px 8px;
   cursor: pointer;
   font-size: 0.92em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.15s;
+}
+
+.menu-cleaner-settings-radio:last-child {
+  border-bottom: none;
+}
+
+.menu-cleaner-settings-radio:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .menu-cleaner-settings-radio input[type="radio"] {

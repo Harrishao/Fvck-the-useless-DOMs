@@ -7,6 +7,7 @@ let autoIdSeq = 0;
 let activeTab = "hide"; // "hide" or "reorder"
 let showSettingsPanel = false;
 let rescanTimer = null;
+let suppressObserver = false;
 
 // ── Hardcoded native elements (MVP1) ──────────────────────────────
 // Each group maps to a panel. Only native SillyTavern elements are listed.
@@ -41,7 +42,7 @@ const PANEL_GROUPS = [
       containers: ["#extensionsMenu"],
       itemMatch: ".list-group-item",
       labelIn: "span",
-      exclude: [],
+      exclude: ["#menu-cleaner-btn"],
       alsoMatchChildren: true
     },
     items: [
@@ -132,6 +133,21 @@ function loadSettings() {
   // saved overrides defaults — preserves user's hiddenSelectors across refreshes
   extension_settings[STORAGE_KEY] = Object.assign({}, defaultSettings, saved);
   settings = extension_settings[STORAGE_KEY];
+
+  // 清理DOM中已不存在的失效条目（插件被卸载等情况）
+  for (const key of Object.keys(settings.hiddenSelectors)) {
+    if (!document.querySelector(key)) delete settings.hiddenSelectors[key];
+  }
+  for (const groupId of Object.keys(settings.discoveryCache)) {
+    settings.discoveryCache[groupId] = settings.discoveryCache[groupId].filter(
+      c => document.querySelector(c.selector)
+    );
+  }
+  for (const groupId of Object.keys(settings.reorder)) {
+    settings.reorder[groupId] = settings.reorder[groupId].filter(
+      s => document.querySelector(s)
+    );
+  }
 }
 
 function saveSettings() {
@@ -376,6 +392,9 @@ function applyAllReorders() {
 }
 
 function doRescan() {
+  if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
+  suppressObserver = true;
+
   if (settings.columnMode === "single") {
     mergeExtensionSettingsColumns();
   } else {
@@ -383,6 +402,9 @@ function doRescan() {
   }
   refreshDiscoveryCache();
   applyAllReorders();
+
+  setTimeout(() => { suppressObserver = false; }, 0);
+
   refreshPopup();
   if (settings.rescanToast) {
     const count = Object.values(settings.discoveryCache).reduce((s, arr) => s + arr.length, 0);
@@ -391,6 +413,7 @@ function doRescan() {
 }
 
 function resetAllReorders() {
+  suppressObserver = true;
   if (settings.columnMode === "single") {
     mergeExtensionSettingsColumns();
   } else {
@@ -405,10 +428,15 @@ function resetAllReorders() {
     applyReorder(group.id);
   }
   saveSettings();
+  setTimeout(() => { suppressObserver = false; }, 0);
+  // 退出设置页面，回到重排序视图
+  showSettingsPanel = false;
+  updatePopupView();
   renderReorderView();
 }
 
 function applyColumnMode() {
+  suppressObserver = true;
   if (settings.columnMode === "single") {
     mergeExtensionSettingsColumns();
   } else {
@@ -417,6 +445,7 @@ function applyColumnMode() {
   refreshDiscoveryCache();
   applyAllReorders();
   saveSettings();
+  setTimeout(() => { suppressObserver = false; }, 0);
 }
 
 // ── Settings panel view ───────────────────────────────────────────────
@@ -692,6 +721,7 @@ function openPopup() {
   document.getElementById("menu-cleaner-popup").style.display = "flex";
   showSettingsPanel = false;
   updatePopupView();
+  refreshPopup();
   positionPopup();
 }
 
@@ -1132,6 +1162,7 @@ function positionPopup() {
 
 // ── Build popup content from hardcoded data ─────────────────────────
 function refreshPopup() {
+  if (showSettingsPanel) return;
   if (activeTab === "reorder") {
     renderReorderView();
     return;
@@ -1287,6 +1318,7 @@ function setupAutoRescan() {
       const el = document.querySelector(sel);
       if (!el) return;
       const observer = new MutationObserver((mutations) => {
+        if (suppressObserver) return;
         for (const m of mutations) {
           if (m.addedNodes.length > 0) {
             scheduleAutoRescan();
@@ -1334,6 +1366,7 @@ function init() {
 
   // Delayed re-scan catches extensions that inject buttons after init
   setTimeout(() => {
+    suppressObserver = true;
     if (settings.columnMode === "single") {
       mergeExtensionSettingsColumns();
     } else {
@@ -1341,17 +1374,20 @@ function init() {
     }
     refreshDiscoveryCache();
     applyAllReorders();
+    setTimeout(() => { suppressObserver = false; }, 0);
   }, 3000);
 
   if (settings.enabled) {
     applyHides();
     setTimeout(() => {
+      suppressObserver = true;
       if (settings.columnMode === "single") {
         mergeExtensionSettingsColumns();
       } else {
         restoreExtensionSettingsColumns();
       }
       applyAllReorders();
+      setTimeout(() => { suppressObserver = false; }, 0);
     }, 500);
   }
 }
