@@ -636,6 +636,17 @@ function refreshDiscoveryCache() {
       }
     }
 
+    // Preserve hardcoded items' column info (lost during filter above).
+    // These entries are created by moveElementToColumn() when a hardcoded
+    // element is dragged between columns and must survive rescans.
+    for (const old of oldCache) {
+      if (hardcodedSet.has(old.selector) && old.column !== undefined) {
+        if (!newItems.find(n => n.selector === old.selector)) {
+          newItems.push({ selector: old.selector, label: old.label, column: old.column });
+        }
+      }
+    }
+
     settings.discoveryCache[group.id] = newItems;
 
     // Append newly discovered selectors to the reorder list
@@ -1329,7 +1340,8 @@ function renderHideView() {
   let html = "";
 
   for (const group of PANEL_GROUPS) {
-    const cached = settings.discoveryCache[group.id] || [];
+    const hcSelectors = new Set(group.items.map(i => i.selector));
+    const cached = (settings.discoveryCache[group.id] || []).filter(c => !hcSelectors.has(c.selector));
     const totalCount = group.items.length + cached.length;
 
     html += `<div class="menu-cleaner-category">`;
