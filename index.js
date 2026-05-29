@@ -419,6 +419,34 @@ function resetAllReorders() {
   } else {
     restoreExtensionSettingsColumns();
   }
+
+  // Reset column origins for extensionsSettings: re-discover to get fresh column info,
+  // then move hardcoded items back to col1 and discovered items back to their origin columns.
+  const extGroup = PANEL_GROUPS.find(g => g.id === "extensionsSettings");
+  if (extGroup && extGroup.discovery) {
+    const freshDiscovered = discoverItems(extGroup);
+    const hcSet = new Set(extGroup.items.map(i => i.selector));
+    // Remove entries for hardcoded items; keep only truly discovered items with fresh column
+    settings.discoveryCache["extensionsSettings"] = freshDiscovered.filter(d => !hcSet.has(d.selector));
+    // Move DOM elements: hardcoded → col1, discovered → their original column
+    const col1 = document.querySelector('#extensions_settings');
+    const col2 = document.querySelector('#extensions_settings2');
+    for (const item of extGroup.items) {
+      const el = document.querySelector(item.selector);
+      if (el && el.parentNode && col1 && el.parentNode !== col1) {
+        col1.appendChild(el);
+      }
+    }
+    for (const cached of settings.discoveryCache["extensionsSettings"]) {
+      const el = document.querySelector(cached.selector);
+      if (!el) continue;
+      const targetCol = cached.column === 1 ? col2 : col1;
+      if (targetCol && el.parentNode !== targetCol) {
+        targetCol.appendChild(el);
+      }
+    }
+  }
+
   for (const group of PANEL_GROUPS) {
     if (!group.reorder) continue;
     const defaultOrder = group.items.map(i => i.selector);
@@ -431,6 +459,10 @@ function resetAllReorders() {
   setTimeout(() => { suppressObserver = false; }, 0);
   // 退出设置页面，回到重排序视图
   showSettingsPanel = false;
+  activeTab = "reorder";
+  document.querySelectorAll(".menu-cleaner-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === "reorder");
+  });
   updatePopupView();
   renderReorderView();
 }
@@ -457,6 +489,7 @@ function renderSettingsView() {
     <div class="menu-cleaner-settings-panel">
       <button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>
       <button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>
+      <button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>
 
       <div class="menu-cleaner-settings-divider">—————— 扩展菜单分栏选项 ——————</div>
       <div class="menu-cleaner-settings-radio-group">
@@ -485,6 +518,18 @@ function renderSettingsView() {
 
   document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => doRescan());
   document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());
+
+  document.getElementById("menu-cleaner-clear-data")?.addEventListener("click", () => {
+    if (!confirm("确定要清除所有插件配置数据吗？此操作不可撤销。")) return;
+    settings = Object.assign({}, defaultSettings);
+    extension_settings[STORAGE_KEY] = settings;
+    saveSettingsDebounced();
+    clearAllHides();
+    showSettingsPanel = false;
+    activeTab = "hide";
+    updatePopupView();
+    doRescan();
+  });
 
   document.querySelectorAll("input[name='menu-cleaner-column-mode']").forEach(radio => {
     radio.addEventListener("change", (e) => {
@@ -543,6 +588,13 @@ function discoverItems(group) {
           for (const directChild of child.children) {
             if (matchedElements.has(directChild)) continue;
             if (directChild.style.display === "none") continue;
+            // Skip descendants of hardcoded items to avoid re-discovering them as third-party
+            let isHardcodedDescendant = false;
+            for (const hc of group.items) {
+              const hcEl = document.querySelector(hc.selector);
+              if (hcEl && hcEl.contains(directChild)) { isHardcodedDescendant = true; break; }
+            }
+            if (isHardcodedDescendant) continue;
             const span = directChild.querySelector("span");
             if (!span) continue;
             const labelText = span.textContent.trim();
@@ -586,7 +638,18 @@ function refreshDiscoveryCache() {
     if (!group.discovery) continue;
     const allDiscovered = discoverItems(group);
     const hardcodedSet = new Set(group.items.map(i => i.selector));
-    const newItems = allDiscovered.filter(d => !hardcodedSet.has(d.selector));
+    const newItems = allDiscovered.filter(d => {
+      if (hardcodedSet.has(d.selector)) return false;
+      // Also skip descendants of hardcoded items (alsoMatchChildren may pick up sub-elements)
+      const el = document.querySelector(d.selector);
+      if (el) {
+        for (const hcSel of group.items.map(i => i.selector)) {
+          const hcEl = document.querySelector(hcSel);
+          if (hcEl && hcEl.contains(el)) return false;
+        }
+      }
+      return true;
+    });
 
     // Preserve column origin from the previous cache for items that have it
     const oldCache = settings.discoveryCache[group.id] || [];
@@ -798,8 +861,8 @@ function renderReorderView() {
         return cached && cached.column === 1;
       });
 
-      html += renderColumnSection(group, col0Items, 0, "栏1 (#extensions_settings)");
-      html += renderColumnSection(group, col1Items, 1, "栏2 (#extensions_settings2)");
+      html += renderColumnSection(group, col0Items, 0, "左栏");
+      html += renderColumnSection(group, col1Items, 1, "右栏");
     } else {
       if (items.length === 0) {
         html += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
@@ -1109,8 +1172,8 @@ function bindReorderDragEvents() {
         // Infer column from section label
         var label = section.querySelector(".menu-cleaner-reorder-column-label");
         if (label) {
-          if (label.textContent.indexOf("栏2") !== -1) targetCol = 1;
-          else if (label.textContent.indexOf("栏1") !== -1) targetCol = 0;
+          if (label.textContent.indexOf("右栏") !== -1) targetCol = 1;
+          else if (label.textContent.indexOf("左栏") !== -1) targetCol = 0;
         }
         if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
           var selector = draggedItem.dataset.selector;
