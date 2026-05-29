@@ -441,35 +441,6 @@
 }
 
 
-/* ── Reorder Arrow Buttons (mobile fallback) ─────── */
-.menu-cleaner-arrow-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: #888;
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
-  line-height: 1;
-  transition: color 0.15s, background 0.15s;
-}
-
-.menu-cleaner-arrow-btn:hover {
-  color: #fff;
-  background: rgba(124, 92, 255, 0.2);
-}
-
-.menu-cleaner-arrow-btn:active {
-  background: rgba(124, 92, 255, 0.35);
-}
-
-
 /* ── Drag States ─────────────────────────────────── */
 .menu-cleaner-reorder-item.dragging {
   opacity: 0.4;
@@ -1225,9 +1196,6 @@ button.menu-cleaner-settings-btn-full:active {
 
     bindReorderDragEvents();
 
-    // Bind arrow button clicks (mobile fallback)
-    bindReorderArrowButtons();
-
     positionPopup();
   }
 
@@ -1249,8 +1217,6 @@ button.menu-cleaner-settings-btn-full:active {
     var h = '<div class="menu-cleaner-reorder-item" draggable="true" data-selector="' + escHtml(item.selector) + '" data-group="' + groupId + '" data-index="' + index + '" data-column="' + colIndex + '">';
     h += '<span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>';
     h += '<span title="' + escHtml(item.selector) + '">' + escHtml(item.label) + '</span>';
-    h += '<button class="menu-cleaner-arrow-btn" data-dir="up" title="上移">▲</button>';
-    h += '<button class="menu-cleaner-arrow-btn" data-dir="down" title="下移">▼</button>';
     h += '</div>';
     return h;
   }
@@ -1528,120 +1494,6 @@ button.menu-cleaner-settings-btn-full:active {
           }
           cleanupDrag();
         }
-      });
-    }
-  }
-
-  function bindReorderArrowButtons() {
-    var buttons = doc.querySelectorAll('.menu-cleaner-arrow-btn');
-    for (var bi = 0; bi < buttons.length; bi++) {
-      buttons[bi].addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        var dir = this.dataset.dir;
-        var item = this.closest('.menu-cleaner-reorder-item');
-        if (!item) return;
-        var groupId = item.dataset.group;
-        var selector = item.dataset.selector;
-        var col = item.dataset.column;
-
-        var allItems = getReorderItems(groupId);
-        var isDualCol = col !== '-1' && settings.columnMode === 'dual' && groupId === 'extensionsSettings';
-
-        // Get column siblings
-        var siblings;
-        if (isDualCol) {
-          var cached = settings.discoveryCache[groupId] || [];
-          siblings = allItems.filter(function (it) {
-            var c = cached.find(function (cc) { return cc.selector === it.selector; });
-            if (col === '0') return !c || c.column !== 1;
-            return c && c.column === 1;
-          });
-        } else {
-          siblings = allItems;
-        }
-
-        var fromIdx = siblings.findIndex(function (it) { return it.selector === selector; });
-        if (fromIdx < 0) return;
-        var toIdx = dir === 'up' ? fromIdx - 1 : fromIdx + 1;
-
-        // ── Cross-column move (dual mode only) ──────────────────
-        if ((toIdx < 0 || toIdx >= siblings.length) && isDualCol) {
-          // Only cross when: left-last ↓ → right-top, right-top ↑ → left-last
-          if (!(col === '0' && dir === 'down') && !(col === '1' && dir === 'up')) return;
-
-          var targetCol = col === '0' ? 1 : 0;
-          var dcCached = settings.discoveryCache[groupId] || [];
-
-          // Get target column siblings
-          var targetSiblings = allItems.filter(function (it) {
-            var c = dcCached.find(function (cc) { return cc.selector === it.selector; });
-            if (targetCol === 0) return !c || c.column !== 1;
-            return c && c.column === 1;
-          });
-
-          // Remove from source
-          var xmoved = siblings.splice(fromIdx, 1)[0];
-
-          // Insert in target column
-          if (dir === 'down') {
-            targetSiblings.splice(0, 0, xmoved);     // top of right column
-          } else {
-            targetSiblings.push(xmoved);              // bottom of left column
-          }
-
-          // Move DOM element and update cache
-          moveElementToColumn(selector, groupId, targetCol);
-
-          // Reconstruct flat order from both columns
-          var col0Items = targetCol === 0 ? targetSiblings : siblings;
-          var col1Items = targetCol === 1 ? targetSiblings : siblings;
-          var col0Set = new Set();
-          for (var ci0 = 0; ci0 < col0Items.length; ci0++) { col0Set.add(col0Items[ci0].selector); }
-          var col1Set = new Set();
-          for (var ci1 = 0; ci1 < col1Items.length; ci1++) { col1Set.add(col1Items[ci1].selector); }
-
-          var newOrder = [];
-          var si0 = 0, si1 = 0;
-          for (var ai = 0; ai < allItems.length; ai++) {
-            var sel = allItems[ai].selector;
-            if (col0Set.has(sel)) {
-              newOrder.push(col0Items[si0++]);
-            } else if (col1Set.has(sel)) {
-              newOrder.push(col1Items[si1++]);
-            }
-          }
-
-          settings.reorder[groupId] = newOrder.map(function (it) { return it.selector; });
-          saveSettings();
-          applyReorder(groupId);
-          renderReorderView();
-          return;
-        }
-
-        // Out of bounds (non-dual mode): no-op
-        if (toIdx < 0 || toIdx >= siblings.length) return;
-
-        // ── Same-column move ────────────────────────────────────
-        var moved = siblings.splice(fromIdx, 1)[0];
-        siblings.splice(toIdx, 0, moved);
-
-        // Reconstruct flat order
-        var scNewOrder = [];
-        var si = 0;
-        for (var sai = 0; sai < allItems.length; sai++) {
-          var isSibling = siblings.some(function (s) { return s.selector === allItems[sai].selector; });
-          if (isSibling) {
-            scNewOrder.push(siblings[si++]);
-          } else {
-            scNewOrder.push(allItems[sai]);
-          }
-        }
-
-        settings.reorder[groupId] = scNewOrder.map(function (it) { return it.selector; });
-        saveSettings();
-        applyReorder(groupId);
-        renderReorderView();
       });
     }
   }
