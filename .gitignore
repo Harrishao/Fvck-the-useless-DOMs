@@ -9,6 +9,8 @@
 reference/
 *.png
 *.md
+*.json
+!mainfest.json
 !README.md
 可展开列表.md
 待办事项.md
