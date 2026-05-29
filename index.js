@@ -924,6 +924,38 @@ function buildReorderItemHTML(item, groupId, index, colIndex) {
           </div>`;
 }
 
+function moveElementToColumn(selector, groupId, targetColumn) {
+  // Update or create discoveryCache column origin
+  if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
+  var cached = settings.discoveryCache[groupId];
+  var entry = cached.find(function(c) { return c.selector === selector; });
+  if (entry) {
+    entry.column = targetColumn;
+  } else {
+    // Hardcoded item moved between columns: create a cache entry
+    var elForLabel = document.querySelector(selector);
+    var label = elForLabel ? (elForLabel.textContent || "").trim().substring(0, 40) : selector;
+    cached.push({ selector: selector, label: label, column: targetColumn });
+  }
+
+  // Move DOM element to the appropriate container
+  var el = document.querySelector(selector);
+  if (el) {
+    var containers = [];
+    for (var _g of PANEL_GROUPS) {
+      if (_g.id === groupId && _g.discovery) {
+        containers = _g.discovery.containers;
+      }
+    }
+    if (containers.length > targetColumn) {
+      var targetContainer = document.querySelector(containers[targetColumn]);
+      if (targetContainer && el.parentNode !== targetContainer) {
+        targetContainer.appendChild(el);
+      }
+    }
+  }
+}
+
 function bindReorderDragEvents() {
   let draggedItem = null;
   let draggedGroup = null;
@@ -932,38 +964,6 @@ function bindReorderDragEvents() {
   let touchStartX = 0;
   let touchStartY = 0;
   let touchMoved = false;
-
-  function moveElementToColumn(selector, groupId, targetColumn) {
-    // Update or create discoveryCache column origin
-    if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
-    var cached = settings.discoveryCache[groupId];
-    var entry = cached.find(function(c) { return c.selector === selector; });
-    if (entry) {
-      entry.column = targetColumn;
-    } else {
-      // Hardcoded item moved between columns: create a cache entry
-      var elForLabel = document.querySelector(selector);
-      var label = elForLabel ? (elForLabel.textContent || "").trim().substring(0, 40) : selector;
-      cached.push({ selector: selector, label: label, column: targetColumn });
-    }
-
-    // Move DOM element to the appropriate container
-    var el = document.querySelector(selector);
-    if (el) {
-      var containers = [];
-      for (var _g of PANEL_GROUPS) {
-        if (_g.id === groupId && _g.discovery) {
-          containers = _g.discovery.containers;
-        }
-      }
-      if (containers.length > targetColumn) {
-        var targetContainer = document.querySelector(containers[targetColumn]);
-        if (targetContainer && el.parentNode !== targetContainer) {
-          targetContainer.appendChild(el);
-        }
-      }
-    }
-  }
 
   function doReorder(fromIndex, toIndex, groupId) {
     var fromCol = draggedItem ? draggedItem.dataset.column : "-1";
@@ -1214,10 +1214,11 @@ function bindReorderArrowButtons() {
       const col = item.dataset.column;
 
       const allItems = getReorderItems(groupId);
+      const isDualCol = col !== "-1" && settings.columnMode === "dual" && groupId === "extensionsSettings";
 
-      // In dual column mode, only move within the same column
+      // Get column siblings
       let siblings;
-      if (col !== "-1" && settings.columnMode === "dual" && groupId === "extensionsSettings") {
+      if (isDualCol) {
         const cached = settings.discoveryCache[groupId] || [];
         siblings = allItems.filter(function(it) {
           const c = cached.find(function(cc) { return cc.selector === it.selector; });
@@ -1231,13 +1232,67 @@ function bindReorderArrowButtons() {
       const fromIdx = siblings.findIndex(function(it) { return it.selector === selector; });
       if (fromIdx < 0) return;
       const toIdx = dir === "up" ? fromIdx - 1 : fromIdx + 1;
+
+      // ── Cross-column move (dual mode only) ──────────────────────
+      if ((toIdx < 0 || toIdx >= siblings.length) && isDualCol) {
+        // Only cross when: left-last ↓ → right-top, right-top ↑ → left-last
+        if (!(col === "0" && dir === "down") && !(col === "1" && dir === "up")) return;
+
+        const targetCol = col === "0" ? 1 : 0;
+        const cached = settings.discoveryCache[groupId] || [];
+
+        // Get target column siblings
+        const targetSiblings = allItems.filter(function(it) {
+          const c = cached.find(function(cc) { return cc.selector === it.selector; });
+          if (targetCol === 0) return !c || c.column !== 1;
+          return c && c.column === 1;
+        });
+
+        // Remove from source
+        const moved = siblings.splice(fromIdx, 1)[0];
+
+        // Insert in target column
+        if (dir === "down") {
+          targetSiblings.splice(0, 0, moved);     // top of right column
+        } else {
+          targetSiblings.push(moved);             // bottom of left column
+        }
+
+        // Move DOM element and update cache
+        moveElementToColumn(selector, groupId, targetCol);
+
+        // Reconstruct flat order from both columns
+        const col0Items = targetCol === 0 ? targetSiblings : siblings;
+        const col1Items = targetCol === 1 ? targetSiblings : siblings;
+        const col0Set = new Set(col0Items.map(function(it) { return it.selector; }));
+        const col1Set = new Set(col1Items.map(function(it) { return it.selector; }));
+
+        const newOrder = [];
+        let si0 = 0, si1 = 0;
+        for (let ai = 0; ai < allItems.length; ai++) {
+          const sel = allItems[ai].selector;
+          if (col0Set.has(sel)) {
+            newOrder.push(col0Items[si0++]);
+          } else if (col1Set.has(sel)) {
+            newOrder.push(col1Items[si1++]);
+          }
+        }
+
+        settings.reorder[groupId] = newOrder.map(function(it) { return it.selector; });
+        saveSettings();
+        applyReorder(groupId);
+        renderReorderView();
+        return;
+      }
+
+      // Out of bounds (non-dual mode): no-op
       if (toIdx < 0 || toIdx >= siblings.length) return;
 
-      // Move within siblings
+      // ── Same-column move ────────────────────────────────────────
       const moved = siblings.splice(fromIdx, 1)[0];
       siblings.splice(toIdx, 0, moved);
 
-      // Reconstruct flat order: keep non-sibling items in place, replace siblings with new order
+      // Reconstruct flat order
       const newOrder = [];
       let si = 0;
       for (let ai = 0; ai < allItems.length; ai++) {
