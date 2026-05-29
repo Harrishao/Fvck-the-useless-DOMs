@@ -816,21 +816,34 @@ button.menu-cleaner-settings-btn-full:active {
     var col2 = doc.querySelector('#extensions_settings2');
     if (!col1 || !col2) return;
     col2.style.display = '';
-    var originMap = {};
+    var col2Map = {}; // items that belong in col2
+    var col1Map = {}; // items explicitly moved to col1 by user
     var cached = settings.discoveryCache['extensionsSettings'] || [];
     for (var i = 0; i < cached.length; i++) {
-      if (cached[i].column === 1) originMap[cached[i].selector] = true;
+      if (cached[i].column === 1) col2Map[cached[i].selector] = true;
+      if (cached[i].column === 0) col1Map[cached[i].selector] = true;
     }
-    // Move items that originated from col2 back to col2
-    var toMove = [];
+    // Move col2-origin items from col1 → col2
+    var toCol2 = [];
     for (var j = 0; j < col1.children.length; j++) {
       var child = col1.children[j];
-      if (child.id && originMap['#' + child.id]) {
-        toMove.push(child);
+      if (child.id && col2Map['#' + child.id]) {
+        toCol2.push(child);
       }
     }
-    for (var k = 0; k < toMove.length; k++) {
-      col2.appendChild(toMove[k]);
+    for (var k = 0; k < toCol2.length; k++) {
+      col2.appendChild(toCol2[k]);
+    }
+    // Move items explicitly placed in col1 from col2 → col1
+    var toCol1 = [];
+    for (var m = 0; m < col2.children.length; m++) {
+      var child2 = col2.children[m];
+      if (child2.id && col1Map['#' + child2.id]) {
+        toCol1.push(child2);
+      }
+    }
+    for (var n = 0; n < toCol1.length; n++) {
+      col1.appendChild(toCol1[n]);
     }
   }
 

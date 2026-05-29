@@ -365,20 +365,32 @@ function restoreExtensionSettingsColumns() {
   const col2 = document.querySelector('#extensions_settings2');
   if (!col1 || !col2) return;
   col2.style.display = '';
-  const originMap = {};
+  const col2Map = {}; // items that belong in col2
+  const col1Map = {}; // items explicitly moved to col1 by user
   const cached = settings.discoveryCache["extensionsSettings"] || [];
   for (const item of cached) {
-    if (item.column === 1) originMap[item.selector] = true;
+    if (item.column === 1) col2Map[item.selector] = true;
+    if (item.column === 0) col1Map[item.selector] = true;
   }
-  // Move items that originated from col2 back to col2
-  const toMove = [];
+  // Move col2-origin items from col1 → col2
+  const toCol2 = [];
   for (const child of col1.children) {
-    if (child.id && originMap["#" + child.id]) {
-      toMove.push(child);
+    if (child.id && col2Map["#" + child.id]) {
+      toCol2.push(child);
     }
   }
-  for (const child of toMove) {
+  for (const child of toCol2) {
     col2.appendChild(child);
+  }
+  // Move items explicitly placed in col1 from col2 → col1
+  const toCol1 = [];
+  for (const child of col2.children) {
+    if (child.id && col1Map["#" + child.id]) {
+      toCol1.push(child);
+    }
+  }
+  for (const child of toCol1) {
+    col1.appendChild(child);
   }
 }
 
