@@ -895,6 +895,9 @@ function renderReorderView() {
   // Bind drag-and-drop
   bindReorderDragEvents();
 
+  // Bind arrow button clicks (mobile fallback)
+  bindReorderArrowButtons();
+
   positionPopup();
 }
 
@@ -916,6 +919,8 @@ function buildReorderItemHTML(item, groupId, index, colIndex) {
   return `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${groupId}" data-index="${index}" data-column="${colIndex}">
             <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
             <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
+            <button class="menu-cleaner-arrow-btn" data-dir="up" title="上移">▲</button>
+            <button class="menu-cleaner-arrow-btn" data-dir="down" title="下移">▼</button>
           </div>`;
 }
 
@@ -1192,6 +1197,62 @@ function bindReorderDragEvents() {
         }
         cleanupDrag();
       }
+    });
+  });
+}
+
+function bindReorderArrowButtons() {
+  document.querySelectorAll(".menu-cleaner-arrow-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = btn.dataset.dir;
+      const item = btn.closest(".menu-cleaner-reorder-item");
+      if (!item) return;
+      const groupId = item.dataset.group;
+      const selector = item.dataset.selector;
+      const col = item.dataset.column;
+
+      const allItems = getReorderItems(groupId);
+
+      // In dual column mode, only move within the same column
+      let siblings;
+      if (col !== "-1" && settings.columnMode === "dual" && groupId === "extensionsSettings") {
+        const cached = settings.discoveryCache[groupId] || [];
+        siblings = allItems.filter(function(it) {
+          const c = cached.find(function(cc) { return cc.selector === it.selector; });
+          if (col === "0") return !c || c.column !== 1;
+          return c && c.column === 1;
+        });
+      } else {
+        siblings = allItems;
+      }
+
+      const fromIdx = siblings.findIndex(function(it) { return it.selector === selector; });
+      if (fromIdx < 0) return;
+      const toIdx = dir === "up" ? fromIdx - 1 : fromIdx + 1;
+      if (toIdx < 0 || toIdx >= siblings.length) return;
+
+      // Move within siblings
+      const moved = siblings.splice(fromIdx, 1)[0];
+      siblings.splice(toIdx, 0, moved);
+
+      // Reconstruct flat order: keep non-sibling items in place, replace siblings with new order
+      const newOrder = [];
+      let si = 0;
+      for (let ai = 0; ai < allItems.length; ai++) {
+        const isSibling = siblings.some(function(s) { return s.selector === allItems[ai].selector; });
+        if (isSibling) {
+          newOrder.push(siblings[si++]);
+        } else {
+          newOrder.push(allItems[ai]);
+        }
+      }
+
+      settings.reorder[groupId] = newOrder.map(function(it) { return it.selector; });
+      saveSettings();
+      applyReorder(groupId);
+      renderReorderView();
     });
   });
 }

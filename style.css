@@ -249,7 +249,7 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
-.menu-cleaner-reorder-item > span:last-child {
+.menu-cleaner-reorder-item > span:not(.menu-cleaner-drag-handle) {
   flex: 1;
   font-size: 0.92em;
   overflow: hidden;
@@ -281,6 +281,34 @@
 
 .menu-cleaner-drag-handle:active {
   cursor: grabbing;
+}
+
+/* ── Reorder Arrow Buttons (mobile fallback) ─────────────────── */
+.menu-cleaner-arrow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+
+.menu-cleaner-arrow-btn:hover {
+  color: #fff;
+  background: rgba(124, 92, 255, 0.2);
+}
+
+.menu-cleaner-arrow-btn:active {
+  background: rgba(124, 92, 255, 0.35);
 }
 
 /* ── Drag States ─────────────────────────────────────────────── */
