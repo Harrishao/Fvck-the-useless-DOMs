@@ -420,33 +420,6 @@ function resetAllReorders() {
     restoreExtensionSettingsColumns();
   }
 
-  // Reset column origins for extensionsSettings: re-discover to get fresh column info,
-  // then move hardcoded items back to col1 and discovered items back to their origin columns.
-  const extGroup = PANEL_GROUPS.find(g => g.id === "extensionsSettings");
-  if (extGroup && extGroup.discovery) {
-    const freshDiscovered = discoverItems(extGroup);
-    const hcSet = new Set(extGroup.items.map(i => i.selector));
-    // Remove entries for hardcoded items; keep only truly discovered items with fresh column
-    settings.discoveryCache["extensionsSettings"] = freshDiscovered.filter(d => !hcSet.has(d.selector));
-    // Move DOM elements: hardcoded → col1, discovered → their original column
-    const col1 = document.querySelector('#extensions_settings');
-    const col2 = document.querySelector('#extensions_settings2');
-    for (const item of extGroup.items) {
-      const el = document.querySelector(item.selector);
-      if (el && el.parentNode && col1 && el.parentNode !== col1) {
-        col1.appendChild(el);
-      }
-    }
-    for (const cached of settings.discoveryCache["extensionsSettings"]) {
-      const el = document.querySelector(cached.selector);
-      if (!el) continue;
-      const targetCol = cached.column === 1 ? col2 : col1;
-      if (targetCol && el.parentNode !== targetCol) {
-        targetCol.appendChild(el);
-      }
-    }
-  }
-
   for (const group of PANEL_GROUPS) {
     if (!group.reorder) continue;
     const defaultOrder = group.items.map(i => i.selector);
