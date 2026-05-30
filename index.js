@@ -6,18 +6,15 @@ const STORAGE_KEY = "menu_cleaner";
 let autoIdSeq = 0;
 let activeTab = "hide"; // "hide" or "reorder"
 let showSettingsPanel = false;
+let extPanelVisible = false;
 let rescanTimer = null;
-let suppressObserver = false;
 
-// ── Hardcoded native elements (MVP1) ──────────────────────────────
-// Each group maps to a panel. Only native SillyTavern elements are listed.
-// Third-party extensions will be handled in MVP2 (dynamic scanning).
+// ── Hardcoded native elements ─────────────────────────────────────
 const PANEL_GROUPS = [
   {
     id: "options",
     name: "左下菜单",
     buttonId: "#options_button",
-    reorder: { container: "#options" },
     items: [
       { selector: "#option_toggle_AN",           label: "作者注释" },
       { selector: "#option_toggle_CFG",          label: "CFG缩放" },
@@ -37,14 +34,6 @@ const PANEL_GROUPS = [
     id: "extensionsMenu",
     name: "魔棒",
     buttonId: "#extensionsMenuButton",
-    reorder: { container: "#extensionsMenu" },
-    discovery: {
-      containers: ["#extensionsMenu"],
-      itemMatch: ".list-group-item",
-      labelIn: "span",
-      exclude: ["#menu-cleaner-btn"],
-      alsoMatchChildren: true
-    },
     items: [
       { selector: "#manageAttachments",          label: "打开数据库" },
       { selector: "#attachFile",                 label: "附加文件" },
@@ -54,18 +43,19 @@ const PANEL_GROUPS = [
       { selector: "#token_counter",              label: "词符计数器" },
       { selector: "#translate_chat",             label: "翻译聊天" },
       { selector: "#translate_input_message",    label: "翻译输入" }
-    ]
+    ],
+    discovery: {
+      containers: ["#extensionsMenu"],
+      itemMatch: ".list-group-item",
+      labelIn: "span",
+      exclude: ["#menu-cleaner-btn"],
+      alsoMatchChildren: true
+    }
   },
   {
     id: "extensionsSettings",
     name: "扩展菜单",
     buttonId: "#extensions-settings-button",
-    reorder: { container: "#extensions_settings" },
-    discovery: {
-      containers: ["#extensions_settings", "#extensions_settings2"],
-      hasHeader: ".inline-drawer-header",
-      labelInHeader: "b, [data-i18n]"
-    },
     items: [
       { selector: "#assets_container",           label: "下载扩展和资源菜单" },
       { selector: "#expressions_container",      label: "角色表情" },
@@ -77,12 +67,16 @@ const PANEL_GROUPS = [
       { selector: "#summarize_container",        label: "总结" },
       { selector: "#regex_container",            label: "正则" },
       { selector: "#vectors_container",          label: "向量存储" }
-    ]
+    ],
+    discovery: {
+      containers: ["#extensions_settings", "#extensions_settings2"],
+      hasHeader: ".inline-drawer-header",
+      labelInHeader: "b, [data-i18n]"
+    }
   },
   {
     id: "topSettings",
     name: "顶部导航栏",
-    // No buttonId — this panel is always visible
     items: [
       { selector: "#ai-config-button",           label: "预设" },
       { selector: "#sys-settings-button",        label: "插头" },
@@ -109,20 +103,23 @@ const PANEL_GROUPS = [
   }
 ];
 
-// These are always hidden when the extension is enabled — no toggle offered.
+// Groups that support reordering
+const REORDER_GROUP_IDS = ["extensionsSettings", "extensionsMenu", "options"];
+
+// Always hidden — no toggle offered
 const ALWAYS_HIDDEN_SELECTORS = [
   "#rm_api_block > div.flex-container.flexFlowColumn > #openai_api > div.flex-container.flex > #test_api_button",
   "#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p",
   "#rm_extensions_block > div > div.alignitemscenter.flex-container.justifyCenter.wide100p"
 ];
 
-// ── Settings ────────────────────────────────────────────────────────
+// ── Settings ────────────────────────────────────────────────────
 const defaultSettings = {
   enabled: true,
   hiddenSelectors: {},
   discoveryCache: {},  // { groupId: [{selector, label, column?}, ...] }
   reorder: {},          // { groupId: [selector, ...] }
-  columnMode: "single", // "single" | "dual"
+  initialSnapshot: null, // set once on first init, cleared by "清除插件数据"
   rescanToast: false
 };
 
@@ -130,11 +127,10 @@ let settings = {};
 
 function loadSettings() {
   const saved = extension_settings[STORAGE_KEY] || {};
-  // saved overrides defaults — preserves user's hiddenSelectors across refreshes
   extension_settings[STORAGE_KEY] = Object.assign({}, defaultSettings, saved);
   settings = extension_settings[STORAGE_KEY];
 
-  // 清理DOM中已不存在的失效条目（插件被卸载等情况）
+  // Clean up stale entries (elements that no longer exist in DOM)
   for (const key of Object.keys(settings.hiddenSelectors)) {
     if (!document.querySelector(key)) delete settings.hiddenSelectors[key];
   }
@@ -155,7 +151,7 @@ function saveSettings() {
   saveSettingsDebounced();
 }
 
-// ── CSS injection ───────────────────────────────────────────────────
+// ── CSS injection ───────────────────────────────────────────────
 function applyHides() {
   let styleEl = document.getElementById("menu-cleaner-hides");
   if (!styleEl) {
@@ -166,14 +162,14 @@ function applyHides() {
 
   const rules = [];
 
-  // Always-hidden items
   if (settings.enabled) {
     for (const sel of ALWAYS_HIDDEN_SELECTORS) {
       rules.push(`${sel} { display: none !important; }`);
     }
+    // Hide the native extensions block — our panel replaces it
+    rules.push(`#rm_extensions_block { display: none !important; }`);
   }
 
-  // User-toggled items
   for (const [selector, hidden] of Object.entries(settings.hiddenSelectors)) {
     if (hidden) {
       rules.push(`${selector} { display: none !important; }`);
@@ -188,351 +184,53 @@ function clearAllHides() {
   if (styleEl) styleEl.textContent = "";
 }
 
-// ── Reorder helpers ─────────────────────────────────────────────────
-function getReorderItems(groupId) {
-  const group = PANEL_GROUPS.find(g => g.id === groupId);
-  if (!group) return [];
+// ── Snapshot system ─────────────────────────────────────────────
+function captureInitialSnapshot() {
+  if (settings.initialSnapshot) return; // already captured
 
-  let order = settings.reorder[groupId];
-  if (!order || order.length === 0) {
-    order = group.items.map(i => i.selector);
-    const cached = settings.discoveryCache[groupId] || [];
-    for (const c of cached) order.push(c.selector);
-  }
-
-  const labelMap = {};
-  for (const item of group.items) labelMap[item.selector] = item.label;
-  const cached = settings.discoveryCache[groupId] || [];
-  for (const item of cached) labelMap[item.selector] = item.label;
-
-  const result = [];
-  const seen = new Set();
-  for (const selector of order) {
-    if (seen.has(selector)) continue;
-    seen.add(selector);
-    if (settings.hiddenSelectors[selector]) continue;
-    result.push({ selector, label: labelMap[selector] || selector });
-  }
-
-  for (const item of group.items) {
-    if (!seen.has(item.selector) && !settings.hiddenSelectors[item.selector]) {
-      seen.add(item.selector);
-      result.push({ selector: item.selector, label: item.label });
-    }
-  }
-  for (const item of cached) {
-    if (!seen.has(item.selector) && !settings.hiddenSelectors[item.selector]) {
-      seen.add(item.selector);
-      result.push({ selector: item.selector, label: item.label });
-    }
-  }
-
-  return result;
-}
-
-function applyReorder(groupId) {
-  var order = settings.reorder[groupId];
-  if (!order || order.length === 0) return;
-
-  if (settings.columnMode === "dual" && groupId === "extensionsSettings") {
-    applyDualColumnReorder(groupId);
-    return;
-  }
-
-  applySingleColumnReorder(groupId);
-}
-
-function applySingleColumnReorder(groupId) {
-  var order = settings.reorder[groupId];
-  if (!order || order.length === 0) return;
-
-  // Collect all visible elements for this group
-  var els = [];
-  for (var i = 0; i < order.length; i++) {
-    if (settings.hiddenSelectors[order[i]]) continue;
-    var el = document.querySelector(order[i]);
-    if (el) els.push(el);
-  }
-
-  if (els.length < 2) return;
-
-  // Find the deepest common ancestor that contains all elements
-  var container = els[0].parentNode;
-  while (container) {
-    var ok = true;
-    for (var j = 0; j < els.length; j++) {
-      if (!container.contains(els[j])) { ok = false; break; }
-    }
-    if (ok) break;
-    container = container.parentNode;
-  }
-  if (!container) return;
-
-  // Walk each element up to its direct child of the container (= reorder unit)
-  var units = [];
-  var seen = new Set();
-  for (var k = 0; k < els.length; k++) {
-    var unit = els[k];
-    while (unit.parentNode && unit.parentNode !== container) {
-      unit = unit.parentNode;
-    }
-    if (unit.parentNode === container && !seen.has(unit)) {
-      seen.add(unit);
-      units.push(unit);
-    }
-  }
-
-  // Move each unit to the end in desired order
-  for (var m = 0; m < units.length; m++) {
-    container.appendChild(units[m]);
-  }
-}
-
-function applyDualColumnReorder(groupId) {
-  var order = settings.reorder[groupId];
-  if (!order || order.length === 0) return;
-
-  var col1 = document.querySelector('#extensions_settings');
-  var col2 = document.querySelector('#extensions_settings2');
-  if (!col1) return;
-
-  // Collect which items originated from col2 (column index === 1)
-  var col2Origin = {};
-  var cached = settings.discoveryCache[groupId] || [];
-  for (var c = 0; c < cached.length; c++) {
-    if (cached[c].column === 1) col2Origin[cached[c].selector] = true;
-  }
-
-  // Split order by column
-  var col1Order = [];
-  var col2Order = [];
-  for (var o = 0; o < order.length; o++) {
-    if (settings.hiddenSelectors[order[o]]) continue;
-    if (col2Origin[order[o]]) {
-      col2Order.push(order[o]);
-    } else {
-      col1Order.push(order[o]);
-    }
-  }
-
-  // Reorder within column 1
-  reorderWithinContainer(col1, col1Order);
-  // Reorder within column 2 (if it exists)
-  if (col2) reorderWithinContainer(col2, col2Order);
-}
-
-function reorderWithinContainer(container, order) {
-  if (order.length < 2) return;
-  var els = [];
-  for (var i = 0; i < order.length; i++) {
-    var el = document.querySelector(order[i]);
-    if (el && container.contains(el)) els.push(el);
-  }
-  if (els.length < 2) return;
-
-  // Walk to direct children of the container
-  var units = [];
-  var seen = new Set();
-  for (var k = 0; k < els.length; k++) {
-    var unit = els[k];
-    while (unit.parentNode && unit.parentNode !== container) {
-      unit = unit.parentNode;
-    }
-    if (unit.parentNode === container && !seen.has(unit)) {
-      seen.add(unit);
-      units.push(unit);
-    }
-  }
-
-  for (var m = 0; m < units.length; m++) {
-    container.appendChild(units[m]);
-  }
-}
-
-function mergeExtensionSettingsColumns() {
-  if (settings.columnMode === "dual") return; // preserve both columns in dual mode
-  const col1 = document.querySelector('#extensions_settings');
-  const col2 = document.querySelector('#extensions_settings2');
-  if (!col1 || !col2) return;
-  while (col2.firstChild) {
-    col1.appendChild(col2.firstChild);
-  }
-  col2.style.display = 'none';
-}
-
-function restoreExtensionSettingsColumns() {
-  const col1 = document.querySelector('#extensions_settings');
-  const col2 = document.querySelector('#extensions_settings2');
-  if (!col1 || !col2) return;
-  col2.style.display = '';
-  const col2Map = {}; // items that belong in col2
-  const col1Map = {}; // items explicitly moved to col1 by user
-  const cached = settings.discoveryCache["extensionsSettings"] || [];
-  for (const item of cached) {
-    if (item.column === 1) col2Map[item.selector] = true;
-    if (item.column === 0) col1Map[item.selector] = true;
-  }
-  // Move col2-origin items from col1 → col2
-  const toCol2 = [];
-  for (const child of col1.children) {
-    if (child.id && col2Map["#" + child.id]) {
-      toCol2.push(child);
-    }
-  }
-  for (const child of toCol2) {
-    col2.appendChild(child);
-  }
-  // Move items explicitly placed in col1 from col2 → col1
-  const toCol1 = [];
-  for (const child of col2.children) {
-    if (child.id && col1Map["#" + child.id]) {
-      toCol1.push(child);
-    }
-  }
-  for (const child of toCol1) {
-    col1.appendChild(child);
-  }
-}
-
-function applyAllReorders() {
-  mergeExtensionSettingsColumns();
+  const snapshot = {};
   for (const group of PANEL_GROUPS) {
-    if (group.reorder) {
-      applyReorder(group.id);
+    if (!group.discovery) continue;
+    const entries = [];
+    const seen = new Set();
+
+    for (let ci = 0; ci < group.discovery.containers.length; ci++) {
+      const container = document.querySelector(group.discovery.containers[ci]);
+      if (!container) continue;
+      let idx = 0;
+      for (const child of container.children) {
+        if (getComputedStyle(child).display === "none") continue;
+        if (!child.id) { child.id = "menu-cleaner-auto-" + (autoIdSeq++); }
+
+        const header = child.querySelector(group.discovery.hasHeader);
+        if (!header) continue;
+        const labelEl = header.querySelector(group.discovery.labelInHeader);
+        let label = labelEl?.textContent?.trim();
+        if (!label) {
+          const icon = header.querySelector(".inline-drawer-icon");
+          const iconText = icon ? icon.textContent.trim() : "";
+          label = (header.textContent || "").trim();
+          if (iconText && label.endsWith(iconText)) {
+            label = label.slice(0, -iconText.length).trim();
+          }
+        }
+        if (!label) continue;
+
+        const selector = "#" + child.id;
+        if (seen.has(selector)) continue;
+        seen.add(selector);
+
+        entries.push({ selector, label, column: ci, index: idx++ });
+      }
     }
-  }
-}
-
-function doRescan() {
-  if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
-  suppressObserver = true;
-
-  if (settings.columnMode === "single") {
-    mergeExtensionSettingsColumns();
-  } else {
-    restoreExtensionSettingsColumns();
-  }
-  refreshDiscoveryCache();
-  applyAllReorders();
-
-  setTimeout(() => { suppressObserver = false; }, 0);
-
-  refreshPopup();
-  if (settings.rescanToast) {
-    const count = Object.values(settings.discoveryCache).reduce((s, arr) => s + arr.length, 0);
-    if (typeof toastr !== "undefined") toastr.info("已重新扫描，发现 " + count + " 个扩展元素");
-  }
-}
-
-function resetAllReorders() {
-  suppressObserver = true;
-  if (settings.columnMode === "single") {
-    mergeExtensionSettingsColumns();
-  } else {
-    restoreExtensionSettingsColumns();
+    if (entries.length > 0) snapshot[group.id] = entries;
   }
 
-  for (const group of PANEL_GROUPS) {
-    if (!group.reorder) continue;
-    const defaultOrder = group.items.map(i => i.selector);
-    const cached = settings.discoveryCache[group.id] || [];
-    for (const c of cached) defaultOrder.push(c.selector);
-    settings.reorder[group.id] = defaultOrder;
-    applyReorder(group.id);
-  }
+  settings.initialSnapshot = snapshot;
   saveSettings();
-  setTimeout(() => { suppressObserver = false; }, 0);
-  // 退出设置页面，回到重排序视图
-  showSettingsPanel = false;
-  activeTab = "reorder";
-  document.querySelectorAll(".menu-cleaner-tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.tab === "reorder");
-  });
-  updatePopupView();
-  renderReorderView();
 }
 
-function applyColumnMode() {
-  suppressObserver = true;
-  if (settings.columnMode === "single") {
-    mergeExtensionSettingsColumns();
-  } else {
-    restoreExtensionSettingsColumns();
-  }
-  refreshDiscoveryCache();
-  applyAllReorders();
-  saveSettings();
-  setTimeout(() => { suppressObserver = false; }, 0);
-}
-
-// ── Settings panel view ───────────────────────────────────────────────
-function renderSettingsView() {
-  const body = document.getElementById("menu-cleaner-popup-body");
-  if (!body) return;
-
-  let html = `
-    <div class="menu-cleaner-settings-panel">
-      <button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>
-      <button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>
-      <button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>
-
-      <div class="menu-cleaner-settings-divider">—————— 扩展菜单分栏选项 ——————</div>
-      <div class="menu-cleaner-settings-radio-group">
-        <label class="menu-cleaner-settings-radio">
-          <input type="radio" name="menu-cleaner-column-mode" value="single" ${settings.columnMode === "single" ? "checked" : ""}>
-          <span>单栏</span>
-        </label>
-        <label class="menu-cleaner-settings-radio">
-          <input type="radio" name="menu-cleaner-column-mode" value="dual" ${settings.columnMode === "dual" ? "checked" : ""}>
-          <span>双栏</span>
-        </label>
-      </div>
-
-      <div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>
-      <div class="menu-cleaner-settings-row">
-        <span>重扫描消息toast</span>
-        <label class="menu-cleaner-toggle">
-          <input type="checkbox" id="menu-cleaner-rescan-toast" ${settings.rescanToast ? "checked" : ""}>
-          <span class="menu-cleaner-slider"></span>
-        </label>
-      </div>
-    </div>
-  `;
-
-  body.innerHTML = html;
-
-  document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => doRescan());
-  document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());
-
-  document.getElementById("menu-cleaner-clear-data")?.addEventListener("click", () => {
-    if (!confirm("确定要清除所有插件配置数据吗？此操作不可撤销。")) return;
-    settings = Object.assign({}, defaultSettings);
-    extension_settings[STORAGE_KEY] = settings;
-    saveSettingsDebounced();
-    clearAllHides();
-    showSettingsPanel = false;
-    activeTab = "hide";
-    updatePopupView();
-    doRescan();
-  });
-
-  document.querySelectorAll("input[name='menu-cleaner-column-mode']").forEach(radio => {
-    radio.addEventListener("change", (e) => {
-      settings.columnMode = e.target.value;
-      applyColumnMode();
-      saveSettings();
-    });
-  });
-
-  document.getElementById("menu-cleaner-rescan-toast")?.addEventListener("change", (e) => {
-    settings.rescanToast = e.target.checked;
-    saveSettings();
-  });
-
-  positionPopup();
-}
-
-// ── Dynamic discovery ──────────────────────────────────────────────
+// ── Dynamic discovery ──────────────────────────────────────────
 function discoverItems(group) {
   if (!group.discovery) return [];
   const discovered = [];
@@ -541,13 +239,11 @@ function discoverItems(group) {
   const multiContainer = group.discovery.containers.length > 1;
 
   for (let ci = 0; ci < group.discovery.containers.length; ci++) {
-    const containerSel = group.discovery.containers[ci];
-    const container = document.querySelector(containerSel);
+    const container = document.querySelector(group.discovery.containers[ci]);
     if (!container) continue;
     const columnIndex = multiContainer ? ci : undefined;
 
     if (group.discovery.itemMatch) {
-      // Mode: find individual items matching a selector within visible children
       for (const child of container.children) {
         if (getComputedStyle(child).display === "none") continue;
         const matchedElements = new Set();
@@ -573,7 +269,7 @@ function discoverItems(group) {
           for (const directChild of child.children) {
             if (matchedElements.has(directChild)) continue;
             if (directChild.style.display === "none") continue;
-            // Skip descendants of hardcoded items to avoid re-discovering them as third-party
+            // Skip descendants of hardcoded items
             let isHardcodedDescendant = false;
             for (const hc of group.items) {
               const hcEl = document.querySelector(hc.selector);
@@ -601,7 +297,18 @@ function discoverItems(group) {
         if (!header) continue;
 
         const labelEl = header.querySelector(group.discovery.labelInHeader);
-        const label = labelEl?.textContent?.trim();
+        let label = labelEl?.textContent?.trim();
+        // Fallback: if the targeted label element wasn't found (some extensions
+        // use <span> or plain text instead of <b>/[data-i18n]), extract the header's
+        // own text minus the icon's text content
+        if (!label) {
+          const icon = header.querySelector(".inline-drawer-icon");
+          const iconText = icon ? icon.textContent.trim() : "";
+          label = (header.textContent || "").trim();
+          if (iconText && label.endsWith(iconText)) {
+            label = label.slice(0, -iconText.length).trim();
+          }
+        }
         if (!label) continue;
 
         if (!child.id) { child.id = "menu-cleaner-auto-" + (autoIdSeq++); }
@@ -623,9 +330,10 @@ function refreshDiscoveryCache() {
     if (!group.discovery) continue;
     const allDiscovered = discoverItems(group);
     const hardcodedSet = new Set(group.items.map(i => i.selector));
+
+    // Filter: exclude hardcoded items and their descendants
     const newItems = allDiscovered.filter(d => {
       if (hardcodedSet.has(d.selector)) return false;
-      // Also skip descendants of hardcoded items (alsoMatchChildren may pick up sub-elements)
       const el = document.querySelector(d.selector);
       if (el) {
         for (const hcSel of group.items.map(i => i.selector)) {
@@ -636,7 +344,7 @@ function refreshDiscoveryCache() {
       return true;
     });
 
-    // Preserve column origin from the previous cache for items that have it
+    // Preserve column origin from old cache
     const oldCache = settings.discoveryCache[group.id] || [];
     const oldColMap = {};
     for (const old of oldCache) {
@@ -648,9 +356,7 @@ function refreshDiscoveryCache() {
       }
     }
 
-    // Preserve hardcoded items' column info (lost during filter above).
-    // These entries are created by moveElementToColumn() when a hardcoded
-    // element is dragged between columns and must survive rescans.
+    // Preserve hardcoded items' column info (created by cross-column moves)
     for (const old of oldCache) {
       if (hardcodedSet.has(old.selector) && old.column !== undefined) {
         if (!newItems.find(n => n.selector === old.selector)) {
@@ -661,8 +367,8 @@ function refreshDiscoveryCache() {
 
     settings.discoveryCache[group.id] = newItems;
 
-    // Append newly discovered selectors to the reorder list
-    if (group.reorder && newItems.length > 0) {
+    // Append newly discovered selectors to reorder list
+    if (REORDER_GROUP_IDS.indexOf(group.id) !== -1 && newItems.length > 0) {
       if (!settings.reorder[group.id]) settings.reorder[group.id] = [];
       const existing = new Set(settings.reorder[group.id]);
       for (const item of newItems) {
@@ -675,7 +381,213 @@ function refreshDiscoveryCache() {
   saveSettings();
 }
 
-// ── UI: Entry in extensionsMenu ─────────────────────────────────────
+// ── Column cache helper ─────────────────────────────────────────
+function setColumnInCache(selector, groupId, columnIndex) {
+  if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
+  const entry = settings.discoveryCache[groupId].find(c => c.selector === selector);
+  if (entry) {
+    entry.column = columnIndex;
+  } else {
+    const el = document.querySelector(selector);
+    const label = el ? (el.textContent || "").trim().substring(0, 40) : selector;
+    settings.discoveryCache[groupId].push({ selector, label, column: columnIndex });
+  }
+}
+
+// ── Reorder helpers ─────────────────────────────────────────────
+function getReorderItems(groupId) {
+  const group = PANEL_GROUPS.find(g => g.id === groupId);
+  if (!group) return [];
+
+  let order = settings.reorder[groupId];
+  if (!order || order.length === 0) {
+    order = group.items.map(i => i.selector);
+    const cached = settings.discoveryCache[groupId] || [];
+    for (const c of cached) order.push(c.selector);
+  }
+
+  const labelMap = {};
+  for (const item of group.items) labelMap[item.selector] = item.label;
+  const cached = settings.discoveryCache[groupId] || [];
+  for (const item of cached) labelMap[item.selector] = item.label;
+
+  const result = [];
+  const seen = new Set();
+  for (const selector of order) {
+    if (seen.has(selector)) continue;
+    seen.add(selector);
+    if (settings.hiddenSelectors[selector]) continue;
+    result.push({ selector, label: labelMap[selector] || selector });
+  }
+
+  // Append items not yet in order
+  for (const item of group.items) {
+    if (!seen.has(item.selector) && !settings.hiddenSelectors[item.selector]) {
+      seen.add(item.selector);
+      result.push({ selector: item.selector, label: item.label });
+    }
+  }
+  for (const item of cached) {
+    if (!seen.has(item.selector) && !settings.hiddenSelectors[item.selector]) {
+      seen.add(item.selector);
+      result.push({ selector: item.selector, label: item.label });
+    }
+  }
+
+  return result;
+}
+
+function getColumnIndex(selector, groupId) {
+  const cached = settings.discoveryCache[groupId] || [];
+  const entry = cached.find(c => c.selector === selector);
+  return entry ? (entry.column || 0) : 0;
+}
+
+// ── Extensions panel ────────────────────────────────────────────
+function createExtensionsPanelDOM() {
+  if (document.getElementById("menu-cleaner-ext-panel")) return;
+
+  const html = `
+    <div id="menu-cleaner-ext-panel" class="drawer-content menu-cleaner-ext-panel">
+      <div class="extensions_block flex-container">
+        <div id="menu-cleaner-ext-topbar" class="alignitemscenter flex-container wide100p">
+          <h3 class="margin0 flex1">扩展</h3>
+        </div>
+        <div id="menu-cleaner-ext-col1" class="flex1 wide50p menu-cleaner-ext-col"></div>
+        <div id="menu-cleaner-ext-col2" class="flex1 wide50p menu-cleaner-ext-col"></div>
+        <hr class="wide100p margin0">
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", html);
+}
+
+function renderExtensionsPanel() {
+  const col1 = document.getElementById("menu-cleaner-ext-col1");
+  const col2 = document.getElementById("menu-cleaner-ext-col2");
+  if (!col1 || !col2) return;
+
+  const groupId = "extensionsSettings";
+  const order = settings.reorder[groupId] || [];
+  const group = PANEL_GROUPS.find(g => g.id === groupId);
+  if (!group) return;
+
+  // Build default order if none saved
+  if (order.length === 0) {
+    const defaults = group.items.map(i => i.selector);
+    const cached = settings.discoveryCache[groupId] || [];
+    for (const c of cached) defaults.push(c.selector);
+    settings.reorder[groupId] = defaults;
+  }
+
+  const actualOrder = settings.reorder[groupId] || [];
+  const colMap = {};
+  const cached = settings.discoveryCache[groupId] || [];
+  for (const c of cached) {
+    colMap[c.selector] = c.column !== undefined ? c.column : 0;
+  }
+
+  // Collect elements by column in order
+  const col1Els = [];
+  const col2Els = [];
+  const placed = new Set();
+
+  for (const selector of actualOrder) {
+    if (settings.hiddenSelectors[selector]) continue;
+    const el = document.querySelector(selector);
+    if (!el) continue;
+    placed.add(selector);
+    const col = colMap[selector] === 1 ? 1 : 0;
+    if (col === 1) col2Els.push(el);
+    else col1Els.push(el);
+  }
+
+  // Append elements not in order (newly discovered, etc.)
+  for (const c of (settings.discoveryCache[groupId] || [])) {
+    if (placed.has(c.selector)) continue;
+    if (settings.hiddenSelectors[c.selector]) continue;
+    const el = document.querySelector(c.selector);
+    if (!el) continue;
+    placed.add(c.selector);
+    const col = c.column === 1 ? 1 : 0;
+    if (col === 1) col2Els.push(el);
+    else col1Els.push(el);
+  }
+
+  // Move native topbar elements into our panel's top bar
+  const topbar = document.getElementById("menu-cleaner-ext-topbar");
+  if (topbar) {
+    // Ensure native topbar elements are in our panel
+    const nativeDetails = document.getElementById("extensions_details");
+    const nativeThirdParty = document.getElementById("third_party_extension_button");
+    if (nativeDetails && nativeDetails.parentNode !== topbar) topbar.appendChild(nativeDetails);
+    if (nativeThirdParty && nativeThirdParty.parentNode !== topbar) topbar.appendChild(nativeThirdParty);
+    // Move the "notify on update" checkbox label if it exists
+    const notifyLabel = document.querySelector("#rm_extensions_block .checkbox_label.flexNoGap");
+    if (notifyLabel && notifyLabel.parentNode !== topbar) topbar.appendChild(notifyLabel);
+  }
+
+  // Render elements in order — clear and append
+  col1.innerHTML = "";
+  col2.innerHTML = "";
+  for (const el of col1Els) col1.appendChild(el);
+  for (const el of col2Els) col2.appendChild(el);
+}
+
+function toggleExtensionsPanel() {
+  extPanelVisible = !extPanelVisible;
+  const panel = document.getElementById("menu-cleaner-ext-panel");
+  if (!panel) {
+    createExtensionsPanelDOM();
+    return toggleExtensionsPanel();
+  }
+
+  if (extPanelVisible) {
+    renderExtensionsPanel();
+    panel.style.display = "block";
+    panel.style.visibility = "visible";
+    panel.style.height = "auto";
+    panel.classList.remove("closedDrawer");
+    positionExtensionsPanel();
+  } else {
+    panel.style.display = "none";
+  }
+}
+
+function isPanelOpen() {
+  return extPanelVisible;
+}
+
+function positionExtensionsPanel() {
+  const panel = document.getElementById("menu-cleaner-ext-panel");
+  if (!panel) return;
+  // The .drawer-content base class already handles positioning via CSS
+  // (position:absolute, top:var(--topBarBlockSize), left:0, right:0, margin:0 auto)
+  // We only adjust height to prevent overflow
+  panel.style.maxHeight = "80vh";
+  panel.style.overflow = "auto";
+}
+
+// ── Panel intercept ─────────────────────────────────────────────
+function setupPanelIntercept() {
+  // #extensions-settings-button is a .drawer container that holds
+  // both the .drawer-toggle icon AND #rm_extensions_block content.
+  // We intercept clicks on the toggle in capture phase so our handler
+  // runs before SillyTavern's jQuery bubble-phase handler.
+  const drawerToggle = document.querySelector("#extensions-settings-button > .drawer-toggle");
+  if (!drawerToggle) {
+    setTimeout(setupPanelIntercept, 500);
+    return;
+  }
+  drawerToggle.addEventListener("click", function(e) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    toggleExtensionsPanel();
+  }, true);
+}
+
+// ── UI: Entry in extensionsMenu ─────────────────────────────────
 function injectMenuEntry() {
   const menu = document.querySelector("#extensionsMenu");
   if (!menu) {
@@ -697,7 +609,7 @@ function injectMenuEntry() {
   container.addEventListener("click", () => openPopup());
 }
 
-// ── UI: Settings drawer in extensions_settings ──────────────────────
+// ── UI: Settings drawer in extensions_settings ──────────────────
 function injectSettingsEntry() {
   const target = document.querySelector("#extensions_settings");
   if (!target) {
@@ -735,13 +647,39 @@ function injectSettingsEntry() {
   document.getElementById("menu-cleaner-enable")?.addEventListener("change", (e) => {
     settings.enabled = e.target.checked;
     saveSettings();
-    e.target.checked ? applyHides() : clearAllHides();
+    if (e.target.checked) {
+      applyHides();
+      // Switch back to our panel
+      setupPanelIntercept();
+    } else {
+      clearAllHides();
+      // Show native panel again, move elements back
+      const panel = document.getElementById("menu-cleaner-ext-panel");
+      if (panel) panel.style.display = "none";
+      extPanelVisible = false;
+      // Move elements back to native containers
+      returnElementsToNative();
+    }
   });
 
   document.getElementById("menu-cleaner-open-popup")?.addEventListener("click", () => openPopup());
 }
 
-// ── Popup ───────────────────────────────────────────────────────────
+function returnElementsToNative() {
+  const col1 = document.getElementById("menu-cleaner-ext-col1");
+  const col2 = document.getElementById("menu-cleaner-ext-col2");
+  const nativeCol1 = document.getElementById("extensions_settings");
+  const nativeCol2 = document.getElementById("extensions_settings2");
+
+  if (col1 && nativeCol1) {
+    while (col1.firstChild) nativeCol1.appendChild(col1.firstChild);
+  }
+  if (col2 && nativeCol2) {
+    while (col2.firstChild) nativeCol2.appendChild(col2.firstChild);
+  }
+}
+
+// ── Popup ───────────────────────────────────────────────────────
 function createPopupDOM() {
   if (document.getElementById("menu-cleaner-popup")) return;
 
@@ -768,7 +706,6 @@ function createPopupDOM() {
   document.getElementById("menu-cleaner-backdrop")?.addEventListener("click", closePopup);
   document.getElementById("menu-cleaner-settings-btn")?.addEventListener("click", toggleSettingsPanel);
 
-  // Tab switching
   document.querySelectorAll(".menu-cleaner-tab").forEach(tab => {
     tab.addEventListener("click", () => switchTab(tab.dataset.tab));
   });
@@ -821,23 +758,76 @@ function switchTab(tabName) {
   refreshPopup();
 }
 
+// ── Settings panel view ─────────────────────────────────────────
+function renderSettingsView() {
+  const body = document.getElementById("menu-cleaner-popup-body");
+  if (!body) return;
+
+  let html = `
+    <div class="menu-cleaner-settings-panel">
+      <button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>
+      <button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>
+      <button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>
+
+      <div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>
+      <div class="menu-cleaner-settings-row">
+        <span>重扫描消息toast</span>
+        <label class="menu-cleaner-toggle">
+          <input type="checkbox" id="menu-cleaner-rescan-toast" ${settings.rescanToast ? "checked" : ""}>
+          <span class="menu-cleaner-slider"></span>
+        </label>
+      </div>
+    </div>
+  `;
+
+  body.innerHTML = html;
+
+  document.getElementById("menu-cleaner-rescan")?.addEventListener("click", () => doRescan());
+  document.getElementById("menu-cleaner-reset-order")?.addEventListener("click", () => resetAllReorders());
+
+  document.getElementById("menu-cleaner-clear-data")?.addEventListener("click", () => {
+    if (!confirm("确定要清除所有插件配置数据吗？此操作不可撤销。")) return;
+    settings = Object.assign({}, defaultSettings);
+    extension_settings[STORAGE_KEY] = settings;
+    saveSettingsDebounced();
+    clearAllHides();
+    showSettingsPanel = false;
+    activeTab = "hide";
+    updatePopupView();
+    // Re-run init sequence
+    captureInitialSnapshot();
+    refreshDiscoveryCache();
+    applyHides();
+    createExtensionsPanelDOM();
+    setupPanelIntercept();
+    renderExtensionsPanel();
+  });
+
+  document.getElementById("menu-cleaner-rescan-toast")?.addEventListener("change", (e) => {
+    settings.rescanToast = e.target.checked;
+    saveSettings();
+  });
+
+  positionPopup();
+}
+
+// ── Reorder view ────────────────────────────────────────────────
 function renderReorderView() {
   const body = document.getElementById("menu-cleaner-popup-body");
   if (!body) return;
 
-  // Save which groups are currently expanded
   const expanded = new Set();
   document.querySelectorAll(".menu-cleaner-category-body:not(.collapsed)").forEach(b => {
     expanded.add(b.dataset.group);
   });
 
-  const reorderGroups = PANEL_GROUPS.filter(g => g.reorder);
+  const reorderGroups = PANEL_GROUPS.filter(g => REORDER_GROUP_IDS.indexOf(g.id) !== -1);
   let html = "";
 
   for (const group of reorderGroups) {
     const items = getReorderItems(group.id);
     const isExpanded = expanded.has(group.id);
-    const isDualCol = settings.columnMode === "dual" && group.id === "extensionsSettings";
+    const isDualCol = group.id === "extensionsSettings";
 
     html += `<div class="menu-cleaner-category">`;
     html += `<div class="menu-cleaner-category-header" data-group="${group.id}">
@@ -848,13 +838,12 @@ function renderReorderView() {
     html += `<div class="menu-cleaner-category-body${isExpanded ? "" : " collapsed"}" data-group="${group.id}">`;
 
     if (isDualCol) {
+      // Split into left/right column
       const col0Items = items.filter(function(it) {
-        var cached = (settings.discoveryCache[group.id] || []).find(function(c) { return c.selector === it.selector; });
-        return !cached || cached.column !== 1;
+        return getColumnIndex(it.selector, group.id) === 0;
       });
       const col1Items = items.filter(function(it) {
-        var cached = (settings.discoveryCache[group.id] || []).find(function(c) { return c.selector === it.selector; });
-        return cached && cached.column === 1;
+        return getColumnIndex(it.selector, group.id) === 1;
       });
 
       html += renderColumnSection(group, col0Items, 0, "左栏");
@@ -915,38 +904,7 @@ function buildReorderItemHTML(item, groupId, index, colIndex) {
           </div>`;
 }
 
-function moveElementToColumn(selector, groupId, targetColumn) {
-  // Update or create discoveryCache column origin
-  if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
-  var cached = settings.discoveryCache[groupId];
-  var entry = cached.find(function(c) { return c.selector === selector; });
-  if (entry) {
-    entry.column = targetColumn;
-  } else {
-    // Hardcoded item moved between columns: create a cache entry
-    var elForLabel = document.querySelector(selector);
-    var label = elForLabel ? (elForLabel.textContent || "").trim().substring(0, 40) : selector;
-    cached.push({ selector: selector, label: label, column: targetColumn });
-  }
-
-  // Move DOM element to the appropriate container
-  var el = document.querySelector(selector);
-  if (el) {
-    var containers = [];
-    for (var _g of PANEL_GROUPS) {
-      if (_g.id === groupId && _g.discovery) {
-        containers = _g.discovery.containers;
-      }
-    }
-    if (containers.length > targetColumn) {
-      var targetContainer = document.querySelector(containers[targetColumn]);
-      if (targetContainer && el.parentNode !== targetContainer) {
-        targetContainer.appendChild(el);
-      }
-    }
-  }
-}
-
+// ── Drag events ─────────────────────────────────────────────────
 function bindReorderDragEvents() {
   let draggedItem = null;
   let draggedGroup = null;
@@ -957,37 +915,40 @@ function bindReorderDragEvents() {
   let touchMoved = false;
 
   function doReorder(fromIndex, toIndex, groupId) {
-    var fromCol = draggedItem ? draggedItem.dataset.column : "-1";
-    var toCol = doReorder._dropTargetColumn;
+    const fromCol = draggedItem ? draggedItem.dataset.column : "-1";
+    const toCol = doReorder._dropTargetColumn;
 
     if (fromCol !== "-1" && toCol !== undefined && toCol !== "-1" && fromCol !== toCol) {
-      // Cross-column move
-      var selector = draggedItem.dataset.selector;
-      var items = getReorderItems(groupId);
-      var movedItem = items.find(function(it) { return it.selector === selector; });
+      // Cross-column move: update column in cache, then re-sort the order array
+      const selector = draggedItem.dataset.selector;
+      const items = getReorderItems(groupId);
+      const movedItem = items.find(function(it) { return it.selector === selector; });
       if (!movedItem) return;
 
-      // Remove from current position in flat list
-      var remaining = items.filter(function(it) { return it.selector !== selector; });
+      // Update column in discovery cache
+      setColumnInCache(selector, groupId, parseInt(toCol));
 
-      // Find target item and insert after it
-      var targetItem = items.find(function(it, idx) { return idx === toIndex; });
+      // Rebuild order: all items in their new column-aware order
+      const remaining = items.filter(function(it) { return it.selector !== selector; });
+
+      // Find insertion point: after the target item
+      const targetItem = items.find(function(it, idx) { return idx === toIndex; });
       if (targetItem) {
-        var insertIdx = remaining.findIndex(function(it) { return it.selector === targetItem.selector; });
+        const insertIdx = remaining.findIndex(function(it) { return it.selector === targetItem.selector; });
         remaining.splice(insertIdx + 1, 0, movedItem);
       } else {
         remaining.push(movedItem);
       }
 
       settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
-      moveElementToColumn(selector, groupId, parseInt(toCol));
       saveSettings();
-      applyReorder(groupId);
+      // Refresh extension panel if open
+      if (isPanelOpen() && groupId === "extensionsSettings") renderExtensionsPanel();
       renderReorderView();
       return;
     }
 
-    // Same-column reorder
+    // Same-column reorder: pure array splice
     const items = getReorderItems(groupId);
     if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
 
@@ -996,7 +957,8 @@ function bindReorderDragEvents() {
 
     settings.reorder[groupId] = items.map(function(i) { return i.selector; });
     saveSettings();
-    applyReorder(groupId);
+    // Refresh extension panel if open
+    if (isPanelOpen() && groupId === "extensionsSettings") renderExtensionsPanel();
     renderReorderView();
   }
 
@@ -1016,8 +978,7 @@ function bindReorderDragEvents() {
   }
 
   document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(item) {
-    // ── Native HTML5 DnD (desktop) ──────────────────────────
-
+    // ── Native HTML5 DnD (desktop) ────────────────────────
     item.addEventListener("dragstart", function(e) {
       draggedItem = item;
       draggedGroup = item.dataset.group;
@@ -1034,7 +995,6 @@ function bindReorderDragEvents() {
     item.addEventListener("dragover", function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      // Allow cross-column drag within same group
       if (item !== draggedItem && item.dataset.group === draggedGroup) {
         item.classList.add("drag-over");
       }
@@ -1049,19 +1009,17 @@ function bindReorderDragEvents() {
       item.classList.remove("drag-over");
       if (!draggedItem || item === draggedItem) return;
       if (item.dataset.group !== draggedGroup) return;
-      // Store target column for doReorder
       doReorder._dropTargetColumn = item.dataset.column;
       doReorder(draggedIndex, parseInt(item.dataset.index), draggedGroup);
       doReorder._dropTargetColumn = undefined;
       cleanupDrag();
     });
 
-    // ── Touch polyfill (mobile) ─────────────────────────────
-
+    // ── Touch polyfill (mobile) ───────────────────────────
     item.addEventListener("touchstart", function(e) {
       if (e.touches.length !== 1) return;
       e.preventDefault();
-      var touch = e.touches[0];
+      const touch = e.touches[0];
       touchStartX = touch.clientX;
       touchStartY = touch.clientY;
       touchMoved = false;
@@ -1071,7 +1029,6 @@ function bindReorderDragEvents() {
       draggedIndex = parseInt(item.dataset.index);
       item.classList.add("dragging");
 
-      // Create ghost element that follows the finger
       touchGhost = item.cloneNode(true);
       touchGhost.style.position = "fixed";
       touchGhost.style.zIndex = "100001";
@@ -1088,22 +1045,19 @@ function bindReorderDragEvents() {
       if (!draggedItem) return;
       e.preventDefault();
       touchMoved = true;
-      var touch = e.touches[0];
+      const touch = e.touches[0];
 
-      // Move ghost
       if (touchGhost) {
         touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + "px";
         touchGhost.style.top = (touch.clientY - 20) + "px";
       }
 
-      // Hide ghost briefly so it doesn't block elementFromPoint
       if (touchGhost) touchGhost.style.display = "none";
-      var target = document.elementFromPoint(touch.clientX, touch.clientY);
+      const target = document.elementFromPoint(touch.clientX, touch.clientY);
       if (touchGhost) touchGhost.style.display = "";
 
-      var targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+      const targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
 
-      // Manage drag-over classes
       document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(el) {
         if (el === targetItem && el !== draggedItem && el.dataset.group === draggedGroup) {
           el.classList.add("drag-over");
@@ -1118,12 +1072,12 @@ function bindReorderDragEvents() {
       e.preventDefault();
 
       if (touchMoved) {
-        var touch = e.changedTouches[0];
+        const touch = e.changedTouches[0];
         if (touchGhost) touchGhost.style.display = "none";
-        var target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
         if (touchGhost) touchGhost.style.display = "";
 
-        var targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+        const targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
         if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
           targetItem.classList.remove("drag-over");
           doReorder._dropTargetColumn = targetItem.dataset.column;
@@ -1140,7 +1094,7 @@ function bindReorderDragEvents() {
     });
   });
 
-  // Bind column-section drop (for cross-column drag into empty columns)
+  // Column-section drop targets for cross-column drag
   document.querySelectorAll(".menu-cleaner-reorder-column-section").forEach(function(section) {
     section.addEventListener("dragover", function(e) {
       e.preventDefault();
@@ -1149,7 +1103,6 @@ function bindReorderDragEvents() {
     });
 
     section.addEventListener("dragleave", function(e) {
-      // Only remove if leaving the section (not entering a child)
       if (!section.contains(e.relatedTarget)) {
         section.classList.remove("drag-over-section");
       }
@@ -1160,29 +1113,27 @@ function bindReorderDragEvents() {
       section.classList.remove("drag-over-section");
       if (!draggedItem) return;
 
-      // Determine target column from the section's items
-      var firstItem = section.querySelector(".menu-cleaner-reorder-item");
+      const firstItem = section.querySelector(".menu-cleaner-reorder-item");
       if (!firstItem) {
-        // Empty column: append dragged item to this column
-        var targetCol = -1;
-        // Infer column from section label
-        var label = section.querySelector(".menu-cleaner-reorder-column-label");
+        // Empty column: move item to this column
+        let targetCol = -1;
+        const label = section.querySelector(".menu-cleaner-reorder-column-label");
         if (label) {
           if (label.textContent.indexOf("右栏") !== -1) targetCol = 1;
           else if (label.textContent.indexOf("左栏") !== -1) targetCol = 0;
         }
         if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
-          var selector = draggedItem.dataset.selector;
-          var groupId = draggedGroup;
-          var items = getReorderItems(groupId);
-          var movedItem = items.find(function(it) { return it.selector === selector; });
+          const selector = draggedItem.dataset.selector;
+          const groupId = draggedGroup;
+          const items = getReorderItems(groupId);
+          const movedItem = items.find(function(it) { return it.selector === selector; });
           if (movedItem) {
-            var remaining = items.filter(function(it) { return it.selector !== selector; });
+            setColumnInCache(selector, groupId, targetCol);
+            const remaining = items.filter(function(it) { return it.selector !== selector; });
             remaining.push(movedItem);
             settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
-            moveElementToColumn(selector, groupId, targetCol);
             saveSettings();
-            applyReorder(groupId);
+            if (isPanelOpen() && groupId === "extensionsSettings") renderExtensionsPanel();
             renderReorderView();
           }
         }
@@ -1192,6 +1143,7 @@ function bindReorderDragEvents() {
   });
 }
 
+// ── Popup positioning ───────────────────────────────────────────
 function positionPopup() {
   const popup = document.getElementById("menu-cleaner-popup");
   if (!popup) return;
@@ -1199,11 +1151,9 @@ function positionPopup() {
   const vw = window.innerWidth;
   const margin = 10;
 
-  // Apply size constraints first so we can measure the real dimensions
   popup.style.maxHeight = "90vh";
   popup.style.maxWidth = Math.min(560, vw - margin * 2) + "px";
 
-  // Temporarily pin to origin to get an accurate measurement
   popup.style.top = "0";
   popup.style.left = "0";
   popup.style.transform = "none";
@@ -1211,7 +1161,6 @@ function positionPopup() {
   const popupHeight = popup.offsetHeight;
   const popupWidth = popup.offsetWidth;
 
-  // Center with safety margin (same approach as hide-helper)
   const top = Math.max(margin, (vh - popupHeight) / 2.5);
   const left = Math.max(margin, (vw - popupWidth) / 2);
 
@@ -1219,7 +1168,7 @@ function positionPopup() {
   popup.style.left = left + "px";
 }
 
-// ── Build popup content from hardcoded data ─────────────────────────
+// ── Build popup content from hardcoded data ─────────────────────
 function refreshPopup() {
   if (showSettingsPanel) return;
   if (activeTab === "reorder") {
@@ -1281,9 +1230,7 @@ function renderHideView() {
   positionPopup();
 }
 
-// ── Popup event bindings ────────────────────────────────────────────
 function bindPopupEvents() {
-  // Category collapse/expand
   document.querySelectorAll(".menu-cleaner-category-header").forEach(header => {
     header.addEventListener("click", () => {
       const groupId = header.dataset.group;
@@ -1297,7 +1244,6 @@ function bindPopupEvents() {
     });
   });
 
-  // Toggle switches
   document.querySelectorAll(".menu-cleaner-checkbox").forEach(cb => {
     cb.addEventListener("change", (e) => {
       const selector = e.target.dataset.selector;
@@ -1305,6 +1251,8 @@ function bindPopupEvents() {
       settings.hiddenSelectors[selector] = !e.target.checked;
       saveSettings();
       applyHides();
+      // If extension panel is open, re-render to reflect hide changes
+      if (isPanelOpen()) renderExtensionsPanel();
     });
   });
 }
@@ -1315,13 +1263,86 @@ function escHtml(str) {
   return div.innerHTML;
 }
 
-// ── Keyboard ────────────────────────────────────────────────────────
+// ── Reset ───────────────────────────────────────────────────
+function resetAllReorders() {
+  const snap = settings.initialSnapshot;
+  if (!snap) {
+    // No snapshot — rebuild from current DOM state
+    captureInitialSnapshot();
+  }
+
+  for (const group of PANEL_GROUPS) {
+    if (REORDER_GROUP_IDS.indexOf(group.id) === -1) continue;
+
+    if (settings.initialSnapshot && settings.initialSnapshot[group.id]) {
+      const snapEntries = settings.initialSnapshot[group.id];
+      // Restore reorder from snapshot
+      settings.reorder[group.id] = snapEntries.map(s => s.selector);
+
+      // Restore discovery cache column info from snapshot
+      const existingCache = settings.discoveryCache[group.id] || [];
+      for (const s of snapEntries) {
+        if (s.column !== undefined) {
+          const existing = existingCache.find(c => c.selector === s.selector);
+          if (existing) {
+            existing.column = s.column;
+          } else {
+            existingCache.push({ selector: s.selector, label: s.label, column: s.column });
+          }
+        }
+      }
+      settings.discoveryCache[group.id] = existingCache;
+    } else {
+      // Fallback: use hardcoded items order
+      const defaultOrder = group.items.map(i => i.selector);
+      const cached = settings.discoveryCache[group.id] || [];
+      for (const c of cached) defaultOrder.push(c.selector);
+      settings.reorder[group.id] = defaultOrder;
+    }
+  }
+
+  saveSettings();
+
+  // Refresh UI
+  showSettingsPanel = false;
+  activeTab = "reorder";
+  document.querySelectorAll(".menu-cleaner-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === "reorder");
+  });
+  updatePopupView();
+  renderReorderView();
+
+  // Refresh extension panel if open
+  if (isPanelOpen()) renderExtensionsPanel();
+}
+
+// ── Rescan ───────────────────────────────────────────────────
+function doRescan() {
+  if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
+
+  refreshDiscoveryCache();
+  // If extension panel is open, re-render it to reflect new discoveries
+  if (isPanelOpen()) renderExtensionsPanel();
+  refreshPopup();
+
+  if (settings.rescanToast) {
+    const count = Object.values(settings.discoveryCache).reduce((s, arr) => s + arr.length, 0);
+    if (typeof toastr !== "undefined") toastr.info("已重新扫描，发现 " + count + " 个扩展元素");
+  }
+}
+
+// ── Keyboard ──────────────────────────────────────────────────
 function setupKeyboard() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       const popup = document.getElementById("menu-cleaner-popup");
       if (popup && popup.style.display !== "none") {
         closePopup();
+        return;
+      }
+      // Also close extension panel on escape
+      if (extPanelVisible) {
+        toggleExtensionsPanel();
       }
     }
   });
@@ -1331,10 +1352,30 @@ function setupKeyboard() {
     if (popup && popup.style.display !== "none") {
       positionPopup();
     }
+    if (extPanelVisible) {
+      positionExtensionsPanel();
+    }
   });
 }
 
-// ── Slash command ─────────────────────────────────────────────────
+// ── Disable extension ─────────────────────────────────────────
+function disableExtension() {
+  settings.enabled = false;
+  saveSettings();
+  clearAllHides();
+  if (extPanelVisible) {
+    toggleExtensionsPanel();
+  }
+  const panel = document.getElementById("menu-cleaner-ext-panel");
+  if (panel) panel.style.display = "none";
+  extPanelVisible = false;
+  returnElementsToNative();
+  // Remove our click interceptor from the drawer toggle
+  // (it was added in capture phase, so we just rely on enabled check in init)
+  if (typeof toastr !== "undefined") toastr.info("酒馆菜单精简器已禁用，刷新页面后生效");
+}
+
+// ── Slash commands ────────────────────────────────────────────
 function registerSlashCmd() {
   try {
     registerSlashCommand(
@@ -1343,13 +1384,19 @@ function registerSlashCmd() {
       [],
       "打开酒馆菜单精简器操作面板"
     );
-    console.debug("[MenuCleaner] 已注册 /menucleaner 命令");
+    registerSlashCommand(
+      "menucleanerdisable",
+      () => { disableExtension(); return ""; },
+      [],
+      "禁用酒馆菜单精简器（关闭面板并恢复原生扩展面板）"
+    );
+    console.debug("[MenuCleaner] 已注册 /menucleaner 和 /menucleanerdisable 命令");
   } catch (e) {
     console.debug("[MenuCleaner] 斜杠命令注册失败", e);
   }
 }
 
-// ── Auto-rescan ──────────────────────────────────────────────────────
+// ── Auto-rescan ──────────────────────────────────────────────
 function scheduleAutoRescan() {
   if (rescanTimer) clearTimeout(rescanTimer);
   rescanTimer = setTimeout(() => {
@@ -1378,7 +1425,6 @@ function setupAutoRescan() {
       const el = document.querySelector(sel);
       if (!el) return;
       const observer = new MutationObserver((mutations) => {
-        if (suppressObserver) return;
         for (const m of mutations) {
           if (m.addedNodes.length > 0) {
             scheduleAutoRescan();
@@ -1403,53 +1449,37 @@ function setupAutoRescan() {
   setTimeout(tryObserve, 1000);
 }
 
-// ── Init ────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────
 function init() {
   loadSettings();
 
-  // Scan first to capture column origins from the natural DOM state,
-  // so dual mode can later restore items to their original columns.
+  // Step 1: Capture initial snapshot (only on first run)
+  captureInitialSnapshot();
+
+  // Step 2: Scan to build discovery cache
   refreshDiscoveryCache();
 
-  // Then apply column mode (merge or restore)
-  if (settings.columnMode === "dual") {
-    restoreExtensionSettingsColumns();
-  } else {
-    mergeExtensionSettingsColumns();
-  }
-
+  // Step 3: Inject UI elements
   injectMenuEntry();
   injectSettingsEntry();
+
+  // Step 4: Create our extensions panel and intercept the native button
+  if (settings.enabled) {
+    applyHides();
+    createExtensionsPanelDOM();
+    setupPanelIntercept();
+  }
+
+  // Step 5: Setup other systems
   setupKeyboard();
   registerSlashCmd();
   setupAutoRescan();
 
   // Delayed re-scan catches extensions that inject buttons after init
   setTimeout(() => {
-    suppressObserver = true;
-    if (settings.columnMode === "single") {
-      mergeExtensionSettingsColumns();
-    } else {
-      restoreExtensionSettingsColumns();
-    }
     refreshDiscoveryCache();
-    applyAllReorders();
-    setTimeout(() => { suppressObserver = false; }, 0);
+    if (settings.enabled && isPanelOpen()) renderExtensionsPanel();
   }, 3000);
-
-  if (settings.enabled) {
-    applyHides();
-    setTimeout(() => {
-      suppressObserver = true;
-      if (settings.columnMode === "single") {
-        mergeExtensionSettingsColumns();
-      } else {
-        restoreExtensionSettingsColumns();
-      }
-      applyAllReorders();
-      setTimeout(() => { suppressObserver = false; }, 0);
-    }, 500);
-  }
 }
 
 init();

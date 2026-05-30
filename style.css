@@ -341,34 +341,6 @@ button.menu-cleaner-settings-btn-full:active {
   opacity: 0.7;
 }
 
-.menu-cleaner-settings-radio-group {
-  display: flex;
-  flex-direction: column;
-  padding: 4px 0;
-}
-
-.menu-cleaner-settings-radio {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
-  cursor: pointer;
-  font-size: 0.92em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  transition: background 0.15s;
-}
-
-.menu-cleaner-settings-radio:last-child {
-  border-bottom: none;
-}
-
-.menu-cleaner-settings-radio:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.menu-cleaner-settings-radio input[type="radio"] {
-  accent-color: #7c5cff;
-}
 
 .menu-cleaner-settings-row {
   display: flex;
@@ -388,6 +360,47 @@ button.menu-cleaner-settings-btn-full:active {
   color: var(--SmartThemeBodyColor, #888);
   padding: 8px 18px 4px 36px;
   opacity: 0.75;
+}
+
+/* ── Extensions Panel ──────────────────────────────────────── */
+.menu-cleaner-ext-panel {
+  display: none;
+  height: auto;
+  visibility: visible; /* override ST .closedDrawer */
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  z-index: 3000;
+}
+
+.menu-cleaner-ext-col {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 100px;
+}
+
+/* Replicate native #extensions_settings / #extensions_settings2 header styling
+   so elements moved into our panel retain their borders and gradients */
+#menu-cleaner-ext-col1 .inline-drawer-toggle.inline-drawer-header,
+#menu-cleaner-ext-col2 .inline-drawer-toggle.inline-drawer-header {
+  background-image: linear-gradient(348deg, var(--white30a)2%, var(--grey30a)10%, var(--black70a)95%, var(--SmartThemeQuoteColor)100%);
+  margin-bottom: 5px;
+  border-radius: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--SmartThemeBorderColor);
+}
+
+#menu-cleaner-ext-col1 .inline-drawer-toggle.inline-drawer-header:hover,
+#menu-cleaner-ext-col2 .inline-drawer-toggle.inline-drawer-header:hover {
+  filter: brightness(150%);
+}
+
+/* Responsive: full-width columns on narrow screens (match native mobile-styles.css) */
+@media screen and (max-width: 1000px) {
+  #menu-cleaner-ext-col1,
+  #menu-cleaner-ext-col2 {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
 }
 
 /* ── Animations ──────────────────────────────────────────────── */

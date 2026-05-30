@@ -9,8 +9,8 @@
   let autoIdSeq = 0;
   let activeTab = 'hide';
   let showSettingsPanel = false;
+  let extPanelVisible = false;
   let rescanTimer = null;
-  let suppressObserver = false;    // 程序化DOM操作时临时屏蔽MutationObserver
 
   // ── Hardcoded native elements ─────────────────────────────────
   const PANEL_GROUPS = [
@@ -18,7 +18,6 @@
       id: 'options',
       name: '左下菜单',
       buttonId: '#options_button',
-      reorder: { container: '#options' },
       items: [
         { selector: '#option_toggle_AN',           label: '作者注释' },
         { selector: '#option_toggle_CFG',          label: 'CFG缩放' },
@@ -38,14 +37,6 @@
       id: 'extensionsMenu',
       name: '魔棒',
       buttonId: '#extensionsMenuButton',
-      reorder: { container: '#extensionsMenu' },
-      discovery: {
-        containers: ['#extensionsMenu'],
-        itemMatch: '.list-group-item',
-        labelIn: 'span',
-        exclude: ['#menu-cleaner-btn'],
-        alsoMatchChildren: true
-      },
       items: [
         { selector: '#manageAttachments',          label: '打开数据库' },
         { selector: '#attachFile',                 label: '附加文件' },
@@ -55,18 +46,19 @@
         { selector: '#token_counter',              label: '词符计数器' },
         { selector: '#translate_chat',             label: '翻译聊天' },
         { selector: '#translate_input_message',    label: '翻译输入' }
-      ]
+      ],
+      discovery: {
+        containers: ['#extensionsMenu'],
+        itemMatch: '.list-group-item',
+        labelIn: 'span',
+        exclude: ['#menu-cleaner-btn'],
+        alsoMatchChildren: true
+      }
     },
     {
       id: 'extensionsSettings',
       name: '扩展菜单',
       buttonId: '#extensions-settings-button',
-      reorder: { container: '#extensions_settings' },
-      discovery: {
-        containers: ['#extensions_settings', '#extensions_settings2'],
-        hasHeader: '.inline-drawer-header',
-        labelInHeader: 'b, [data-i18n]'
-      },
       items: [
         { selector: '#assets_container',           label: '下载扩展和资源菜单' },
         { selector: '#expressions_container',      label: '角色表情' },
@@ -78,7 +70,12 @@
         { selector: '#summarize_container',        label: '总结' },
         { selector: '#regex_container',            label: '正则' },
         { selector: '#vectors_container',          label: '向量存储' }
-      ]
+      ],
+      discovery: {
+        containers: ['#extensions_settings', '#extensions_settings2'],
+        hasHeader: '.inline-drawer-header',
+        labelInHeader: 'b, [data-i18n]'
+      }
     },
     {
       id: 'topSettings',
@@ -109,6 +106,9 @@
     }
   ];
 
+  // Groups that support reordering
+  const REORDER_GROUP_IDS = ['extensionsSettings', 'extensionsMenu', 'options'];
+
   const ALWAYS_HIDDEN_SELECTORS = [
     '#rm_api_block > div.flex-container.flexFlowColumn > #openai_api > div.flex-container.flex > #test_api_button',
     '#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p',
@@ -121,7 +121,7 @@
     hiddenSelectors: {},
     discoveryCache: {},  // { groupId: [{selector, label, column?}, ...] }
     reorder: {},          // { groupId: [selector, ...] }
-    columnMode: 'single', // 'single' | 'dual'
+    initialSnapshot: null, // set once on first init, cleared by "清除插件数据"
     rescanToast: false
   };
 
@@ -137,7 +137,7 @@
         settings = Object.assign({}, defaultSettings);
       }
 
-      // 清理DOM中已不存在的失效条目（插件被卸载等情况）
+      // Clean up stale entries
       var hiddenKeys = Object.keys(settings.hiddenSelectors);
       for (var hk = 0; hk < hiddenKeys.length; hk++) {
         if (!doc.querySelector(hiddenKeys[hk])) delete settings.hiddenSelectors[hiddenKeys[hk]];
@@ -199,6 +199,15 @@
   white-space: normal !important;
 }
 
+#menu-cleaner-open-popup,
+#menu-cleaner-close,
+#menu-cleaner-rescan,
+#menu-cleaner-reset-order,
+#menu-cleaner-settings-btn {
+  white-space: nowrap !important;
+  flex-shrink: 0;
+}
+
 /* ── Popup ───────────────────────────────────────── */
 .menu-cleaner-popup {
   display: none;
@@ -224,15 +233,9 @@
   flex-shrink: 0;
 }
 
-.menu-cleaner-popup-header h2 {
-  margin: 0;
-  font-size: 18px;
-}
+.menu-cleaner-popup-header h2 { margin: 0; font-size: 18px; }
 
-.menu-cleaner-popup-actions {
-  display: flex;
-  gap: 8px;
-}
+.menu-cleaner-popup-actions { display: flex; gap: 8px; }
 
 .menu-cleaner-popup-body {
   overflow-y: auto;
@@ -255,15 +258,9 @@
   transition: background 0.15s;
 }
 
-.menu-cleaner-category-header:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
+.menu-cleaner-category-header:hover { background: rgba(255, 255, 255, 0.04); }
 
-.menu-cleaner-category-arrow {
-  font-size: 10px;
-  width: 14px;
-  transition: transform 0.15s;
-}
+.menu-cleaner-category-arrow { font-size: 10px; width: 14px; transition: transform 0.15s; }
 
 .menu-cleaner-category-count {
   font-size: 0.8em;
@@ -271,18 +268,8 @@
   margin-left: auto;
 }
 
-.menu-cleaner-category-body.collapsed {
-  display: none;
-}
-
-/* ── Separator ──────────────────────────────────── */
-.menu-cleaner-separator {
-  text-align: center;
-  font-size: 0.78em;
-  color: var(--SmartThemeBodyColor, #888);
-  padding: 6px 0 2px;
-  opacity: 0.7;
-}
+.menu-cleaner-category-body { padding: 0 0 6px 0; }
+.menu-cleaner-category-body.collapsed { display: none; }
 
 /* ── Items ───────────────────────────────────────── */
 .menu-cleaner-item {
@@ -293,9 +280,7 @@
   gap: 12px;
 }
 
-.menu-cleaner-item:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
+.menu-cleaner-item:hover { background: rgba(255, 255, 255, 0.03); }
 
 .menu-cleaner-item > span:first-child {
   flex: 1;
@@ -303,6 +288,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.menu-cleaner-separator {
+  opacity: 0.45;
+  font-size: 0.78em;
+  padding: 6px 18px 2px 36px;
+  color: var(--SmartThemeBodyColor, #888);
+}
+
+.menu-cleaner-item-discovered > span:first-child::before {
+  content: "[扩展] ";
+  font-size: 0.78em;
+  opacity: 0.55;
 }
 
 /* ── Toggle Slider ───────────────────────────────── */
@@ -314,11 +312,7 @@
   flex-shrink: 0;
 }
 
-.menu-cleaner-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
+.menu-cleaner-toggle input { opacity: 0; width: 0; height: 0; }
 
 .menu-cleaner-slider {
   position: absolute;
@@ -332,33 +326,16 @@
 .menu-cleaner-slider::before {
   content: "";
   position: absolute;
-  height: 16px;
-  width: 16px;
-  left: 3px;
-  bottom: 3px;
+  height: 16px; width: 16px;
+  left: 3px; bottom: 3px;
   background: #fff;
   border-radius: 50%;
   transition: transform 0.25s;
 }
 
-.menu-cleaner-toggle input:checked + .menu-cleaner-slider {
-  background: #7c5cff;
-}
+.menu-cleaner-toggle input:checked + .menu-cleaner-slider { background: #7c5cff; }
 
-.menu-cleaner-toggle input:checked + .menu-cleaner-slider::before {
-  transform: translateX(18px);
-}
-
-/* ── Animations ──────────────────────────────────── */
-@keyframes menu-cleaner-fadein {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes menu-cleaner-scalein {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
+.menu-cleaner-toggle input:checked + .menu-cleaner-slider::before { transform: translateX(18px); }
 
 /* ── Tab Navigation ──────────────────────────────── */
 .menu-cleaner-tabs {
@@ -379,15 +356,8 @@
   user-select: none;
 }
 
-.menu-cleaner-tab:hover {
-  color: #ccc;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.menu-cleaner-tab.active {
-  color: #fff;
-  border-bottom-color: #7c5cff;
-}
+.menu-cleaner-tab:hover { color: #ccc; background: rgba(255, 255, 255, 0.03); }
+.menu-cleaner-tab.active { color: #fff; border-bottom-color: #7c5cff; }
 
 /* ── Reorder Items ───────────────────────────────── */
 .menu-cleaner-reorder-item {
@@ -400,9 +370,7 @@
   border-left: 3px solid transparent;
 }
 
-.menu-cleaner-reorder-item:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
+.menu-cleaner-reorder-item:hover { background: rgba(255, 255, 255, 0.03); }
 
 .menu-cleaner-reorder-item > span:not(.menu-cleaner-drag-handle) {
   flex: 1;
@@ -426,88 +394,29 @@
   font-size: 1.1em;
   letter-spacing: -2px;
   user-select: none;
-  -webkit-user-select: none;
-  touch-action: none;
   flex-shrink: 0;
   transition: color 0.15s;
 }
 
-.menu-cleaner-drag-handle:hover {
-  color: #aaa;
-}
-
-.menu-cleaner-drag-handle:active {
-  cursor: grabbing;
-}
-
-
-/* ── Reorder Arrow Buttons (mobile fallback) ─────── */
-.menu-cleaner-arrow-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: #888;
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
-  line-height: 1;
-  transition: color 0.15s, background 0.15s;
-}
-
-.menu-cleaner-arrow-btn:hover {
-  color: #fff;
-  background: rgba(124, 92, 255, 0.2);
-}
-
-.menu-cleaner-arrow-btn:active {
-  background: rgba(124, 92, 255, 0.35);
-}
-
+.menu-cleaner-drag-handle:hover { color: #aaa; }
+.menu-cleaner-drag-handle:active { cursor: grabbing; }
 
 /* ── Drag States ─────────────────────────────────── */
-.menu-cleaner-reorder-item.dragging {
-  opacity: 0.4;
-  background: rgba(124, 92, 255, 0.1);
-}
-
+.menu-cleaner-reorder-item.dragging { opacity: 0.4; background: rgba(124, 92, 255, 0.1); }
 .menu-cleaner-reorder-item.drag-over {
   border-left-color: #7c5cff;
   background: rgba(124, 92, 255, 0.08);
 }
 
-/* ── Animations ──────────────────────────────────── */
-@keyframes menu-cleaner-fadein {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+.menu-cleaner-reorder-column-section.drag-over-section {
+  outline: 2px dashed #7c5cff;
+  outline-offset: -2px;
+  border-radius: 4px;
+  background: rgba(124, 92, 255, 0.05);
 }
 
-@keyframes menu-cleaner-scalein {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
-
-/* ── Buttons: prevent text from wrapping vertically ──
-   Must come last and use high-specificity selectors to beat
-   #menu-cleaner-popup * { white-space: normal !important } */
-#menu-cleaner-open-popup,
-#menu-cleaner-close,
-#menu-cleaner-rescan,
-#menu-cleaner-reset-order,
-#menu-cleaner-settings-btn {
-  white-space: nowrap !important;
-  flex-shrink: 0;
-}
-
-/* ── Settings Panel ─────────────────────────────── */
-.menu-cleaner-settings-panel {
-  padding: 12px 18px;
-}
+/* ── Settings Panel ──────────────────────────────── */
+.menu-cleaner-settings-panel { padding: 12px 18px; }
 
 button.menu-cleaner-settings-btn-full {
   display: block;
@@ -524,17 +433,9 @@ button.menu-cleaner-settings-btn-full {
   transition: background 0.15s;
 }
 
-button.menu-cleaner-settings-btn-full:last-child {
-  border-bottom: none;
-}
-
-button.menu-cleaner-settings-btn-full:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-button.menu-cleaner-settings-btn-full:active {
-  background: rgba(255, 255, 255, 0.1);
-}
+button.menu-cleaner-settings-btn-full:last-child { border-bottom: none; }
+button.menu-cleaner-settings-btn-full:hover { background: rgba(255, 255, 255, 0.06); }
+button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0.1); }
 
 .menu-cleaner-settings-divider {
   text-align: center;
@@ -542,35 +443,6 @@ button.menu-cleaner-settings-btn-full:active {
   font-size: 0.8em;
   padding: 14px 0 10px 0;
   opacity: 0.7;
-}
-
-.menu-cleaner-settings-radio-group {
-  display: flex;
-  flex-direction: column;
-  padding: 4px 0;
-}
-
-.menu-cleaner-settings-radio {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
-  cursor: pointer;
-  font-size: 0.92em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  transition: background 0.15s;
-}
-
-.menu-cleaner-settings-radio:last-child {
-  border-bottom: none;
-}
-
-.menu-cleaner-settings-radio:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.menu-cleaner-settings-radio input[type="radio"] {
-  accent-color: #7c5cff;
 }
 
 .menu-cleaner-settings-row {
@@ -581,10 +453,8 @@ button.menu-cleaner-settings-btn-full:active {
   font-size: 0.92em;
 }
 
-/* ── Dual-Column Reorder ──────────────────────── */
-.menu-cleaner-reorder-column-section {
-  margin-bottom: 6px;
-}
+/* ── Dual-Column Reorder ─────────────────────────── */
+.menu-cleaner-reorder-column-section { margin-bottom: 6px; }
 
 .menu-cleaner-reorder-column-label {
   font-size: 0.82em;
@@ -593,11 +463,53 @@ button.menu-cleaner-settings-btn-full:active {
   opacity: 0.75;
 }
 
-.menu-cleaner-reorder-column-section.drag-over-section {
-  outline: 2px dashed #7c5cff;
-  outline-offset: -2px;
-  border-radius: 4px;
-  background: rgba(124, 92, 255, 0.05);
+/* ── Extensions Panel ────────────────────────────── */
+.menu-cleaner-ext-panel {
+  display: none;
+  height: auto;
+  visibility: visible; /* override ST .closedDrawer */
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  z-index: 3000;
+}
+
+.menu-cleaner-ext-col {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 100px;
+}
+
+/* Replicate native header styling for elements in our columns */
+#menu-cleaner-ext-col1 .inline-drawer-toggle.inline-drawer-header,
+#menu-cleaner-ext-col2 .inline-drawer-toggle.inline-drawer-header {
+  background-image: linear-gradient(348deg, var(--white30a)2%, var(--grey30a)10%, var(--black70a)95%, var(--SmartThemeQuoteColor)100%);
+  margin-bottom: 5px;
+  border-radius: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--SmartThemeBorderColor);
+}
+
+#menu-cleaner-ext-col1 .inline-drawer-toggle.inline-drawer-header:hover,
+#menu-cleaner-ext-col2 .inline-drawer-toggle.inline-drawer-header:hover {
+  filter: brightness(150%);
+}
+
+@media screen and (max-width: 1000px) {
+  #menu-cleaner-ext-col1,
+  #menu-cleaner-ext-col2 {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+}
+
+/* ── Animations ──────────────────────────────────── */
+@keyframes menu-cleaner-fadein {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes menu-cleaner-scalein {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }`;
 
   function injectStyle() {
@@ -622,11 +534,14 @@ button.menu-cleaner-settings-btn-full:active {
       for (const sel of ALWAYS_HIDDEN_SELECTORS) {
         rules.push(sel + ' { display: none !important; }');
       }
+      // Hide the native extensions block — our panel replaces it
+      rules.push('#rm_extensions_block { display: none !important; }');
     }
 
-    for (const [selector, hidden] of Object.entries(settings.hiddenSelectors)) {
-      if (hidden) {
-        rules.push(selector + ' { display: none !important; }');
+    var hiddenSelKeys = Object.keys(settings.hiddenSelectors);
+    for (var hk = 0; hk < hiddenSelKeys.length; hk++) {
+      if (settings.hiddenSelectors[hiddenSelKeys[hk]]) {
+        rules.push(hiddenSelKeys[hk] + ' { display: none !important; }');
       }
     }
 
@@ -638,16 +553,246 @@ button.menu-cleaner-settings-btn-full:active {
     if (styleEl) styleEl.textContent = '';
   }
 
-  // ── Reorder helpers ────────────────────────────────────────
+  // ── Snapshot system ─────────────────────────────────────────────
+  function captureInitialSnapshot() {
+    if (settings.initialSnapshot) return; // already captured
+
+    var snapshot = {};
+    for (var g = 0; g < PANEL_GROUPS.length; g++) {
+      var group = PANEL_GROUPS[g];
+      if (!group.discovery) continue;
+      var entries = [];
+      var seen = new Set();
+
+      for (var ci = 0; ci < group.discovery.containers.length; ci++) {
+        var container = doc.querySelector(group.discovery.containers[ci]);
+        if (!container) continue;
+        var idx = 0;
+        var children = container.children;
+        for (var c = 0; c < children.length; c++) {
+          var child = children[c];
+          if (win.getComputedStyle(child).display === 'none') continue;
+          if (!child.id) { child.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
+
+          var header = child.querySelector(group.discovery.hasHeader);
+          if (!header) continue;
+          var labelEl = header.querySelector(group.discovery.labelInHeader);
+          var label = labelEl && labelEl.textContent ? labelEl.textContent.trim() : '';
+          if (!label) {
+            var icon = header.querySelector('.inline-drawer-icon');
+            var iconText = icon ? icon.textContent.trim() : '';
+            label = (header.textContent || '').trim();
+            if (iconText && label.slice(-iconText.length) === iconText) {
+              label = label.slice(0, -iconText.length).trim();
+            }
+          }
+          if (!label) continue;
+
+          var selector = '#' + child.id;
+          if (seen.has(selector)) continue;
+          seen.add(selector);
+
+          entries.push({ selector: selector, label: label, column: ci, index: idx++ });
+        }
+      }
+      if (entries.length > 0) snapshot[group.id] = entries;
+    }
+
+    settings.initialSnapshot = snapshot;
+    saveSettings();
+  }
+
+  // ── Dynamic discovery ──────────────────────────────────────────
+  function discoverItems(group) {
+    if (!group.discovery) return [];
+    var discovered = [];
+    var seen = new Set();
+    var excludeSet = new Set(group.discovery.exclude || []);
+    var multiContainer = group.discovery.containers.length > 1;
+
+    for (var ci = 0; ci < group.discovery.containers.length; ci++) {
+      var container = doc.querySelector(group.discovery.containers[ci]);
+      if (!container) continue;
+      var columnIndex = multiContainer ? ci : undefined;
+
+      if (group.discovery.itemMatch) {
+        var children = container.children;
+        for (var c = 0; c < children.length; c++) {
+          var child = children[c];
+          if (win.getComputedStyle(child).display === 'none') continue;
+          var matchedElements = new Set();
+          var items = child.querySelectorAll(group.discovery.itemMatch);
+          for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            if (item.style.display === 'none') continue;
+            if (!item.id) { item.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
+            var selector = '#' + item.id;
+            if (seen.has(selector) || excludeSet.has(selector)) continue;
+            seen.add(selector);
+            matchedElements.add(item);
+
+            var labelEl = item.querySelector(group.discovery.labelIn);
+            var label = labelEl ? labelEl.textContent.trim() : item.textContent.trim();
+            if (!label) continue;
+
+            var entry = { selector: selector, label: label };
+            if (columnIndex !== undefined) entry.column = columnIndex;
+            discovered.push(entry);
+          }
+
+          if (group.discovery.alsoMatchChildren) {
+            var directChildren = child.children;
+            for (var dc = 0; dc < directChildren.length; dc++) {
+              var directChild = directChildren[dc];
+              if (matchedElements.has(directChild)) continue;
+              if (directChild.style.display === 'none') continue;
+              var isHardcodedDescendant = false;
+              for (var hi = 0; hi < group.items.length; hi++) {
+                var hcEl = doc.querySelector(group.items[hi].selector);
+                if (hcEl && hcEl.contains(directChild)) { isHardcodedDescendant = true; break; }
+              }
+              if (isHardcodedDescendant) continue;
+              var span = directChild.querySelector('span');
+              if (!span) continue;
+              var labelText = span.textContent.trim();
+              if (!labelText) continue;
+              if (!directChild.id) { directChild.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
+              var ds = '#' + directChild.id;
+              if (seen.has(ds) || excludeSet.has(ds)) continue;
+              seen.add(ds);
+              var de = { selector: ds, label: labelText };
+              if (columnIndex !== undefined) de.column = columnIndex;
+              discovered.push(de);
+            }
+          }
+        }
+      } else {
+        // Mode: match container children that have a specific header element
+        var headerChildren = container.children;
+        for (var hc = 0; hc < headerChildren.length; hc++) {
+          var hcChild = headerChildren[hc];
+          var header = hcChild.querySelector(group.discovery.hasHeader);
+          if (!header) continue;
+
+          var labelEl2 = header.querySelector(group.discovery.labelInHeader);
+          var label2 = labelEl2 && labelEl2.textContent ? labelEl2.textContent.trim() : '';
+          if (!label2) {
+            var iconFallback = header.querySelector('.inline-drawer-icon');
+            var iconTxt = iconFallback ? iconFallback.textContent.trim() : '';
+            label2 = (header.textContent || '').trim();
+            if (iconTxt && label2.slice(-iconTxt.length) === iconTxt) {
+              label2 = label2.slice(0, -iconTxt.length).trim();
+            }
+          }
+          if (!label2) continue;
+
+          if (!hcChild.id) { hcChild.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
+          var hcSelector = '#' + hcChild.id;
+          if (seen.has(hcSelector)) continue;
+          seen.add(hcSelector);
+
+          var hcEntry = { selector: hcSelector, label: label2 };
+          if (columnIndex !== undefined) hcEntry.column = columnIndex;
+          discovered.push(hcEntry);
+        }
+      }
+    }
+    return discovered;
+  }
+
+  function refreshDiscoveryCache() {
+    for (var g = 0; g < PANEL_GROUPS.length; g++) {
+      var group = PANEL_GROUPS[g];
+      if (!group.discovery) continue;
+      var allDiscovered = discoverItems(group);
+      var hardcodedSet = new Set();
+      for (var hi = 0; hi < group.items.length; hi++) hardcodedSet.add(group.items[hi].selector);
+
+      // Filter: exclude hardcoded items and their descendants
+      var newItems = allDiscovered.filter(function(d) {
+        if (hardcodedSet.has(d.selector)) return false;
+        var el = doc.querySelector(d.selector);
+        if (el) {
+          for (var hsi = 0; hsi < group.items.length; hsi++) {
+            var hcEl = doc.querySelector(group.items[hsi].selector);
+            if (hcEl && hcEl.contains(el)) return false;
+          }
+        }
+        return true;
+      });
+
+      // Preserve column origin from old cache
+      var oldCache = settings.discoveryCache[group.id] || [];
+      var oldColMap = {};
+      for (var oc = 0; oc < oldCache.length; oc++) {
+        if (oldCache[oc].column !== undefined) oldColMap[oldCache[oc].selector] = oldCache[oc].column;
+      }
+      for (var ni = 0; ni < newItems.length; ni++) {
+        if (newItems[ni].column === undefined && oldColMap[newItems[ni].selector] !== undefined) {
+          newItems[ni].column = oldColMap[newItems[ni].selector];
+        }
+      }
+
+      // Preserve hardcoded items' column info (created by cross-column moves)
+      for (var oi = 0; oi < oldCache.length; oi++) {
+        var old = oldCache[oi];
+        if (hardcodedSet.has(old.selector) && old.column !== undefined) {
+          var found = false;
+          for (var fi = 0; fi < newItems.length; fi++) {
+            if (newItems[fi].selector === old.selector) { found = true; break; }
+          }
+          if (!found) {
+            newItems.push({ selector: old.selector, label: old.label, column: old.column });
+          }
+        }
+      }
+
+      settings.discoveryCache[group.id] = newItems;
+
+      // Append newly discovered selectors to reorder list
+      if (REORDER_GROUP_IDS.indexOf(group.id) !== -1 && newItems.length > 0) {
+        if (!settings.reorder[group.id]) settings.reorder[group.id] = [];
+        var existing = new Set(settings.reorder[group.id]);
+        for (var ai = 0; ai < newItems.length; ai++) {
+          if (!existing.has(newItems[ai].selector)) {
+            settings.reorder[group.id].push(newItems[ai].selector);
+          }
+        }
+      }
+    }
+    saveSettings();
+  }
+
+  // ── Column cache helper ─────────────────────────────────────────
+  function setColumnInCache(selector, groupId, columnIndex) {
+    if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
+    var cached = settings.discoveryCache[groupId];
+    var entry = null;
+    for (var c = 0; c < cached.length; c++) {
+      if (cached[c].selector === selector) { entry = cached[c]; break; }
+    }
+    if (entry) {
+      entry.column = columnIndex;
+    } else {
+      var el = doc.querySelector(selector);
+      var label = el ? (el.textContent || '').trim().substring(0, 40) : selector;
+      cached.push({ selector: selector, label: label, column: columnIndex });
+    }
+  }
+
+  // ── Reorder helpers ─────────────────────────────────────────────
   function getReorderItems(groupId) {
-    var group = PANEL_GROUPS.find(function (g) { return g.id === groupId; });
+    var group = null;
+    for (var g = 0; g < PANEL_GROUPS.length; g++) {
+      if (PANEL_GROUPS[g].id === groupId) { group = PANEL_GROUPS[g]; break; }
+    }
     if (!group) return [];
 
     var order = settings.reorder[groupId];
     if (!order || order.length === 0) {
       order = group.items.map(function (i) { return i.selector; });
-      var cached = settings.discoveryCache[groupId] || [];
-      for (var ci = 0; ci < cached.length; ci++) order.push(cached[ci].selector);
+      var cached0 = settings.discoveryCache[groupId] || [];
+      for (var ci = 0; ci < cached0.length; ci++) order.push(cached0[ci].selector);
     }
 
     var labelMap = {};
@@ -688,1143 +833,167 @@ button.menu-cleaner-settings-btn-full:active {
     return result;
   }
 
-  function applyReorder(groupId) {
-    var order = settings.reorder[groupId];
-    if (!order || order.length === 0) return;
-
-    if (settings.columnMode === 'dual' && groupId === 'extensionsSettings') {
-      applyDualColumnReorder(groupId);
-      return;
-    }
-
-    applySingleColumnReorder(groupId);
-  }
-
-  function applySingleColumnReorder(groupId) {
-    var order = settings.reorder[groupId];
-    if (!order || order.length === 0) return;
-
-    var els = [];
-    for (var i = 0; i < order.length; i++) {
-      if (settings.hiddenSelectors[order[i]]) continue;
-      var el = doc.querySelector(order[i]);
-      if (el) els.push(el);
-    }
-
-    if (els.length < 2) return;
-
-    var container = els[0].parentNode;
-    while (container) {
-      var ok = true;
-      for (var j = 0; j < els.length; j++) {
-        if (!container.contains(els[j])) { ok = false; break; }
-      }
-      if (ok) break;
-      container = container.parentNode;
-    }
-    if (!container) return;
-
-    var units = [];
-    var seen = new Set();
-    for (var k = 0; k < els.length; k++) {
-      var unit = els[k];
-      while (unit.parentNode && unit.parentNode !== container) {
-        unit = unit.parentNode;
-      }
-      if (unit.parentNode === container && !seen.has(unit)) {
-        seen.add(unit);
-        units.push(unit);
-      }
-    }
-
-    for (var m = 0; m < units.length; m++) {
-      container.appendChild(units[m]);
-    }
-  }
-
-  function applyDualColumnReorder(groupId) {
-    var order = settings.reorder[groupId];
-    if (!order || order.length === 0) return;
-
-    var col1 = doc.querySelector('#extensions_settings');
-    var col2 = doc.querySelector('#extensions_settings2');
-    if (!col1) return;
-
-    // Collect which items originated from col2 (column index === 1)
-    var col2Origin = {};
+  function getColumnIndex(selector, groupId) {
     var cached = settings.discoveryCache[groupId] || [];
     for (var c = 0; c < cached.length; c++) {
-      if (cached[c].column === 1) col2Origin[cached[c].selector] = true;
+      if (cached[c].selector === selector) return cached[c].column || 0;
     }
-
-    // Split order by column
-    var col1Order = [];
-    var col2Order = [];
-    for (var o = 0; o < order.length; o++) {
-      if (settings.hiddenSelectors[order[o]]) continue;
-      if (col2Origin[order[o]]) {
-        col2Order.push(order[o]);
-      } else {
-        col1Order.push(order[o]);
-      }
-    }
-
-    reorderWithinContainer(col1, col1Order);
-    if (col2) reorderWithinContainer(col2, col2Order);
+    return 0;
   }
 
-  function reorderWithinContainer(container, order) {
-    if (order.length < 2) return;
-    var els = [];
-    for (var i = 0; i < order.length; i++) {
-      var el = doc.querySelector(order[i]);
-      if (el && container.contains(el)) els.push(el);
-    }
-    if (els.length < 2) return;
+  // ── Extensions panel ────────────────────────────────────────────
+  function createExtensionsPanelDOM() {
+    if (doc.getElementById('menu-cleaner-ext-panel')) return;
 
-    var units = [];
-    var seen = new Set();
-    for (var k = 0; k < els.length; k++) {
-      var unit = els[k];
-      while (unit.parentNode && unit.parentNode !== container) {
-        unit = unit.parentNode;
-      }
-      if (unit.parentNode === container && !seen.has(unit)) {
-        seen.add(unit);
-        units.push(unit);
-      }
-    }
-
-    for (var m = 0; m < units.length; m++) {
-      container.appendChild(units[m]);
-    }
-  }
-
-  function mergeExtensionSettingsColumns() {
-    if (settings.columnMode === 'dual') return;
-    var col1 = doc.querySelector('#extensions_settings');
-    var col2 = doc.querySelector('#extensions_settings2');
-    if (!col1 || !col2) return;
-    while (col2.firstChild) {
-      col1.appendChild(col2.firstChild);
-    }
-    col2.style.display = 'none';
-  }
-
-  function restoreExtensionSettingsColumns() {
-    var col1 = doc.querySelector('#extensions_settings');
-    var col2 = doc.querySelector('#extensions_settings2');
-    if (!col1 || !col2) return;
-    col2.style.display = '';
-    var col2Map = {}; // items that belong in col2
-    var col1Map = {}; // items explicitly moved to col1 by user
-    var cached = settings.discoveryCache['extensionsSettings'] || [];
-    for (var i = 0; i < cached.length; i++) {
-      if (cached[i].column === 1) col2Map[cached[i].selector] = true;
-      if (cached[i].column === 0) col1Map[cached[i].selector] = true;
-    }
-    // Move col2-origin items from col1 → col2
-    var toCol2 = [];
-    for (var j = 0; j < col1.children.length; j++) {
-      var child = col1.children[j];
-      if (child.id && col2Map['#' + child.id]) {
-        toCol2.push(child);
-      }
-    }
-    for (var k = 0; k < toCol2.length; k++) {
-      col2.appendChild(toCol2[k]);
-    }
-    // Move items explicitly placed in col1 from col2 → col1
-    var toCol1 = [];
-    for (var m = 0; m < col2.children.length; m++) {
-      var child2 = col2.children[m];
-      if (child2.id && col1Map['#' + child2.id]) {
-        toCol1.push(child2);
-      }
-    }
-    for (var n = 0; n < toCol1.length; n++) {
-      col1.appendChild(toCol1[n]);
-    }
-  }
-
-  function applyAllReorders() {
-    mergeExtensionSettingsColumns();
-    for (var gi = 0; gi < PANEL_GROUPS.length; gi++) {
-      if (PANEL_GROUPS[gi].reorder) {
-        applyReorder(PANEL_GROUPS[gi].id);
-      }
-    }
-  }
-
-  function doRescan() {
-    if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
-    suppressObserver = true;
-
-    if (settings.columnMode === 'single') {
-      mergeExtensionSettingsColumns();
-    } else {
-      restoreExtensionSettingsColumns();
-    }
-    refreshDiscoveryCache();
-    applyAllReorders();
-
-    setTimeout(function() { suppressObserver = false; }, 0);
-
-    refreshPopup();
-    if (settings.rescanToast) {
-      var count = 0;
-      var keys = Object.keys(settings.discoveryCache);
-      for (var ci = 0; ci < keys.length; ci++) {
-        count += settings.discoveryCache[keys[ci]].length;
-      }
-      if (typeof win.toastr !== 'undefined') win.toastr.info('已重新扫描，发现 ' + count + ' 个扩展元素');
-    }
-  }
-
-  function resetAllReorders() {
-    suppressObserver = true;
-    if (settings.columnMode === 'single') {
-      mergeExtensionSettingsColumns();
-    } else {
-      restoreExtensionSettingsColumns();
-    }
-
-    for (var gi = 0; gi < PANEL_GROUPS.length; gi++) {
-      var group = PANEL_GROUPS[gi];
-      if (!group.reorder) continue;
-      var defaultOrder = group.items.map(function (i) { return i.selector; });
-      var cached = settings.discoveryCache[group.id] || [];
-      for (var ci = 0; ci < cached.length; ci++) defaultOrder.push(cached[ci].selector);
-      settings.reorder[group.id] = defaultOrder;
-      applyReorder(group.id);
-    }
-    saveSettings();
-    // 退出设置页面，回到重排序视图
-    showSettingsPanel = false;
-    activeTab = 'reorder';
-    doc.querySelectorAll('.menu-cleaner-tab').forEach(function (t) {
-      t.classList.toggle('active', t.dataset.tab === 'reorder');
-    });
-    updatePopupView();
-    renderReorderView();
-    setTimeout(function() { suppressObserver = false; }, 0);
-  }
-
-  function applyColumnMode() {
-    suppressObserver = true;
-    if (settings.columnMode === 'single') {
-      mergeExtensionSettingsColumns();
-    } else {
-      restoreExtensionSettingsColumns();
-    }
-    refreshDiscoveryCache();
-    applyAllReorders();
-    saveSettings();
-    setTimeout(function() { suppressObserver = false; }, 0);
-  }
-
-  // ── Dynamic discovery ────────────────────────────────────────
-  function discoverItems(group) {
-    if (!group.discovery) return [];
-    const discovered = [];
-    const seen = new Set();
-    const excludeSet = new Set(group.discovery.exclude || []);
-    const multiContainer = group.discovery.containers.length > 1;
-
-    for (var ci = 0; ci < group.discovery.containers.length; ci++) {
-      const containerSel = group.discovery.containers[ci];
-      const container = doc.querySelector(containerSel);
-      if (!container) continue;
-      const columnIndex = multiContainer ? ci : undefined;
-
-      if (group.discovery.itemMatch) {
-        for (const child of container.children) {
-          if (getComputedStyle(child).display === 'none') continue;
-          const matchedElements = new Set();
-          const items = child.querySelectorAll(group.discovery.itemMatch);
-          for (const item of items) {
-            if (item.style.display === 'none') continue;
-            if (!item.id) { item.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
-            const selector = '#' + item.id;
-            if (seen.has(selector) || excludeSet.has(selector)) continue;
-            seen.add(selector);
-            matchedElements.add(item);
-
-            const labelEl = item.querySelector(group.discovery.labelIn);
-            const label = labelEl ? labelEl.textContent.trim() : item.textContent.trim();
-            if (!label) continue;
-
-            const entry = { selector: selector, label: label };
-            if (columnIndex !== undefined) entry.column = columnIndex;
-            discovered.push(entry);
-          }
-
-          if (group.discovery.alsoMatchChildren) {
-            for (const directChild of child.children) {
-              if (matchedElements.has(directChild)) continue;
-              if (directChild.style.display === 'none') continue;
-              // Skip descendants of hardcoded items to avoid re-discovering them as third-party
-              var isHardcodedDescendant = false;
-              for (var hi = 0; hi < (group.items || []).length; hi++) {
-                var hcEl = doc.querySelector(group.items[hi].selector);
-                if (hcEl && hcEl.contains(directChild)) { isHardcodedDescendant = true; break; }
-              }
-              if (isHardcodedDescendant) continue;
-              const span = directChild.querySelector('span');
-              if (!span) continue;
-              const labelText = span.textContent.trim();
-              if (!labelText) continue;
-              if (!directChild.id) { directChild.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
-              const selector = '#' + directChild.id;
-              if (seen.has(selector) || excludeSet.has(selector)) continue;
-              seen.add(selector);
-              const entry = { selector: selector, label: labelText };
-              if (columnIndex !== undefined) entry.column = columnIndex;
-              discovered.push(entry);
-            }
-          }
-        }
-      } else {
-        for (const child of container.children) {
-          const header = child.querySelector(group.discovery.hasHeader);
-          if (!header) continue;
-
-          const labelEl = header.querySelector(group.discovery.labelInHeader);
-          const label = labelEl ? labelEl.textContent.trim() : '';
-          if (!label) continue;
-
-          if (!child.id) { child.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
-          const selector = '#' + child.id;
-          if (seen.has(selector)) continue;
-          seen.add(selector);
-
-          const entry = { selector: selector, label: label };
-          if (columnIndex !== undefined) entry.column = columnIndex;
-          discovered.push(entry);
-        }
-      }
-    }
-    return discovered;
-  }
-
-  function refreshDiscoveryCache() {
-    for (var gi = 0; gi < PANEL_GROUPS.length; gi++) {
-      var group = PANEL_GROUPS[gi];
-      if (!group.discovery) continue;
-      var allDiscovered = discoverItems(group);
-      var hardcodedSet = new Set((group.items || []).map(function (i) { return i.selector; }));
-      var newItems = allDiscovered.filter(function (d) {
-        if (hardcodedSet.has(d.selector)) return false;
-        // Also skip descendants of hardcoded items (alsoMatchChildren may pick up sub-elements)
-        var el = doc.querySelector(d.selector);
-        if (el) {
-          for (var hi2 = 0; hi2 < (group.items || []).length; hi2++) {
-            var hcEl = doc.querySelector(group.items[hi2].selector);
-            if (hcEl && hcEl.contains(el)) return false;
-          }
-        }
-        return true;
-      });
-
-      // Preserve column origin from the previous cache
-      var oldCache = settings.discoveryCache[group.id] || [];
-      var oldColMap = {};
-      for (var oi = 0; oi < oldCache.length; oi++) {
-        if (oldCache[oi].column !== undefined) oldColMap[oldCache[oi].selector] = oldCache[oi].column;
-      }
-      for (var ni2 = 0; ni2 < newItems.length; ni2++) {
-        if (newItems[ni2].column === undefined && oldColMap[newItems[ni2].selector] !== undefined) {
-          newItems[ni2].column = oldColMap[newItems[ni2].selector];
-        }
-      }
-
-      // 保留硬编码元素被拖动到另一栏后的分栏信息
-      var hardcodedWithCol = oldCache.filter(function (c) {
-        return hardcodedSet.has(c.selector) && c.column !== undefined;
-      });
-
-      settings.discoveryCache[group.id] = newItems.concat(hardcodedWithCol);
-
-      // Append newly discovered selectors to the reorder list
-      if (group.reorder && newItems.length > 0) {
-        if (!settings.reorder[group.id]) settings.reorder[group.id] = [];
-        var existing = {};
-        for (var ri = 0; ri < settings.reorder[group.id].length; ri++) {
-          existing[settings.reorder[group.id][ri]] = true;
-        }
-        for (var ni = 0; ni < newItems.length; ni++) {
-          if (!existing[newItems[ni].selector]) {
-            settings.reorder[group.id].push(newItems[ni].selector);
-          }
-        }
-      }
-    }
-    saveSettings();
-  }
-
-  // ── Escaping helper ───────────────────────────────────────────
-  function escHtml(str) {
-    const div = doc.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
-  // ── Popup ─────────────────────────────────────────────────────
-  function createPopupDOM() {
-    if (doc.getElementById('menu-cleaner-popup')) return;
-
-    const html =
-      '<div id="menu-cleaner-backdrop" class="menu-cleaner-backdrop"></div>' +
-      '<div id="menu-cleaner-popup" class="menu-cleaner-popup">' +
-        '<div class="menu-cleaner-popup-header">' +
-          '<h2>酒馆菜单精简器</h2>' +
-          '<div class="menu-cleaner-popup-actions">' +
-            '<button id="menu-cleaner-settings-btn" class="menu_button">设置</button>' +
-            '<button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>' +
+    var html =
+      '<div id="menu-cleaner-ext-panel" class="drawer-content menu-cleaner-ext-panel">' +
+        '<div class="extensions_block flex-container">' +
+          '<div id="menu-cleaner-ext-topbar" class="alignitemscenter flex-container wide100p">' +
+            '<h3 class="margin0 flex1">扩展</h3>' +
           '</div>' +
+          '<div id="menu-cleaner-ext-col1" class="flex1 wide50p menu-cleaner-ext-col"></div>' +
+          '<div id="menu-cleaner-ext-col2" class="flex1 wide50p menu-cleaner-ext-col"></div>' +
+          '<hr class="wide100p margin0">' +
         '</div>' +
-        '<div class="menu-cleaner-tabs" id="menu-cleaner-tabs">' +
-          '<div class="menu-cleaner-tab active" data-tab="hide">隐藏元素</div>' +
-          '<div class="menu-cleaner-tab" data-tab="reorder">重排序</div>' +
-        '</div>' +
-        '<div id="menu-cleaner-popup-body" class="menu-cleaner-popup-body"></div>' +
       '</div>';
+
     doc.body.insertAdjacentHTML('beforeend', html);
-
-    doc.getElementById('menu-cleaner-close').addEventListener('click', closePopup);
-    doc.getElementById('menu-cleaner-backdrop').addEventListener('click', closePopup);
-    doc.getElementById('menu-cleaner-settings-btn').addEventListener('click', toggleSettingsPanel);
-
-    // Tab switching
-    var tabs = doc.querySelectorAll('.menu-cleaner-tab');
-    for (var ti = 0; ti < tabs.length; ti++) {
-      tabs[ti].addEventListener('click', function () {
-        switchTab(this.dataset.tab);
-      });
-    }
   }
 
-  function openPopup() {
-    createPopupDOM();
-    doc.getElementById('menu-cleaner-backdrop').style.display = 'block';
-    doc.getElementById('menu-cleaner-popup').style.display = 'flex';
-    showSettingsPanel = false;
-    updatePopupView();
-    refreshPopup();
-    positionPopup();
+  function renderExtensionsPanel() {
+    var col1 = doc.getElementById('menu-cleaner-ext-col1');
+    var col2 = doc.getElementById('menu-cleaner-ext-col2');
+    if (!col1 || !col2) return;
+
+    var groupId = 'extensionsSettings';
+    var order = settings.reorder[groupId] || [];
+    var group = null;
+    for (var g = 0; g < PANEL_GROUPS.length; g++) {
+      if (PANEL_GROUPS[g].id === groupId) { group = PANEL_GROUPS[g]; break; }
+    }
+    if (!group) return;
+
+    if (order.length === 0) {
+      var defaults = group.items.map(function(i) { return i.selector; });
+      var cached0 = settings.discoveryCache[groupId] || [];
+      for (var ci = 0; ci < cached0.length; ci++) defaults.push(cached0[ci].selector);
+      settings.reorder[groupId] = defaults;
+    }
+
+    var actualOrder = settings.reorder[groupId] || [];
+    var colMap = {};
+    var cached = settings.discoveryCache[groupId] || [];
+    for (var c = 0; c < cached.length; c++) {
+      colMap[cached[c].selector] = cached[c].column !== undefined ? cached[c].column : 0;
+    }
+
+    var col1Els = [];
+    var col2Els = [];
+    var placed = new Set();
+
+    for (var o = 0; o < actualOrder.length; o++) {
+      var selector = actualOrder[o];
+      if (settings.hiddenSelectors[selector]) continue;
+      var el = doc.querySelector(selector);
+      if (!el) continue;
+      placed.add(selector);
+      var col = colMap[selector] === 1 ? 1 : 0;
+      if (col === 1) col2Els.push(el);
+      else col1Els.push(el);
+    }
+
+    // Append elements not in order (newly discovered)
+    for (var d = 0; d < cached.length; d++) {
+      if (placed.has(cached[d].selector)) continue;
+      if (settings.hiddenSelectors[cached[d].selector]) continue;
+      var el2 = doc.querySelector(cached[d].selector);
+      if (!el2) continue;
+      placed.add(cached[d].selector);
+      var col2 = cached[d].column === 1 ? 1 : 0;
+      if (col2 === 1) col2Els.push(el2);
+      else col1Els.push(el2);
+    }
+
+    // Move native topbar elements into our panel's top bar
+    var topbar = doc.getElementById('menu-cleaner-ext-topbar');
+    if (topbar) {
+      var nativeDetails = doc.getElementById('extensions_details');
+      var nativeThirdParty = doc.getElementById('third_party_extension_button');
+      if (nativeDetails && nativeDetails.parentNode !== topbar) topbar.appendChild(nativeDetails);
+      if (nativeThirdParty && nativeThirdParty.parentNode !== topbar) topbar.appendChild(nativeThirdParty);
+      var notifyLabel = doc.querySelector('#rm_extensions_block .checkbox_label.flexNoGap');
+      if (notifyLabel && notifyLabel.parentNode !== topbar) topbar.appendChild(notifyLabel);
+    }
+
+    // Render elements in order
+    col1.innerHTML = '';
+    col2.innerHTML = '';
+    for (var c1 = 0; c1 < col1Els.length; c1++) col1.appendChild(col1Els[c1]);
+    for (var c2 = 0; c2 < col2Els.length; c2++) col2.appendChild(col2Els[c2]);
   }
 
-  function closePopup() {
-    const backdrop = doc.getElementById('menu-cleaner-backdrop');
-    const popup = doc.getElementById('menu-cleaner-popup');
-    if (backdrop) backdrop.style.display = 'none';
-    if (popup) popup.style.display = 'none';
-    showSettingsPanel = false;
-  }
-
-  function toggleSettingsPanel() {
-    showSettingsPanel = !showSettingsPanel;
-    updatePopupView();
-    if (!showSettingsPanel) refreshPopup();
-  }
-
-  function updatePopupView() {
-    var tabsEl = doc.getElementById('menu-cleaner-tabs');
-    var settingsBtn = doc.getElementById('menu-cleaner-settings-btn');
-    if (showSettingsPanel) {
-      if (tabsEl) tabsEl.style.display = 'none';
-      if (settingsBtn) settingsBtn.textContent = '返回';
-      renderSettingsView();
-    } else {
-      if (tabsEl) tabsEl.style.display = '';
-      if (settingsBtn) settingsBtn.textContent = '设置';
-    }
-  }
-
-  function switchTab(tabName) {
-    activeTab = tabName;
-    var tabs = doc.querySelectorAll('.menu-cleaner-tab');
-    for (var ti = 0; ti < tabs.length; ti++) {
-      if (tabs[ti].dataset.tab === tabName) {
-        tabs[ti].classList.add('active');
-      } else {
-        tabs[ti].classList.remove('active');
-      }
-    }
-    refreshPopup();
-  }
-
-  function renderReorderView() {
-    var body = doc.getElementById('menu-cleaner-popup-body');
-    if (!body) return;
-
-    // Save which groups are currently expanded
-    var expanded = {};
-    var currentBodies = doc.querySelectorAll('.menu-cleaner-category-body:not(.collapsed)');
-    for (var ei = 0; ei < currentBodies.length; ei++) {
-      expanded[currentBodies[ei].dataset.group] = true;
-    }
-
-    var reorderGroups = PANEL_GROUPS.filter(function (g) { return g.reorder; });
-    var html = '';
-
-    for (var gi = 0; gi < reorderGroups.length; gi++) {
-      var group = reorderGroups[gi];
-      var items = getReorderItems(group.id);
-      var isExpanded = expanded[group.id];
-      var isDualCol = settings.columnMode === 'dual' && group.id === 'extensionsSettings';
-
-      html += '<div class="menu-cleaner-category">';
-      html += '<div class="menu-cleaner-category-header" data-group="' + group.id + '">';
-      html += '<span class="menu-cleaner-category-arrow">' + (isExpanded ? '▼' : '▶') + '</span>';
-      html += '<strong>' + escHtml(group.name) + '</strong>';
-      html += '<span class="menu-cleaner-category-count">' + items.length + ' 项</span>';
-      html += '</div>';
-      html += '<div class="menu-cleaner-category-body' + (isExpanded ? '' : ' collapsed') + '" data-group="' + group.id + '">';
-
-      if (isDualCol) {
-        var col0Items = items.filter(function (it) {
-          var cached = (settings.discoveryCache[group.id] || []).find(function (c) { return c.selector === it.selector; });
-          return !cached || cached.column !== 1;
-        });
-        var col1Items = items.filter(function (it) {
-          var cached = (settings.discoveryCache[group.id] || []).find(function (c) { return c.selector === it.selector; });
-          return cached && cached.column === 1;
-        });
-        html += renderColumnSection(group, col0Items, 0, '左栏');
-        html += renderColumnSection(group, col1Items, 1, '右栏');
-      } else {
-        if (items.length === 0) {
-          html += '<div class="menu-cleaner-reorder-empty">没有可见元素</div>';
-        } else {
-          for (var ii = 0; ii < items.length; ii++) {
-            html += buildReorderItemHTML(items[ii], group.id, ii, -1);
-          }
-        }
-      }
-
-      html += '</div></div>';
-    }
-
-    body.innerHTML = html;
-
-    // Bind category collapse
-    var headers = doc.querySelectorAll('.menu-cleaner-category-header');
-    for (var hi = 0; hi < headers.length; hi++) {
-      headers[hi].addEventListener('click', function () {
-        var groupId = this.dataset.group;
-        var catBody = doc.querySelector('.menu-cleaner-category-body[data-group="' + groupId + '"]');
-        var arrow = this.querySelector('.menu-cleaner-category-arrow');
-        if (catBody) {
-          catBody.classList.toggle('collapsed');
-          arrow.textContent = catBody.classList.contains('collapsed') ? '▶' : '▼';
-          positionPopup();
-        }
-      });
-    }
-
-    bindReorderDragEvents();
-
-    // Bind arrow button clicks (mobile fallback)
-    bindReorderArrowButtons();
-
-    positionPopup();
-  }
-
-  function renderColumnSection(group, items, colIndex, label) {
-    var h = '<div class="menu-cleaner-reorder-column-section">';
-    h += '<div class="menu-cleaner-reorder-column-label">' + label + ' (' + items.length + ' 项)</div>';
-    if (items.length === 0) {
-      h += '<div class="menu-cleaner-reorder-empty">没有可见元素</div>';
-    } else {
-      for (var i = 0; i < items.length; i++) {
-        h += buildReorderItemHTML(items[i], group.id, i, colIndex);
-      }
-    }
-    h += '</div>';
-    return h;
-  }
-
-  function buildReorderItemHTML(item, groupId, index, colIndex) {
-    var h = '<div class="menu-cleaner-reorder-item" draggable="true" data-selector="' + escHtml(item.selector) + '" data-group="' + groupId + '" data-index="' + index + '" data-column="' + colIndex + '">';
-    h += '<span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>';
-    h += '<span title="' + escHtml(item.selector) + '">' + escHtml(item.label) + '</span>';
-    h += '<button class="menu-cleaner-arrow-btn" data-dir="up" title="上移">▲</button>';
-    h += '<button class="menu-cleaner-arrow-btn" data-dir="down" title="下移">▼</button>';
-    h += '</div>';
-    return h;
-  }
-
-  function moveElementToColumn(selector, groupId, targetColumn) {
-    // Update or create discoveryCache column origin
-    if (!settings.discoveryCache[groupId]) settings.discoveryCache[groupId] = [];
-    var cached = settings.discoveryCache[groupId];
-    var entry = cached.find(function (c) { return c.selector === selector; });
-    if (entry) {
-      entry.column = targetColumn;
-    } else {
-      var elForLabel = doc.querySelector(selector);
-      var label = elForLabel ? (elForLabel.textContent || '').trim().substring(0, 40) : selector;
-      cached.push({ selector: selector, label: label, column: targetColumn });
-    }
-
-    // Move DOM element to the appropriate container
-    var el = doc.querySelector(selector);
-    if (el) {
-      var containers = [];
-      for (var gi2 = 0; gi2 < PANEL_GROUPS.length; gi2++) {
-        if (PANEL_GROUPS[gi2].id === groupId && PANEL_GROUPS[gi2].discovery) {
-          containers = PANEL_GROUPS[gi2].discovery.containers;
-        }
-      }
-      if (containers.length > targetColumn) {
-        var targetContainer = doc.querySelector(containers[targetColumn]);
-        if (targetContainer && el.parentNode !== targetContainer) {
-          targetContainer.appendChild(el);
-        }
-      }
-    }
-  }
-
-  function bindReorderDragEvents() {
-    var draggedItem = null;
-    var draggedGroup = null;
-    var draggedIndex = -1;
-    var touchGhost = null;
-    var touchStartX = 0;
-    var touchStartY = 0;
-    var touchMoved = false;
-
-    function cleanupDrag() {
-      if (draggedItem) draggedItem.classList.remove('dragging');
-      var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
-      for (var ai = 0; ai < allItems.length; ai++) {
-        allItems[ai].classList.remove('drag-over');
-      }
-      var sections = doc.querySelectorAll('.menu-cleaner-reorder-column-section');
-      for (var si = 0; si < sections.length; si++) {
-        sections[si].classList.remove('drag-over-section');
-      }
-      if (touchGhost) {
-        touchGhost.remove();
-        touchGhost = null;
-      }
-      draggedItem = null;
-      draggedGroup = null;
-      draggedIndex = -1;
-      touchMoved = false;
-    }
-
-    function doReorder(fromIndex, toIndex, groupId) {
-      var fromCol = draggedItem ? draggedItem.dataset.column : '-1';
-      var toCol = doReorder._dropTargetColumn;
-
-      if (fromCol !== '-1' && toCol !== undefined && toCol !== '-1' && fromCol !== toCol) {
-        // Cross-column move
-        var selector = draggedItem.dataset.selector;
-        var reorderItems = getReorderItems(groupId);
-        var movedItem = reorderItems.find(function (it) { return it.selector === selector; });
-        if (!movedItem) return;
-
-        var remaining = reorderItems.filter(function (it) { return it.selector !== selector; });
-        var targetItem = reorderItems.find(function (it, idx) { return idx === toIndex; });
-        if (targetItem) {
-          var insertIdx = remaining.findIndex(function (it) { return it.selector === targetItem.selector; });
-          remaining.splice(insertIdx + 1, 0, movedItem);
-        } else {
-          remaining.push(movedItem);
-        }
-
-        settings.reorder[groupId] = remaining.map(function (ri) { return ri.selector; });
-        moveElementToColumn(selector, groupId, parseInt(toCol));
-        saveSettings();
-        applyReorder(groupId);
-        renderReorderView();
-        return;
-      }
-
-      // Same-column reorder
-      var items = getReorderItems(groupId);
-      if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length) return;
-
-      var moved = items.splice(fromIndex, 1)[0];
-      items.splice(toIndex, 0, moved);
-
-      settings.reorder[groupId] = items.map(function (ri) { return ri.selector; });
-      saveSettings();
-      applyReorder(groupId);
-      renderReorderView();
-    }
-
-    var items = doc.querySelectorAll('.menu-cleaner-reorder-item');
-    for (var i = 0; i < items.length; i++) {
-      var item = items[i];
-
-      item.addEventListener('dragstart', function (e) {
-        draggedItem = this;
-        draggedGroup = this.dataset.group;
-        draggedIndex = parseInt(this.dataset.index);
-        this.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', this.dataset.selector);
-      });
-
-      item.addEventListener('dragend', function () {
-        cleanupDrag();
-      });
-
-      item.addEventListener('dragover', function (e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (this !== draggedItem && this.dataset.group === draggedGroup) {
-          this.classList.add('drag-over');
-        }
-      });
-
-      item.addEventListener('dragleave', function () {
-        this.classList.remove('drag-over');
-      });
-
-      item.addEventListener('drop', function (e) {
-        e.preventDefault();
-        this.classList.remove('drag-over');
-        if (!draggedItem || this === draggedItem) return;
-        if (this.dataset.group !== draggedGroup) return;
-
-        doReorder._dropTargetColumn = this.dataset.column;
-        doReorder(draggedIndex, parseInt(this.dataset.index), draggedGroup);
-        doReorder._dropTargetColumn = undefined;
-        cleanupDrag();
-      });
-
-      // ── Touch polyfill (mobile) ─────────────────────────
-      item.addEventListener('touchstart', function (e) {
-        if (e.touches.length !== 1) return;
-        e.preventDefault();
-        var touch = e.touches[0];
-        touchStartX = touch.clientX;
-        touchStartY = touch.clientY;
-        touchMoved = false;
-
-        draggedItem = this;
-        draggedGroup = this.dataset.group;
-        draggedIndex = parseInt(this.dataset.index);
-        this.classList.add('dragging');
-
-        // Create ghost element that follows the finger
-        touchGhost = this.cloneNode(true);
-        touchGhost.style.position = 'fixed';
-        touchGhost.style.zIndex = '100001';
-        touchGhost.style.pointerEvents = 'none';
-        touchGhost.style.opacity = '0.85';
-        touchGhost.style.width = this.offsetWidth + 'px';
-        touchGhost.style.left = (touch.clientX - this.offsetWidth / 2) + 'px';
-        touchGhost.style.top = (touch.clientY - 20) + 'px';
-        touchGhost.classList.add('dragging');
-        doc.body.appendChild(touchGhost);
-      });
-
-      item.addEventListener('touchmove', function (e) {
-        if (!draggedItem) return;
-        e.preventDefault();
-        touchMoved = true;
-        var touch = e.touches[0];
-
-        // Move ghost
-        if (touchGhost) {
-          touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
-          touchGhost.style.top = (touch.clientY - 20) + 'px';
-        }
-
-        // Hide ghost briefly so it doesn't block elementFromPoint
-        if (touchGhost) touchGhost.style.display = 'none';
-        var target = doc.elementFromPoint(touch.clientX, touch.clientY);
-        if (touchGhost) touchGhost.style.display = '';
-
-        var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
-
-        // Manage drag-over classes
-        var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
-        for (var ti = 0; ti < allItems.length; ti++) {
-          if (allItems[ti] === targetItem && allItems[ti] !== draggedItem && allItems[ti].dataset.group === draggedGroup) {
-            allItems[ti].classList.add('drag-over');
-          } else {
-            allItems[ti].classList.remove('drag-over');
-          }
-        }
-      });
-
-      item.addEventListener('touchend', function (e) {
-        if (!draggedItem) return;
-        e.preventDefault();
-
-        if (touchMoved) {
-          var touch = e.changedTouches[0];
-          if (touchGhost) touchGhost.style.display = 'none';
-          var target = doc.elementFromPoint(touch.clientX, touch.clientY);
-          if (touchGhost) touchGhost.style.display = '';
-
-          var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
-          if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
-            targetItem.classList.remove('drag-over');
-            doReorder._dropTargetColumn = targetItem.dataset.column;
-            doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
-            doReorder._dropTargetColumn = undefined;
-          }
-        }
-
-        cleanupDrag();
-      });
-
-      item.addEventListener('touchcancel', function () {
-        cleanupDrag();
-      });
-    }
-
-    // Bind column-section drop (for cross-column drag into empty columns)
-    var sections = doc.querySelectorAll('.menu-cleaner-reorder-column-section');
-    for (var si2 = 0; si2 < sections.length; si2++) {
-      var section = sections[si2];
-      section.addEventListener('dragover', function (e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        this.classList.add('drag-over-section');
-      });
-
-      section.addEventListener('dragleave', function (e) {
-        if (!this.contains(e.relatedTarget)) {
-          this.classList.remove('drag-over-section');
-        }
-      });
-
-      section.addEventListener('drop', function (e) {
-        e.preventDefault();
-        this.classList.remove('drag-over-section');
-        if (!draggedItem) return;
-
-        var firstItem = this.querySelector('.menu-cleaner-reorder-item');
-        if (!firstItem) {
-          // Empty column: append dragged item to this column
-          var targetCol = -1;
-          var label = this.querySelector('.menu-cleaner-reorder-column-label');
-          if (label) {
-            if (label.textContent.indexOf('右栏') !== -1) targetCol = 1;
-            else if (label.textContent.indexOf('左栏') !== -1) targetCol = 0;
-          }
-          if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
-            var selector = draggedItem.dataset.selector;
-            var groupId = draggedGroup;
-            var reorderItems = getReorderItems(groupId);
-            var movedItem = reorderItems.find(function (it) { return it.selector === selector; });
-            if (movedItem) {
-              var remaining = reorderItems.filter(function (it) { return it.selector !== selector; });
-              remaining.push(movedItem);
-              settings.reorder[groupId] = remaining.map(function (ri) { return ri.selector; });
-              moveElementToColumn(selector, groupId, targetCol);
-              saveSettings();
-              applyReorder(groupId);
-              renderReorderView();
-            }
-          }
-          cleanupDrag();
-        }
-      });
-    }
-  }
-
-  function bindReorderArrowButtons() {
-    var buttons = doc.querySelectorAll('.menu-cleaner-arrow-btn');
-    for (var bi = 0; bi < buttons.length; bi++) {
-      buttons[bi].addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        var dir = this.dataset.dir;
-        var item = this.closest('.menu-cleaner-reorder-item');
-        if (!item) return;
-        var groupId = item.dataset.group;
-        var selector = item.dataset.selector;
-        var col = item.dataset.column;
-
-        var allItems = getReorderItems(groupId);
-        var isDualCol = col !== '-1' && settings.columnMode === 'dual' && groupId === 'extensionsSettings';
-
-        // Get column siblings
-        var siblings;
-        if (isDualCol) {
-          var cached = settings.discoveryCache[groupId] || [];
-          siblings = allItems.filter(function (it) {
-            var c = cached.find(function (cc) { return cc.selector === it.selector; });
-            if (col === '0') return !c || c.column !== 1;
-            return c && c.column === 1;
-          });
-        } else {
-          siblings = allItems;
-        }
-
-        var fromIdx = siblings.findIndex(function (it) { return it.selector === selector; });
-        if (fromIdx < 0) return;
-        var toIdx = dir === 'up' ? fromIdx - 1 : fromIdx + 1;
-
-        // ── Cross-column move (dual mode only) ──────────────────
-        if ((toIdx < 0 || toIdx >= siblings.length) && isDualCol) {
-          // Only cross when: left-last ↓ → right-top, right-top ↑ → left-last
-          if (!(col === '0' && dir === 'down') && !(col === '1' && dir === 'up')) return;
-
-          var targetCol = col === '0' ? 1 : 0;
-          var dcCached = settings.discoveryCache[groupId] || [];
-
-          // Get target column siblings
-          var targetSiblings = allItems.filter(function (it) {
-            var c = dcCached.find(function (cc) { return cc.selector === it.selector; });
-            if (targetCol === 0) return !c || c.column !== 1;
-            return c && c.column === 1;
-          });
-
-          // Remove from source
-          var xmoved = siblings.splice(fromIdx, 1)[0];
-
-          // Insert in target column
-          if (dir === 'down') {
-            targetSiblings.splice(0, 0, xmoved);     // top of right column
-          } else {
-            targetSiblings.push(xmoved);              // bottom of left column
-          }
-
-          // Move DOM element and update cache
-          moveElementToColumn(selector, groupId, targetCol);
-
-          // Reconstruct flat order from both columns
-          var col0Items = targetCol === 0 ? targetSiblings : siblings;
-          var col1Items = targetCol === 1 ? targetSiblings : siblings;
-          var col0Set = new Set();
-          for (var ci0 = 0; ci0 < col0Items.length; ci0++) { col0Set.add(col0Items[ci0].selector); }
-          var col1Set = new Set();
-          for (var ci1 = 0; ci1 < col1Items.length; ci1++) { col1Set.add(col1Items[ci1].selector); }
-
-          var newOrder = [];
-          var si0 = 0, si1 = 0;
-          for (var ai = 0; ai < allItems.length; ai++) {
-            var sel = allItems[ai].selector;
-            if (col0Set.has(sel)) {
-              newOrder.push(col0Items[si0++]);
-            } else if (col1Set.has(sel)) {
-              newOrder.push(col1Items[si1++]);
-            }
-          }
-
-          settings.reorder[groupId] = newOrder.map(function (it) { return it.selector; });
-          saveSettings();
-          applyReorder(groupId);
-          renderReorderView();
-          return;
-        }
-
-        // Out of bounds (non-dual mode): no-op
-        if (toIdx < 0 || toIdx >= siblings.length) return;
-
-        // ── Same-column move ────────────────────────────────────
-        var moved = siblings.splice(fromIdx, 1)[0];
-        siblings.splice(toIdx, 0, moved);
-
-        // Reconstruct flat order
-        var scNewOrder = [];
-        var si = 0;
-        for (var sai = 0; sai < allItems.length; sai++) {
-          var isSibling = siblings.some(function (s) { return s.selector === allItems[sai].selector; });
-          if (isSibling) {
-            scNewOrder.push(siblings[si++]);
-          } else {
-            scNewOrder.push(allItems[sai]);
-          }
-        }
-
-        settings.reorder[groupId] = scNewOrder.map(function (it) { return it.selector; });
-        saveSettings();
-        applyReorder(groupId);
-        renderReorderView();
-      });
-    }
-  }
-
-  function positionPopup() {
-    const popup = doc.getElementById('menu-cleaner-popup');
-    if (!popup) return;
-    const vh = win.innerHeight;
-    const vw = win.innerWidth;
-    const margin = 10;
-
-    popup.style.maxHeight = '90vh';
-    popup.style.maxWidth = Math.min(560, vw - margin * 2) + 'px';
-    popup.style.top = '0';
-    popup.style.left = '0';
-    popup.style.transform = 'none';
-
-    const popupHeight = popup.offsetHeight;
-    const popupWidth = popup.offsetWidth;
-
-    const top = Math.max(margin, (vh - popupHeight) / 2);
-    const left = Math.max(margin, (vw - popupWidth) / 2);
-
-    popup.style.top = top + 'px';
-    popup.style.left = left + 'px';
-  }
-
-  // ── Settings panel view ──────────────────────────────────────
-  function renderSettingsView() {
-    var body = doc.getElementById('menu-cleaner-popup-body');
-    if (!body) return;
-
-    var html = '';
-    html += '<div class="menu-cleaner-settings-panel">';
-    html += '<button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>';
-    html += '<button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>';
-    html += '<button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>';
-    html += '<div class="menu-cleaner-settings-divider">—————— 扩展菜单分栏选项 ——————</div>';
-    html += '<div class="menu-cleaner-settings-radio-group">';
-    html += '<label class="menu-cleaner-settings-radio">';
-    html += '<input type="radio" name="menu-cleaner-column-mode" value="single" ' + (settings.columnMode === 'single' ? 'checked' : '') + '>';
-    html += '<span>单栏</span>';
-    html += '</label>';
-    html += '<label class="menu-cleaner-settings-radio">';
-    html += '<input type="radio" name="menu-cleaner-column-mode" value="dual" ' + (settings.columnMode === 'dual' ? 'checked' : '') + '>';
-    html += '<span>双栏</span>';
-    html += '</label>';
-    html += '</div>';
-    html += '<div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>';
-    html += '<div class="menu-cleaner-settings-row">';
-    html += '<span>重扫描消息toast</span>';
-    html += '<label class="menu-cleaner-toggle">';
-    html += '<input type="checkbox" id="menu-cleaner-rescan-toast" ' + (settings.rescanToast ? 'checked' : '') + '>';
-    html += '<span class="menu-cleaner-slider"></span>';
-    html += '</label>';
-    html += '</div>';
-    html += '</div>';
-
-    body.innerHTML = html;
-
-    doc.getElementById('menu-cleaner-rescan').addEventListener('click', function () { doRescan(); });
-    doc.getElementById('menu-cleaner-reset-order').addEventListener('click', function () { resetAllReorders(); });
-
-    doc.getElementById('menu-cleaner-clear-data').addEventListener('click', function () {
-      if (!confirm('确定要清除所有插件配置数据吗？此操作不可撤销。')) return;
-      settings = Object.assign({}, defaultSettings);
-      win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      clearAllHides();
-      showSettingsPanel = false;
-      activeTab = 'hide';
-      updatePopupView();
-      doRescan();
-    });
-
-    var radios = doc.querySelectorAll('input[name="menu-cleaner-column-mode"]');
-    for (var ri = 0; ri < radios.length; ri++) {
-      radios[ri].addEventListener('change', function (e) {
-        settings.columnMode = e.target.value;
-        applyColumnMode();
-        saveSettings();
-      });
-    }
-
-    doc.getElementById('menu-cleaner-rescan-toast').addEventListener('change', function (e) {
-      settings.rescanToast = e.target.checked;
-      saveSettings();
-    });
-
-    positionPopup();
-  }
-
-  function refreshPopup() {
-    if (showSettingsPanel) return;
-    if (activeTab === 'reorder') {
-      renderReorderView();
+  function toggleExtensionsPanel() {
+    extPanelVisible = !extPanelVisible;
+    var panel = doc.getElementById('menu-cleaner-ext-panel');
+    if (!panel) {
+      createExtensionsPanelDOM();
+      toggleExtensionsPanel();
       return;
     }
-    renderHideView();
-  }
 
-  // ── Build popup content ───────────────────────────────────────
-  function renderHideView() {
-    const body = doc.getElementById('menu-cleaner-popup-body');
-    if (!body) return;
-
-    let html = '';
-
-    for (const group of PANEL_GROUPS) {
-      const hcSelectors = new Set((group.items || []).map(function (i) { return i.selector; }));
-      var rawCache = settings.discoveryCache[group.id] || [];
-      var cached = rawCache.filter(function (c) { return !hcSelectors.has(c.selector); });
-      const totalCount = (group.items || []).length + cached.length;
-
-      html += '<div class="menu-cleaner-category">';
-      html += '<div class="menu-cleaner-category-header" data-group="' + group.id + '">';
-      html += '<span class="menu-cleaner-category-arrow">▶</span>';
-      html += '<strong>' + escHtml(group.name) + '</strong>';
-      html += '<span class="menu-cleaner-category-count">' + totalCount + ' 项</span>';
-      html += '</div>';
-      html += '<div class="menu-cleaner-category-body collapsed" data-group="' + group.id + '">';
-
-      for (const item of (group.items || [])) {
-        const isHidden = settings.hiddenSelectors[item.selector] === true;
-        html += '<div class="menu-cleaner-item" data-selector="' + escHtml(item.selector) + '">';
-        html += '<span title="' + escHtml(item.selector) + '">' + escHtml(item.label) + '</span>';
-        html += '<label class="menu-cleaner-toggle">';
-        html += '<input type="checkbox" class="menu-cleaner-checkbox" data-selector="' + escHtml(item.selector) + '"' + (isHidden ? '' : ' checked') + '>';
-        html += '<span class="menu-cleaner-slider"></span>';
-        html += '</label>';
-        html += '</div>';
-      }
-
-      if (cached.length > 0) {
-        html += '<div class="menu-cleaner-separator">由插件引入</div>';
-        for (const item of cached) {
-          const isHidden = settings.hiddenSelectors[item.selector] === true;
-          html += '<div class="menu-cleaner-item menu-cleaner-item-discovered" data-selector="' + escHtml(item.selector) + '">';
-          html += '<span title="' + escHtml(item.selector) + '">' + escHtml(item.label) + '</span>';
-          html += '<label class="menu-cleaner-toggle">';
-          html += '<input type="checkbox" class="menu-cleaner-checkbox" data-selector="' + escHtml(item.selector) + '"' + (isHidden ? '' : ' checked') + '>';
-          html += '<span class="menu-cleaner-slider"></span>';
-          html += '</label>';
-          html += '</div>';
-        }
-      }
-
-      html += '</div></div>';
-    }
-
-    body.innerHTML = html;
-    bindPopupEvents();
-    positionPopup();
-  }
-
-  // ── Popup event bindings ──────────────────────────────────────
-  function bindPopupEvents() {
-    var headers = doc.querySelectorAll('.menu-cleaner-category-header');
-    for (var i = 0; i < headers.length; i++) {
-      headers[i].addEventListener('click', function () {
-        var groupId = this.dataset.group;
-        var categoryBody = doc.querySelector('.menu-cleaner-category-body[data-group="' + groupId + '"]');
-        var arrow = this.querySelector('.menu-cleaner-category-arrow');
-        if (categoryBody) {
-          categoryBody.classList.toggle('collapsed');
-          arrow.textContent = categoryBody.classList.contains('collapsed') ? '▶' : '▼';
-        }
-        positionPopup();
-      });
-    }
-
-    var checkboxes = doc.querySelectorAll('.menu-cleaner-checkbox');
-    for (var j = 0; j < checkboxes.length; j++) {
-      checkboxes[j].addEventListener('change', function () {
-        var selector = this.dataset.selector;
-        if (!selector) return;
-        settings.hiddenSelectors[selector] = !this.checked;
-        saveSettings();
-        applyHides();
-      });
+    if (extPanelVisible) {
+      renderExtensionsPanel();
+      panel.style.display = 'block';
+      panel.style.visibility = 'visible';
+      panel.style.height = 'auto';
+      panel.classList.remove('closedDrawer');
+      positionExtensionsPanel();
+    } else {
+      panel.style.display = 'none';
     }
   }
 
-  // ── UI: Entry in extensionsMenu (魔棒) ────────────────────────
+  function isPanelOpen() {
+    return extPanelVisible;
+  }
+
+  function positionExtensionsPanel() {
+    var panel = doc.getElementById('menu-cleaner-ext-panel');
+    if (!panel) return;
+    panel.style.maxHeight = '80vh';
+    panel.style.overflow = 'auto';
+  }
+
+  // ── Panel intercept ─────────────────────────────────────────────
+  function setupPanelIntercept() {
+    var drawerToggle = doc.querySelector('#extensions-settings-button > .drawer-toggle');
+    if (!drawerToggle) {
+      setTimeout(setupPanelIntercept, 500);
+      return;
+    }
+    drawerToggle.addEventListener('click', function(e) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      toggleExtensionsPanel();
+    }, true);
+  }
+
+  // ── Return elements to native on disable ────────────────────────
+  function returnElementsToNative() {
+    var col1 = doc.getElementById('menu-cleaner-ext-col1');
+    var col2 = doc.getElementById('menu-cleaner-ext-col2');
+    var nativeCol1 = doc.getElementById('extensions_settings');
+    var nativeCol2 = doc.getElementById('extensions_settings2');
+
+    if (col1 && nativeCol1) {
+      while (col1.firstChild) nativeCol1.appendChild(col1.firstChild);
+    }
+    if (col2 && nativeCol2) {
+      while (col2.firstChild) nativeCol2.appendChild(col2.firstChild);
+    }
+  }
+
+  // ── UI: Entry in extensionsMenu ─────────────────────────────────
   function injectMenuEntry() {
     var menu = doc.querySelector('#extensionsMenu');
     if (!menu) {
@@ -1845,7 +1014,7 @@ button.menu-cleaner-settings-btn-full:active {
     container.addEventListener('click', function () { openPopup(); });
   }
 
-  // ── UI: Settings drawer in extensions_settings ──────────────
+  // ── UI: Settings drawer in extensions_settings ──────────────────
   function injectSettingsEntry() {
     var target = doc.querySelector('#extensions_settings');
     if (!target) {
@@ -1885,11 +1054,696 @@ button.menu-cleaner-settings-btn-full:active {
     enableCb && enableCb.addEventListener('change', function (e) {
       settings.enabled = e.target.checked;
       saveSettings();
-      e.target.checked ? applyHides() : clearAllHides();
+      if (e.target.checked) {
+        applyHides();
+        setupPanelIntercept();
+      } else {
+        clearAllHides();
+        var panel = doc.getElementById('menu-cleaner-ext-panel');
+        if (panel) panel.style.display = 'none';
+        extPanelVisible = false;
+        returnElementsToNative();
+      }
     });
 
     var openBtn = doc.getElementById('menu-cleaner-open-popup');
     openBtn && openBtn.addEventListener('click', function () { openPopup(); });
+  }
+
+  // ── Popup ───────────────────────────────────────────────────────
+  function createPopupDOM() {
+    if (doc.getElementById('menu-cleaner-popup')) return;
+
+    var html =
+      '<div id="menu-cleaner-backdrop" class="menu-cleaner-backdrop"></div>' +
+      '<div id="menu-cleaner-popup" class="menu-cleaner-popup">' +
+        '<div class="menu-cleaner-popup-header">' +
+          '<h2>酒馆菜单精简器</h2>' +
+          '<div class="menu-cleaner-popup-actions">' +
+            '<button id="menu-cleaner-settings-btn" class="menu_button">设置</button>' +
+            '<button id="menu-cleaner-close" class="menu_button">✕ 关闭</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="menu-cleaner-tabs" id="menu-cleaner-tabs">' +
+          '<div class="menu-cleaner-tab active" data-tab="hide">隐藏元素</div>' +
+          '<div class="menu-cleaner-tab" data-tab="reorder">重排序</div>' +
+        '</div>' +
+        '<div id="menu-cleaner-popup-body" class="menu-cleaner-popup-body"></div>' +
+      '</div>';
+    doc.body.insertAdjacentHTML('beforeend', html);
+
+    var closeBtn = doc.getElementById('menu-cleaner-close');
+    var backdrop = doc.getElementById('menu-cleaner-backdrop');
+    closeBtn && closeBtn.addEventListener('click', closePopup);
+    backdrop && backdrop.addEventListener('click', closePopup);
+    var settingsBtn = doc.getElementById('menu-cleaner-settings-btn');
+    settingsBtn && settingsBtn.addEventListener('click', toggleSettingsPanel);
+
+    var tabs = doc.querySelectorAll('.menu-cleaner-tab');
+    for (var t = 0; t < tabs.length; t++) {
+      tabs[t].addEventListener('click', function() { switchTab(this.dataset.tab); });
+    }
+  }
+
+  function openPopup() {
+    createPopupDOM();
+    doc.getElementById('menu-cleaner-backdrop').style.display = 'block';
+    doc.getElementById('menu-cleaner-popup').style.display = 'flex';
+    showSettingsPanel = false;
+    updatePopupView();
+    refreshPopup();
+    positionPopup();
+  }
+
+  function closePopup() {
+    var backdrop = doc.getElementById('menu-cleaner-backdrop');
+    var popup = doc.getElementById('menu-cleaner-popup');
+    if (backdrop) backdrop.style.display = 'none';
+    if (popup) popup.style.display = 'none';
+    showSettingsPanel = false;
+  }
+
+  function toggleSettingsPanel() {
+    showSettingsPanel = !showSettingsPanel;
+    updatePopupView();
+    if (!showSettingsPanel) refreshPopup();
+  }
+
+  function updatePopupView() {
+    var tabsEl = doc.getElementById('menu-cleaner-tabs');
+    var settingsBtn = doc.getElementById('menu-cleaner-settings-btn');
+
+    if (showSettingsPanel) {
+      if (tabsEl) tabsEl.style.display = 'none';
+      if (settingsBtn) settingsBtn.textContent = '返回';
+      renderSettingsView();
+    } else {
+      if (tabsEl) tabsEl.style.display = '';
+      if (settingsBtn) settingsBtn.textContent = '设置';
+    }
+  }
+
+  function switchTab(tabName) {
+    activeTab = tabName;
+    var tabs = doc.querySelectorAll('.menu-cleaner-tab');
+    for (var t = 0; t < tabs.length; t++) {
+      if (tabs[t].dataset.tab === tabName) {
+        tabs[t].classList.add('active');
+      } else {
+        tabs[t].classList.remove('active');
+      }
+    }
+    refreshPopup();
+  }
+
+  // ── Settings panel view ─────────────────────────────────────────
+  function renderSettingsView() {
+    var body = doc.getElementById('menu-cleaner-popup-body');
+    if (!body) return;
+
+    var html =
+      '<div class="menu-cleaner-settings-panel">' +
+        '<button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>' +
+        '<button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>' +
+        '<button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>' +
+        '<div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>' +
+        '<div class="menu-cleaner-settings-row">' +
+          '<span>重扫描消息toast</span>' +
+          '<label class="menu-cleaner-toggle">' +
+            '<input type="checkbox" id="menu-cleaner-rescan-toast"' + (settings.rescanToast ? ' checked' : '') + '>' +
+            '<span class="menu-cleaner-slider"></span>' +
+          '</label>' +
+        '</div>' +
+      '</div>';
+
+    body.innerHTML = html;
+
+    var rescanBtn = doc.getElementById('menu-cleaner-rescan');
+    rescanBtn && rescanBtn.addEventListener('click', function() { doRescan(); });
+    var resetBtn = doc.getElementById('menu-cleaner-reset-order');
+    resetBtn && resetBtn.addEventListener('click', function() { resetAllReorders(); });
+
+    var clearBtn = doc.getElementById('menu-cleaner-clear-data');
+    clearBtn && clearBtn.addEventListener('click', function() {
+      if (!win.confirm('确定要清除所有插件配置数据吗？此操作不可撤销。')) return;
+      settings = Object.assign({}, defaultSettings);
+      saveSettings();
+      clearAllHides();
+      showSettingsPanel = false;
+      activeTab = 'hide';
+      updatePopupView();
+      captureInitialSnapshot();
+      refreshDiscoveryCache();
+      applyHides();
+      createExtensionsPanelDOM();
+      setupPanelIntercept();
+      renderExtensionsPanel();
+    });
+
+    var toastCb = doc.getElementById('menu-cleaner-rescan-toast');
+    toastCb && toastCb.addEventListener('change', function(e) {
+      settings.rescanToast = e.target.checked;
+      saveSettings();
+    });
+
+    positionPopup();
+  }
+
+  // ── Reorder view ────────────────────────────────────────────────
+  function renderReorderView() {
+    var body = doc.getElementById('menu-cleaner-popup-body');
+    if (!body) return;
+
+    var expanded = new Set();
+    var catBodies = doc.querySelectorAll('.menu-cleaner-category-body:not(.collapsed)');
+    for (var eb = 0; eb < catBodies.length; eb++) {
+      expanded.add(catBodies[eb].dataset.group);
+    }
+
+    var reorderGroups = [];
+    for (var rg = 0; rg < PANEL_GROUPS.length; rg++) {
+      if (REORDER_GROUP_IDS.indexOf(PANEL_GROUPS[rg].id) !== -1) {
+        reorderGroups.push(PANEL_GROUPS[rg]);
+      }
+    }
+    var html = '';
+
+    for (var g = 0; g < reorderGroups.length; g++) {
+      var group = reorderGroups[g];
+      var items = getReorderItems(group.id);
+      var isExpanded = expanded.has(group.id);
+      var isDualCol = group.id === 'extensionsSettings';
+
+      html += '<div class="menu-cleaner-category">';
+      html += '<div class="menu-cleaner-category-header" data-group="' + escHtml(group.id) + '">' +
+                '<span class="menu-cleaner-category-arrow">' + (isExpanded ? '▼' : '▶') + '</span>' +
+                '<strong>' + escHtml(group.name) + '</strong>' +
+                '<span class="menu-cleaner-category-count">' + items.length + ' 项</span>' +
+              '</div>';
+      html += '<div class="menu-cleaner-category-body' + (isExpanded ? '' : ' collapsed') + '" data-group="' + escHtml(group.id) + '">';
+
+      if (isDualCol) {
+        var col0Items = items.filter(function(it) { return getColumnIndex(it.selector, group.id) === 0; });
+        var col1Items = items.filter(function(it) { return getColumnIndex(it.selector, group.id) === 1; });
+        html += renderColumnSection(group, col0Items, 0, '左栏');
+        html += renderColumnSection(group, col1Items, 1, '右栏');
+      } else {
+        if (items.length === 0) {
+          html += '<div class="menu-cleaner-reorder-empty">没有可见元素</div>';
+        } else {
+          for (var i = 0; i < items.length; i++) {
+            html += buildReorderItemHTML(items[i], group.id, i, -1);
+          }
+        }
+      }
+
+      html += '</div></div>';
+    }
+
+    body.innerHTML = html;
+
+    // Bind category collapse
+    var headers = doc.querySelectorAll('.menu-cleaner-category-header');
+    for (var h = 0; h < headers.length; h++) {
+      headers[h].addEventListener('click', function() {
+        var groupId = this.dataset.group;
+        var catBody = doc.querySelector('.menu-cleaner-category-body[data-group="' + groupId + '"]');
+        var arrow = this.querySelector('.menu-cleaner-category-arrow');
+        if (catBody) {
+          catBody.classList.toggle('collapsed');
+          if (arrow) arrow.textContent = catBody.classList.contains('collapsed') ? '▶' : '▼';
+          positionPopup();
+        }
+      });
+    }
+
+    bindReorderDragEvents();
+    positionPopup();
+  }
+
+  function renderColumnSection(group, items, colIndex, label) {
+    var h = '<div class="menu-cleaner-reorder-column-section">';
+    h += '<div class="menu-cleaner-reorder-column-label">' + label + ' (' + items.length + ' 项)</div>';
+    if (items.length === 0) {
+      h += '<div class="menu-cleaner-reorder-empty">没有可见元素</div>';
+    } else {
+      for (var i = 0; i < items.length; i++) {
+        h += buildReorderItemHTML(items[i], group.id, i, colIndex);
+      }
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function buildReorderItemHTML(item, groupId, index, colIndex) {
+    return '<div class="menu-cleaner-reorder-item" draggable="true" data-selector="' + escHtml(item.selector) + '" data-group="' + groupId + '" data-index="' + index + '" data-column="' + colIndex + '">' +
+             '<span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>' +
+             '<span title="' + escHtml(item.selector) + '">' + escHtml(item.label) + '</span>' +
+           '</div>';
+  }
+
+  // ── Drag events ─────────────────────────────────────────────────
+  function bindReorderDragEvents() {
+    var draggedItem = null;
+    var draggedGroup = null;
+    var draggedIndex = -1;
+    var touchGhost = null;
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var touchMoved = false;
+    var dropTargetColumn = undefined;
+
+    function doReorder(fromIndex, toIndex, groupId) {
+      var fromCol = draggedItem ? draggedItem.dataset.column : '-1';
+      var toCol = dropTargetColumn;
+
+      if (fromCol !== '-1' && toCol !== undefined && toCol !== '-1' && fromCol !== toCol) {
+        // Cross-column move
+        var selector = draggedItem.dataset.selector;
+        var items = getReorderItems(groupId);
+        var movedItem = null;
+        for (var mi = 0; mi < items.length; mi++) {
+          if (items[mi].selector === selector) { movedItem = items[mi]; break; }
+        }
+        if (!movedItem) return;
+
+        setColumnInCache(selector, groupId, parseInt(toCol));
+
+        var remaining = items.filter(function(it) { return it.selector !== selector; });
+
+        var targetItem = null;
+        for (var ti = 0; ti < items.length; ti++) {
+          if (ti === toIndex) { targetItem = items[ti]; break; }
+        }
+        if (targetItem) {
+          var insertIdx = -1;
+          for (var ri = 0; ri < remaining.length; ri++) {
+            if (remaining[ri].selector === targetItem.selector) { insertIdx = ri; break; }
+          }
+          remaining.splice(insertIdx + 1, 0, movedItem);
+        } else {
+          remaining.push(movedItem);
+        }
+
+        settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
+        saveSettings();
+        if (isPanelOpen() && groupId === 'extensionsSettings') renderExtensionsPanel();
+        renderReorderView();
+        return;
+      }
+
+      // Same-column reorder
+      var sitems = getReorderItems(groupId);
+      if (fromIndex < 0 || fromIndex >= sitems.length || toIndex < 0 || toIndex >= sitems.length) return;
+
+      var moved = sitems.splice(fromIndex, 1)[0];
+      sitems.splice(toIndex, 0, moved);
+
+      settings.reorder[groupId] = sitems.map(function(i) { return i.selector; });
+      saveSettings();
+      if (isPanelOpen() && groupId === 'extensionsSettings') renderExtensionsPanel();
+      renderReorderView();
+    }
+
+    function cleanupDrag() {
+      if (draggedItem) draggedItem.classList.remove('dragging');
+      var items = doc.querySelectorAll('.menu-cleaner-reorder-item');
+      for (var i = 0; i < items.length; i++) items[i].classList.remove('drag-over');
+      if (touchGhost) {
+        touchGhost.remove();
+        touchGhost = null;
+      }
+      draggedItem = null;
+      draggedGroup = null;
+      draggedIndex = -1;
+      touchMoved = false;
+      dropTargetColumn = undefined;
+    }
+
+    var reorderItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
+    for (var r = 0; r < reorderItems.length; r++) {
+      var item = reorderItems[r];
+
+      // ── Desktop DnD ──────────────────────────────────
+      item.addEventListener('dragstart', function(e) {
+        draggedItem = this;
+        draggedGroup = this.dataset.group;
+        draggedIndex = parseInt(this.dataset.index);
+        this.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', this.dataset.selector);
+      });
+
+      item.addEventListener('dragend', function() { cleanupDrag(); });
+
+      item.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (this !== draggedItem && this.dataset.group === draggedGroup) {
+          this.classList.add('drag-over');
+        }
+      });
+
+      item.addEventListener('dragleave', function() { this.classList.remove('drag-over'); });
+
+      item.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('drag-over');
+        if (!draggedItem || this === draggedItem) return;
+        if (this.dataset.group !== draggedGroup) return;
+        dropTargetColumn = this.dataset.column;
+        doReorder(draggedIndex, parseInt(this.dataset.index), draggedGroup);
+        cleanupDrag();
+      });
+
+      // ── Mobile touch ─────────────────────────────────
+      item.addEventListener('touchstart', function(e) {
+        if (e.touches.length !== 1) return;
+        e.preventDefault();
+        var touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchMoved = false;
+
+        draggedItem = this;
+        draggedGroup = this.dataset.group;
+        draggedIndex = parseInt(this.dataset.index);
+        this.classList.add('dragging');
+
+        touchGhost = this.cloneNode(true);
+        touchGhost.style.position = 'fixed';
+        touchGhost.style.zIndex = '100001';
+        touchGhost.style.pointerEvents = 'none';
+        touchGhost.style.opacity = '0.85';
+        touchGhost.style.width = this.offsetWidth + 'px';
+        touchGhost.style.left = (touch.clientX - this.offsetWidth / 2) + 'px';
+        touchGhost.style.top = (touch.clientY - 20) + 'px';
+        touchGhost.classList.add('dragging');
+        doc.body.appendChild(touchGhost);
+      });
+
+      item.addEventListener('touchmove', function(e) {
+        if (!draggedItem) return;
+        e.preventDefault();
+        touchMoved = true;
+        var touch = e.touches[0];
+
+        if (touchGhost) {
+          touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
+          touchGhost.style.top = (touch.clientY - 20) + 'px';
+        }
+
+        if (touchGhost) touchGhost.style.display = 'none';
+        var target = doc.elementFromPoint(touch.clientX, touch.clientY);
+        if (touchGhost) touchGhost.style.display = '';
+
+        var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
+
+        var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
+        for (var ai = 0; ai < allItems.length; ai++) {
+          if (allItems[ai] === targetItem && allItems[ai] !== draggedItem && allItems[ai].dataset.group === draggedGroup) {
+            allItems[ai].classList.add('drag-over');
+          } else {
+            allItems[ai].classList.remove('drag-over');
+          }
+        }
+      });
+
+      item.addEventListener('touchend', function(e) {
+        if (!draggedItem) return;
+        e.preventDefault();
+
+        if (touchMoved) {
+          var touch = e.changedTouches[0];
+          if (touchGhost) touchGhost.style.display = 'none';
+          var target = doc.elementFromPoint(touch.clientX, touch.clientY);
+          if (touchGhost) touchGhost.style.display = '';
+
+          var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
+          if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
+            targetItem.classList.remove('drag-over');
+            dropTargetColumn = targetItem.dataset.column;
+            doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+          }
+        }
+
+        cleanupDrag();
+      });
+
+      item.addEventListener('touchcancel', function() { cleanupDrag(); });
+    }
+
+    // Column-section drop targets for cross-column drag
+    var sections = doc.querySelectorAll('.menu-cleaner-reorder-column-section');
+    for (var s = 0; s < sections.length; s++) {
+      var section = sections[s];
+
+      section.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        this.classList.add('drag-over-section');
+      });
+
+      section.addEventListener('dragleave', function(e) {
+        if (!this.contains(e.relatedTarget)) {
+          this.classList.remove('drag-over-section');
+        }
+      });
+
+      section.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('drag-over-section');
+        if (!draggedItem) return;
+
+        var firstItem = this.querySelector('.menu-cleaner-reorder-item');
+        if (!firstItem) {
+          var targetCol = -1;
+          var label = this.querySelector('.menu-cleaner-reorder-column-label');
+          if (label) {
+            if (label.textContent.indexOf('右栏') !== -1) targetCol = 1;
+            else if (label.textContent.indexOf('左栏') !== -1) targetCol = 0;
+          }
+          if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
+            var selector = draggedItem.dataset.selector;
+            var groupId = draggedGroup;
+            var items = getReorderItems(groupId);
+            var movedItem = null;
+            for (var mi = 0; mi < items.length; mi++) {
+              if (items[mi].selector === selector) { movedItem = items[mi]; break; }
+            }
+            if (movedItem) {
+              setColumnInCache(selector, groupId, targetCol);
+              var remaining = items.filter(function(it) { return it.selector !== selector; });
+              remaining.push(movedItem);
+              settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
+              saveSettings();
+              if (isPanelOpen() && groupId === 'extensionsSettings') renderExtensionsPanel();
+              renderReorderView();
+            }
+          }
+          cleanupDrag();
+        }
+      });
+    }
+  }
+
+  // ── Popup positioning ───────────────────────────────────────────
+  function positionPopup() {
+    var popup = doc.getElementById('menu-cleaner-popup');
+    if (!popup) return;
+    var vh = win.innerHeight;
+    var vw = win.innerWidth;
+    var margin = 10;
+
+    popup.style.maxHeight = '90vh';
+    popup.style.maxWidth = Math.min(560, vw - margin * 2) + 'px';
+
+    popup.style.top = '0';
+    popup.style.left = '0';
+    popup.style.transform = 'none';
+
+    var popupHeight = popup.offsetHeight;
+    var popupWidth = popup.offsetWidth;
+
+    var top = Math.max(margin, (vh - popupHeight) / 2.5);
+    var left = Math.max(margin, (vw - popupWidth) / 2);
+
+    popup.style.top = top + 'px';
+    popup.style.left = left + 'px';
+  }
+
+  // ── Build popup content ─────────────────────────────────────────
+  function refreshPopup() {
+    if (showSettingsPanel) return;
+    if (activeTab === 'reorder') {
+      renderReorderView();
+      return;
+    }
+    renderHideView();
+  }
+
+  function renderHideView() {
+    var body = doc.getElementById('menu-cleaner-popup-body');
+    if (!body) return;
+
+    var html = '';
+
+    for (var g = 0; g < PANEL_GROUPS.length; g++) {
+      var group = PANEL_GROUPS[g];
+      var hcSelectors = new Set();
+      for (var hi = 0; hi < group.items.length; hi++) hcSelectors.add(group.items[hi].selector);
+      var cached = (settings.discoveryCache[group.id] || []).filter(function(c) { return !hcSelectors.has(c.selector); });
+      var totalCount = group.items.length + cached.length;
+
+      html += '<div class="menu-cleaner-category">';
+      html += '<div class="menu-cleaner-category-header" data-group="' + escHtml(group.id) + '">' +
+                '<span class="menu-cleaner-category-arrow">▶</span>' +
+                '<strong>' + escHtml(group.name) + '</strong>' +
+                '<span class="menu-cleaner-category-count">' + totalCount + ' 项</span>' +
+              '</div>';
+      html += '<div class="menu-cleaner-category-body collapsed" data-group="' + escHtml(group.id) + '">';
+
+      for (var i = 0; i < group.items.length; i++) {
+        var item = group.items[i];
+        var isHidden = settings.hiddenSelectors[item.selector] === true;
+        html += '<div class="menu-cleaner-item" data-selector="' + escHtml(item.selector) + '">' +
+                  '<span title="' + escHtml(item.selector) + '">' + escHtml(item.label) + '</span>' +
+                  '<label class="menu-cleaner-toggle">' +
+                    '<input type="checkbox" class="menu-cleaner-checkbox" data-selector="' + escHtml(item.selector) + '"' + (isHidden ? '' : ' checked') + '>' +
+                    '<span class="menu-cleaner-slider"></span>' +
+                  '</label>' +
+                '</div>';
+      }
+
+      if (cached.length > 0) {
+        html += '<div class="menu-cleaner-separator">————由插件引入————</div>';
+        for (var ci = 0; ci < cached.length; ci++) {
+          var citem = cached[ci];
+          var cHidden = settings.hiddenSelectors[citem.selector] === true;
+          html += '<div class="menu-cleaner-item menu-cleaner-item-discovered" data-selector="' + escHtml(citem.selector) + '">' +
+                    '<span title="' + escHtml(citem.selector) + '">' + escHtml(citem.label) + '</span>' +
+                    '<label class="menu-cleaner-toggle">' +
+                      '<input type="checkbox" class="menu-cleaner-checkbox" data-selector="' + escHtml(citem.selector) + '"' + (cHidden ? '' : ' checked') + '>' +
+                      '<span class="menu-cleaner-slider"></span>' +
+                    '</label>' +
+                  '</div>';
+        }
+      }
+
+      html += '</div></div>';
+    }
+
+    body.innerHTML = html;
+    bindPopupEvents();
+    positionPopup();
+  }
+
+  function bindPopupEvents() {
+    var headers = doc.querySelectorAll('.menu-cleaner-category-header');
+    for (var h = 0; h < headers.length; h++) {
+      headers[h].addEventListener('click', function() {
+        var groupId = this.dataset.group;
+        var body = doc.querySelector('.menu-cleaner-category-body[data-group="' + groupId + '"]');
+        var arrow = this.querySelector('.menu-cleaner-category-arrow');
+        if (body) {
+          body.classList.toggle('collapsed');
+          if (arrow) arrow.textContent = body.classList.contains('collapsed') ? '▶' : '▼';
+          positionPopup();
+        }
+      });
+    }
+
+    var cbs = doc.querySelectorAll('.menu-cleaner-checkbox');
+    for (var c = 0; c < cbs.length; c++) {
+      cbs[c].addEventListener('change', function(e) {
+        var selector = e.target.dataset.selector;
+        if (!selector) return;
+        settings.hiddenSelectors[selector] = !e.target.checked;
+        saveSettings();
+        applyHides();
+        if (isPanelOpen()) renderExtensionsPanel();
+      });
+    }
+  }
+
+  function escHtml(str) {
+    var div = doc.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ── Reset ───────────────────────────────────────────────────────
+  function resetAllReorders() {
+    var snap = settings.initialSnapshot;
+    if (!snap) {
+      captureInitialSnapshot();
+    }
+
+    for (var g = 0; g < PANEL_GROUPS.length; g++) {
+      var group = PANEL_GROUPS[g];
+      if (REORDER_GROUP_IDS.indexOf(group.id) === -1) continue;
+
+      if (settings.initialSnapshot && settings.initialSnapshot[group.id]) {
+        var snapEntries = settings.initialSnapshot[group.id];
+        settings.reorder[group.id] = snapEntries.map(function(s) { return s.selector; });
+
+        var existingCache = settings.discoveryCache[group.id] || [];
+        for (var s = 0; s < snapEntries.length; s++) {
+          if (snapEntries[s].column !== undefined) {
+            var existing = null;
+            for (var e = 0; e < existingCache.length; e++) {
+              if (existingCache[e].selector === snapEntries[s].selector) { existing = existingCache[e]; break; }
+            }
+            if (existing) {
+              existing.column = snapEntries[s].column;
+            } else {
+              existingCache.push({ selector: snapEntries[s].selector, label: snapEntries[s].label, column: snapEntries[s].column });
+            }
+          }
+        }
+        settings.discoveryCache[group.id] = existingCache;
+      } else {
+        var defaultOrder = group.items.map(function(i) { return i.selector; });
+        var cached = settings.discoveryCache[group.id] || [];
+        for (var c = 0; c < cached.length; c++) defaultOrder.push(cached[c].selector);
+        settings.reorder[group.id] = defaultOrder;
+      }
+    }
+
+    saveSettings();
+
+    showSettingsPanel = false;
+    activeTab = 'reorder';
+    var tabs = doc.querySelectorAll('.menu-cleaner-tab');
+    for (var t = 0; t < tabs.length; t++) {
+      if (tabs[t].dataset.tab === 'reorder') {
+        tabs[t].classList.add('active');
+      } else {
+        tabs[t].classList.remove('active');
+      }
+    }
+    updatePopupView();
+    renderReorderView();
+
+    if (isPanelOpen()) renderExtensionsPanel();
+  }
+
+  // ── Rescan ───────────────────────────────────────────────────────
+  function doRescan() {
+    if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
+
+    refreshDiscoveryCache();
+    if (isPanelOpen()) renderExtensionsPanel();
+    refreshPopup();
+
+    if (settings.rescanToast) {
+      var count = 0;
+      var dcKeys = Object.keys(settings.discoveryCache);
+      for (var dk = 0; dk < dcKeys.length; dk++) {
+        count += settings.discoveryCache[dcKeys[dk]].length;
+      }
+      if (win.toastr) win.toastr.info('已重新扫描，发现 ' + count + ' 个扩展元素');
+    }
   }
 
   // ── Keyboard ──────────────────────────────────────────────────
@@ -1899,6 +1753,10 @@ button.menu-cleaner-settings-btn-full:active {
         var popup = doc.getElementById('menu-cleaner-popup');
         if (popup && popup.style.display !== 'none') {
           closePopup();
+          return;
+        }
+        if (extPanelVisible) {
+          toggleExtensionsPanel();
         }
       }
     });
@@ -1908,18 +1766,20 @@ button.menu-cleaner-settings-btn-full:active {
       if (popup && popup.style.display !== 'none') {
         positionPopup();
       }
+      if (extPanelVisible) {
+        positionExtensionsPanel();
+      }
     });
   }
 
-  // ── Slash command ─────────────────────────────────────────────
-  // 酒馆助手运行在 iframe 中，SlashCommandParser 是父页面 ES module 作用域内的对象，
-  // 无法通过 window 直接访问，需要向父文档注入 <script type="module"> 来注册命令。
+  // ── Slash commands ────────────────────────────────────────────
   function registerSlashCmd() {
     try {
       var script = doc.createElement('script');
       script.type = 'module';
       script.textContent =
         "import { registerSlashCommand } from '/scripts/slash-commands.js';\n" +
+        // /menucleaner — open the panel
         "registerSlashCommand('menucleaner', function () {\n" +
         "  var popup = document.getElementById('menu-cleaner-popup');\n" +
         "  var backdrop = document.getElementById('menu-cleaner-backdrop');\n" +
@@ -1927,22 +1787,42 @@ button.menu-cleaner-settings-btn-full:active {
         "    backdrop.style.display = 'block';\n" +
         "    popup.style.display = 'flex';\n" +
         "  } else {\n" +
-        "    // 弹窗 DOM 尚未创建(从未打开过面板)，尝试点击触发按钮\n" +
         "    var btn = document.getElementById('menu-cleaner-btn');\n" +
         "    if (btn && btn.offsetParent) { btn.click(); return ''; }\n" +
         "    var settingsBtn = document.getElementById('menu-cleaner-open-popup');\n" +
         "    if (settingsBtn) { settingsBtn.click(); }\n" +
         "  }\n" +
         "  return '';\n" +
-        "}, [], '打开酒馆菜单精简器操作面板');\n";
+        "}, [], '打开酒馆菜单精简器操作面板');\n" +
+        // /menucleanerdisable — disable the extension
+        "registerSlashCommand('menucleanerdisable', function () {\n" +
+        "  try {\n" +
+        "    var raw = localStorage.getItem('menu_cleaner_settings');\n" +
+        "    var settings = raw ? JSON.parse(raw) : {};\n" +
+        "    settings.enabled = false;\n" +
+        "    localStorage.setItem('menu_cleaner_settings', JSON.stringify(settings));\n" +
+        "    // Remove injected style elements\n" +
+        "    var ids = ['menu-cleaner-styles', 'menu-cleaner-hides'];\n" +
+        "    ids.forEach(function(id) { var el = document.getElementById(id); if (el) el.remove(); });\n" +
+        "    // Hide our panel\n" +
+        "    var panel = document.getElementById('menu-cleaner-ext-panel');\n" +
+        "    if (panel) panel.style.display = 'none';\n" +
+        "    var backdrop = document.getElementById('menu-cleaner-backdrop');\n" +
+        "    if (backdrop) backdrop.style.display = 'none';\n" +
+        "    // Restore native block visibility\n" +
+        "    var nativeBlock = document.getElementById('rm_extensions_block');\n" +
+        "    if (nativeBlock) nativeBlock.style.display = '';\n" +
+        "    alert('酒馆菜单精简器已禁用，请刷新页面。');\n" +
+        "  } catch(e) { alert('禁用失败: ' + e.message); }\n" +
+        "  return '';\n" +
+        "}, [], '禁用酒馆菜单精简器');\n";
       doc.head.appendChild(script);
-      console.debug('[MenuCleaner] 已注册 /menucleaner 命令');
+      console.debug('[MenuCleaner] 已注册 /menucleaner 和 /menucleanerdisable 命令');
     } catch (e) {
       console.debug('[MenuCleaner] 斜杠命令注册失败', e);
     }
   }
 
-  // ── Init ──────────────────────────────────────────────────────
   // ── Auto-rescan ──────────────────────────────────────────────
   function scheduleAutoRescan() {
     if (rescanTimer) clearTimeout(rescanTimer);
@@ -1965,22 +1845,23 @@ button.menu-cleaner-settings-btn-full:active {
       console.debug('[酒馆菜单精简器] 事件监听注册失败', e);
     }
 
-    // MutationObserver: watch for new elements injected into extension containers
+    // MutationObserver: watch for new elements
     var observeContainers = function () {
       var targets = ['#extensions_settings', '#extensions_settings2'];
       for (var t = 0; t < targets.length; t++) {
-        var el = doc.querySelector(targets[t]);
-        if (!el) continue;
-        var observer = new win.MutationObserver(function (mutations) {
-          if (suppressObserver) return;
-          for (var m = 0; m < mutations.length; m++) {
-            if (mutations[m].addedNodes.length > 0) {
-              scheduleAutoRescan();
-              return;
+        (function(sel) {
+          var el = doc.querySelector(sel);
+          if (!el) return;
+          var observer = new win.MutationObserver(function (mutations) {
+            for (var m = 0; m < mutations.length; m++) {
+              if (mutations[m].addedNodes.length > 0) {
+                scheduleAutoRescan();
+                return;
+              }
             }
-          }
-        });
-        observer.observe(el, { childList: true, subtree: false });
+          });
+          observer.observe(el, { childList: true, subtree: false });
+        })(targets[t]);
       }
     };
 
@@ -1996,52 +1877,38 @@ button.menu-cleaner-settings-btn-full:active {
     setTimeout(tryObserve, 1000);
   }
 
+  // ── Init ──────────────────────────────────────────────────────
   function init() {
     loadSettings();
     injectStyle();
 
-    // Scan first to capture column origins from the natural DOM state
+    // Step 1: Capture initial snapshot (only on first run)
+    captureInitialSnapshot();
+
+    // Step 2: Scan to build discovery cache
     refreshDiscoveryCache();
 
-    // Then apply column mode (merge or restore)
-    if (settings.columnMode === 'dual') {
-      restoreExtensionSettingsColumns();
-    } else {
-      mergeExtensionSettingsColumns();
-    }
-
+    // Step 3: Inject UI elements
     injectMenuEntry();
     injectSettingsEntry();
+
+    // Step 4: Create our extensions panel and intercept the native button
+    if (settings.enabled) {
+      applyHides();
+      createExtensionsPanelDOM();
+      setupPanelIntercept();
+    }
+
+    // Step 5: Setup other systems
     setupKeyboard();
     registerSlashCmd();
     setupAutoRescan();
 
     // Delayed re-scan catches extensions that inject buttons after init
     setTimeout(function () {
-      suppressObserver = true;
-      if (settings.columnMode === 'single') {
-        mergeExtensionSettingsColumns();
-      } else {
-        restoreExtensionSettingsColumns();
-      }
       refreshDiscoveryCache();
-      applyAllReorders();
-      setTimeout(function() { suppressObserver = false; }, 0);
+      if (settings.enabled && isPanelOpen()) renderExtensionsPanel();
     }, 3000);
-
-    if (settings.enabled) {
-      applyHides();
-      setTimeout(function () {
-        suppressObserver = true;
-        if (settings.columnMode === 'single') {
-          mergeExtensionSettingsColumns();
-        } else {
-          restoreExtensionSettingsColumns();
-        }
-        applyAllReorders();
-        setTimeout(function() { suppressObserver = false; }, 0);
-      }, 500);
-    }
   }
 
   // Start when DOM is ready (parent page's DOM)
