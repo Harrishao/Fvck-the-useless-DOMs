@@ -185,6 +185,31 @@ function clearAllHides() {
 }
 
 // ── Snapshot system ─────────────────────────────────────────────
+function extractHeaderLabel(header) {
+  if (!header) return "";
+  // 1. Prefer DIRECT child b/[data-i18n] — avoids nested matches in subcontent
+  for (const ch of header.children) {
+    if (ch.tagName === "B" || ch.hasAttribute("data-i18n")) {
+      const t = (ch.textContent || "").trim();
+      if (t) return t;
+    }
+  }
+  // 2. Fall back to first descendant b/[data-i18n], but only if its text is short enough to be a label
+  const nested = header.querySelector("b, [data-i18n]");
+  if (nested) {
+    const nt = (nested.textContent || "").trim();
+    if (nt && nt.length <= 40) return nt;
+  }
+  // 3. Direct text nodes only — avoid pulling in version strings / taglines from nested elements
+  let direct = "";
+  for (const n of header.childNodes) {
+    if (n.nodeType === 3) direct += n.textContent;
+  }
+  direct = direct.trim();
+  if (direct) return direct;
+  return "";
+}
+
 function captureInitialSnapshot() {
   if (settings.initialSnapshot) return; // already captured
 
@@ -204,16 +229,7 @@ function captureInitialSnapshot() {
 
         const header = child.querySelector(group.discovery.hasHeader);
         if (!header) continue;
-        const labelEl = header.querySelector(group.discovery.labelInHeader);
-        let label = labelEl?.textContent?.trim();
-        if (!label) {
-          const icon = header.querySelector(".inline-drawer-icon");
-          const iconText = icon ? icon.textContent.trim() : "";
-          label = (header.textContent || "").trim();
-          if (iconText && label.endsWith(iconText)) {
-            label = label.slice(0, -iconText.length).trim();
-          }
-        }
+        const label = extractHeaderLabel(header);
         if (!label) continue;
 
         const selector = "#" + child.id;
@@ -296,19 +312,7 @@ function discoverItems(group) {
         const header = child.querySelector(group.discovery.hasHeader);
         if (!header) continue;
 
-        const labelEl = header.querySelector(group.discovery.labelInHeader);
-        let label = labelEl?.textContent?.trim();
-        // Fallback: if the targeted label element wasn't found (some extensions
-        // use <span> or plain text instead of <b>/[data-i18n]), extract the header's
-        // own text minus the icon's text content
-        if (!label) {
-          const icon = header.querySelector(".inline-drawer-icon");
-          const iconText = icon ? icon.textContent.trim() : "";
-          label = (header.textContent || "").trim();
-          if (iconText && label.endsWith(iconText)) {
-            label = label.slice(0, -iconText.length).trim();
-          }
-        }
+        const label = extractHeaderLabel(header);
         if (!label) continue;
 
         if (!child.id) { child.id = "menu-cleaner-auto-" + (autoIdSeq++); }
@@ -344,14 +348,14 @@ function refreshDiscoveryCache() {
       return true;
     });
 
-    // Preserve column origin from old cache
+    // Preserve column origin from old cache (user's prior cross-column moves win over physical scan)
     const oldCache = settings.discoveryCache[group.id] || [];
     const oldColMap = {};
     for (const old of oldCache) {
       if (old.column !== undefined) oldColMap[old.selector] = old.column;
     }
     for (const item of newItems) {
-      if (item.column === undefined && oldColMap[item.selector] !== undefined) {
+      if (oldColMap[item.selector] !== undefined) {
         item.column = oldColMap[item.selector];
       }
     }
@@ -388,8 +392,22 @@ function setColumnInCache(selector, groupId, columnIndex) {
   if (entry) {
     entry.column = columnIndex;
   } else {
-    const el = document.querySelector(selector);
-    const label = el ? (el.textContent || "").trim().substring(0, 40) : selector;
+    // Try to source a clean label: hardcoded list first, then header extraction
+    let label = "";
+    const grp = PANEL_GROUPS.find(g => g.id === groupId);
+    if (grp) {
+      const hc = grp.items.find(i => i.selector === selector);
+      if (hc) label = hc.label;
+    }
+    if (!label) {
+      const el = document.querySelector(selector);
+      if (el) {
+        const hd = el.querySelector(".inline-drawer-header");
+        if (hd) label = extractHeaderLabel(hd);
+        if (!label) label = (el.textContent || "").trim().substring(0, 40);
+      }
+    }
+    if (!label) label = selector;
     settings.discoveryCache[groupId].push({ selector, label, column: columnIndex });
   }
 }
@@ -839,6 +857,8 @@ function renderReorderView() {
 
     if (isDualCol) {
       // Split into left/right column
+      const flatIndexMap = {};
+      for (let fi = 0; fi < items.length; fi++) flatIndexMap[items[fi].selector] = fi;
       const col0Items = items.filter(function(it) {
         return getColumnIndex(it.selector, group.id) === 0;
       });
@@ -846,8 +866,8 @@ function renderReorderView() {
         return getColumnIndex(it.selector, group.id) === 1;
       });
 
-      html += renderColumnSection(group, col0Items, 0, "左栏");
-      html += renderColumnSection(group, col1Items, 1, "右栏");
+      html += renderColumnSection(group, col0Items, 0, "左栏", flatIndexMap);
+      html += renderColumnSection(group, col1Items, 1, "右栏", flatIndexMap);
     } else {
       if (items.length === 0) {
         html += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
@@ -883,14 +903,15 @@ function renderReorderView() {
   positionPopup();
 }
 
-function renderColumnSection(group, items, colIndex, label) {
-  let h = `<div class="menu-cleaner-reorder-column-section">`;
+function renderColumnSection(group, items, colIndex, label, flatIndexMap) {
+  let h = `<div class="menu-cleaner-reorder-column-section" data-column="${colIndex}">`;
   h += `<div class="menu-cleaner-reorder-column-label">${label} (${items.length} 项)</div>`;
   if (items.length === 0) {
     h += `<div class="menu-cleaner-reorder-empty">没有可见元素</div>`;
   } else {
     for (let i = 0; i < items.length; i++) {
-      h += buildReorderItemHTML(items[i], group.id, i, colIndex);
+      const flatIdx = flatIndexMap ? flatIndexMap[items[i].selector] : i;
+      h += buildReorderItemHTML(items[i], group.id, flatIdx, colIndex);
     }
   }
   h += `</div>`;

@@ -554,6 +554,33 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
   }
 
   // ── Snapshot system ─────────────────────────────────────────────
+  function extractHeaderLabel(header) {
+    if (!header) return '';
+    // 1. Prefer DIRECT child b/[data-i18n] — avoids nested matches in subcontent
+    for (var ci = 0; ci < header.children.length; ci++) {
+      var ch = header.children[ci];
+      if (ch.tagName === 'B' || ch.hasAttribute('data-i18n')) {
+        var text = (ch.textContent || '').trim();
+        if (text) return text;
+      }
+    }
+    // 2. Fall back to first descendant b/[data-i18n], but only if its text is short enough to be a label
+    var nested = header.querySelector('b, [data-i18n]');
+    if (nested) {
+      var nt = (nested.textContent || '').trim();
+      if (nt && nt.length <= 40) return nt;
+    }
+    // 3. Direct text nodes only — avoid pulling in version strings / taglines from nested elements
+    var direct = '';
+    for (var ni = 0; ni < header.childNodes.length; ni++) {
+      var n = header.childNodes[ni];
+      if (n.nodeType === 3) direct += n.textContent;
+    }
+    direct = direct.trim();
+    if (direct) return direct;
+    return '';
+  }
+
   function captureInitialSnapshot() {
     if (settings.initialSnapshot) return; // already captured
 
@@ -576,16 +603,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
           var header = child.querySelector(group.discovery.hasHeader);
           if (!header) continue;
-          var labelEl = header.querySelector(group.discovery.labelInHeader);
-          var label = labelEl && labelEl.textContent ? labelEl.textContent.trim() : '';
-          if (!label) {
-            var icon = header.querySelector('.inline-drawer-icon');
-            var iconText = icon ? icon.textContent.trim() : '';
-            label = (header.textContent || '').trim();
-            if (iconText && label.slice(-iconText.length) === iconText) {
-              label = label.slice(0, -iconText.length).trim();
-            }
-          }
+          var label = extractHeaderLabel(header);
           if (!label) continue;
 
           var selector = '#' + child.id;
@@ -674,16 +692,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
           var header = hcChild.querySelector(group.discovery.hasHeader);
           if (!header) continue;
 
-          var labelEl2 = header.querySelector(group.discovery.labelInHeader);
-          var label2 = labelEl2 && labelEl2.textContent ? labelEl2.textContent.trim() : '';
-          if (!label2) {
-            var iconFallback = header.querySelector('.inline-drawer-icon');
-            var iconTxt = iconFallback ? iconFallback.textContent.trim() : '';
-            label2 = (header.textContent || '').trim();
-            if (iconTxt && label2.slice(-iconTxt.length) === iconTxt) {
-              label2 = label2.slice(0, -iconTxt.length).trim();
-            }
-          }
+          var label2 = extractHeaderLabel(header);
           if (!label2) continue;
 
           if (!hcChild.id) { hcChild.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
@@ -721,14 +730,14 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
         return true;
       });
 
-      // Preserve column origin from old cache
+      // Preserve column origin from old cache (user's prior cross-column moves win over physical scan)
       var oldCache = settings.discoveryCache[group.id] || [];
       var oldColMap = {};
       for (var oc = 0; oc < oldCache.length; oc++) {
         if (oldCache[oc].column !== undefined) oldColMap[oldCache[oc].selector] = oldCache[oc].column;
       }
       for (var ni = 0; ni < newItems.length; ni++) {
-        if (newItems[ni].column === undefined && oldColMap[newItems[ni].selector] !== undefined) {
+        if (oldColMap[newItems[ni].selector] !== undefined) {
           newItems[ni].column = oldColMap[newItems[ni].selector];
         }
       }
@@ -774,8 +783,27 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     if (entry) {
       entry.column = columnIndex;
     } else {
-      var el = doc.querySelector(selector);
-      var label = el ? (el.textContent || '').trim().substring(0, 40) : selector;
+      // Try to source a clean label: hardcoded list first, then header extraction
+      var label = '';
+      for (var pg = 0; pg < PANEL_GROUPS.length; pg++) {
+        if (PANEL_GROUPS[pg].id !== groupId) continue;
+        for (var pi = 0; pi < PANEL_GROUPS[pg].items.length; pi++) {
+          if (PANEL_GROUPS[pg].items[pi].selector === selector) {
+            label = PANEL_GROUPS[pg].items[pi].label;
+            break;
+          }
+        }
+        break;
+      }
+      if (!label) {
+        var el = doc.querySelector(selector);
+        if (el) {
+          var hd = el.querySelector('.inline-drawer-header');
+          if (hd) label = extractHeaderLabel(hd);
+          if (!label) label = (el.textContent || '').trim().substring(0, 40);
+        }
+      }
+      if (!label) label = selector;
       cached.push({ selector: selector, label: label, column: columnIndex });
     }
   }
@@ -1243,10 +1271,12 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       html += '<div class="menu-cleaner-category-body' + (isExpanded ? '' : ' collapsed') + '" data-group="' + escHtml(group.id) + '">';
 
       if (isDualCol) {
+        var flatIndexMap = {};
+        for (var fi = 0; fi < items.length; fi++) flatIndexMap[items[fi].selector] = fi;
         var col0Items = items.filter(function(it) { return getColumnIndex(it.selector, group.id) === 0; });
         var col1Items = items.filter(function(it) { return getColumnIndex(it.selector, group.id) === 1; });
-        html += renderColumnSection(group, col0Items, 0, '左栏');
-        html += renderColumnSection(group, col1Items, 1, '右栏');
+        html += renderColumnSection(group, col0Items, 0, '左栏', flatIndexMap);
+        html += renderColumnSection(group, col1Items, 1, '右栏', flatIndexMap);
       } else {
         if (items.length === 0) {
           html += '<div class="menu-cleaner-reorder-empty">没有可见元素</div>';
@@ -1281,14 +1311,15 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     positionPopup();
   }
 
-  function renderColumnSection(group, items, colIndex, label) {
-    var h = '<div class="menu-cleaner-reorder-column-section">';
+  function renderColumnSection(group, items, colIndex, label, flatIndexMap) {
+    var h = '<div class="menu-cleaner-reorder-column-section" data-column="' + colIndex + '">';
     h += '<div class="menu-cleaner-reorder-column-label">' + label + ' (' + items.length + ' 项)</div>';
     if (items.length === 0) {
       h += '<div class="menu-cleaner-reorder-empty">没有可见元素</div>';
     } else {
       for (var i = 0; i < items.length; i++) {
-        h += buildReorderItemHTML(items[i], group.id, i, colIndex);
+        var flatIdx = flatIndexMap ? flatIndexMap[items[i].selector] : i;
+        h += buildReorderItemHTML(items[i], group.id, flatIdx, colIndex);
       }
     }
     h += '</div>';
