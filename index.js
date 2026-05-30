@@ -207,6 +207,14 @@ function extractHeaderLabel(header) {
   }
   direct = direct.trim();
   if (direct) return direct;
+  // 4. Last resort: full textContent minus icon text (handles <span>-wrapped labels)
+  const icon = header.querySelector(".inline-drawer-icon");
+  const iconText = icon ? icon.textContent.trim() : "";
+  let full = (header.textContent || "").trim();
+  if (iconText && full.endsWith(iconText)) {
+    full = full.slice(0, -iconText.length).trim();
+  }
+  if (full) return full;
   return "";
 }
 
@@ -367,6 +375,14 @@ function refreshDiscoveryCache() {
           newItems.push({ selector: old.selector, label: old.label, column: old.column });
         }
       }
+    }
+
+    // Safety net: carry over non-hardcoded entries still in DOM but missed by current scan
+    for (const old of oldCache) {
+      if (hardcodedSet.has(old.selector)) continue;
+      if (newItems.find(n => n.selector === old.selector)) continue;
+      if (!document.querySelector(old.selector)) continue;
+      newItems.push({ selector: old.selector, label: old.label, column: old.column });
     }
 
     settings.discoveryCache[group.id] = newItems;

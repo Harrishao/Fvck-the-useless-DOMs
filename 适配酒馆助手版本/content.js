@@ -578,6 +578,14 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     }
     direct = direct.trim();
     if (direct) return direct;
+    // 4. Last resort: full textContent minus icon text (handles <span>-wrapped labels)
+    var icon = header.querySelector('.inline-drawer-icon');
+    var iconText = icon ? icon.textContent.trim() : '';
+    var full = (header.textContent || '').trim();
+    if (iconText && full.slice(-iconText.length) === iconText) {
+      full = full.slice(0, -iconText.length).trim();
+    }
+    if (full) return full;
     return '';
   }
 
@@ -754,6 +762,19 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
             newItems.push({ selector: old.selector, label: old.label, column: old.column });
           }
         }
+      }
+
+      // Safety net: carry over non-hardcoded entries still in DOM but missed by current scan
+      for (var si = 0; si < oldCache.length; si++) {
+        var oldEntry = oldCache[si];
+        if (hardcodedSet.has(oldEntry.selector)) continue;
+        var alreadyInNew = false;
+        for (var nj = 0; nj < newItems.length; nj++) {
+          if (newItems[nj].selector === oldEntry.selector) { alreadyInNew = true; break; }
+        }
+        if (alreadyInNew) continue;
+        if (!doc.querySelector(oldEntry.selector)) continue;
+        newItems.push({ selector: oldEntry.selector, label: oldEntry.label, column: oldEntry.column });
       }
 
       settings.discoveryCache[group.id] = newItems;
