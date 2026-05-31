@@ -387,6 +387,8 @@ button.menu-cleaner-settings-btn-full:active {
   visibility: visible; /* override ST .closedDrawer */
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
   z-index: 3000;
+  transition: none !important;
+  animation: none !important;
 }
 
 .menu-cleaner-ext-col {

@@ -249,6 +249,18 @@ function captureInitialSnapshot() {
         entries.push({ selector, label, column: ci, index: idx++ });
       }
     }
+    // Fallback: include hardcoded group items that may lack .inline-drawer-header
+    for (const item of group.items) {
+      if (seen.has(item.selector)) continue;
+      const el = document.querySelector(item.selector);
+      if (!el) continue;
+      let itemCol = 0;
+      for (let cci = 0; cci < group.discovery.containers.length; cci++) {
+        const cc = document.querySelector(group.discovery.containers[cci]);
+        if (cc && cc.contains(el)) { itemCol = cci; break; }
+      }
+      entries.push({ selector: item.selector, label: item.label, column: itemCol, index: entries.length });
+    }
     if (entries.length > 0) snapshot[group.id] = entries;
   }
 
@@ -518,6 +530,16 @@ function renderExtensionsPanel() {
   }
 
   const actualOrder = settings.reorder[groupId] || [];
+  // Safety net: ensure hardcoded group items that exist in DOM are never missing
+  let hardcodedAdded = false;
+  for (const item of group.items) {
+    if (!actualOrder.includes(item.selector) && document.querySelector(item.selector)) {
+      actualOrder.push(item.selector);
+      hardcodedAdded = true;
+    }
+  }
+  if (hardcodedAdded) { settings.reorder[groupId] = actualOrder; saveSettings(); }
+
   const colMap = {};
   const cached = settings.discoveryCache[groupId] || [];
   for (const c of cached) {
@@ -1116,7 +1138,9 @@ function bindReorderDragEvents() {
     });
 
     // ── Touch polyfill (mobile) ───────────────────────────
-    item.addEventListener("touchstart", function(e) {
+    const supportsTouch = "ontouchstart" in window || (window.navigator && window.navigator.maxTouchPoints > 0);
+    if (supportsTouch) {
+      item.addEventListener("touchstart", function(e) {
       if (e.touches.length !== 1) return;
       e.preventDefault();
       const touch = e.touches[0];
@@ -1192,6 +1216,7 @@ function bindReorderDragEvents() {
     item.addEventListener("touchcancel", function() {
       cleanupDrag();
     });
+    }  // supportsTouch
   });
 
   // Column-section drop targets for cross-column drag
@@ -1283,6 +1308,14 @@ function renderHideView() {
   const body = document.getElementById("menu-cleaner-popup-body");
   if (!body) return;
 
+  // Save expanded category state before rebuilding
+  const expandedGroups = {};
+  for (const existingBody of document.querySelectorAll(".menu-cleaner-category-body")) {
+    if (!existingBody.classList.contains("collapsed")) {
+      expandedGroups[existingBody.dataset.group] = true;
+    }
+  }
+
   let html = "";
 
   for (const group of PANEL_GROUPS) {
@@ -1327,6 +1360,15 @@ function renderHideView() {
   }
 
   body.innerHTML = html;
+  // Restore expanded category state
+  for (const eg in expandedGroups) {
+    const catBody = document.querySelector(`.menu-cleaner-category-body[data-group="${eg}"]`);
+    if (catBody) {
+      catBody.classList.remove("collapsed");
+      const catArrow = catBody.parentElement.querySelector(".menu-cleaner-category-arrow");
+      if (catArrow) catArrow.textContent = "▼";
+    }
+  }
   bindPopupEvents();
   positionPopup();
 }

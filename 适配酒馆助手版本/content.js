@@ -486,6 +486,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
   visibility: visible; /* override ST .closedDrawer */
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
   z-index: 3000;
+  transition: none !important;
+  animation: none !important;
 }
 
 .menu-cleaner-ext-col {
@@ -636,6 +638,19 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
           entries.push({ selector: selector, label: label, column: ci, index: idx++ });
         }
+      }
+      // Fallback: include hardcoded group items that may lack .inline-drawer-header
+      for (var hi = 0; hi < group.items.length; hi++) {
+        var item = group.items[hi];
+        if (seen.has(item.selector)) continue;
+        var el = doc.querySelector(item.selector);
+        if (!el) continue;
+        var itemCol = 0;
+        for (var cci = 0; cci < group.discovery.containers.length; cci++) {
+          var cc = doc.querySelector(group.discovery.containers[cci]);
+          if (cc && cc.contains(el)) { itemCol = cci; break; }
+        }
+        entries.push({ selector: item.selector, label: item.label, column: itemCol, index: entries.length });
       }
       if (entries.length > 0) snapshot[group.id] = entries;
     }
@@ -946,6 +961,17 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     }
 
     var actualOrder = settings.reorder[groupId] || [];
+    // Safety net: ensure hardcoded group items that exist in DOM are never missing
+    var hardcodedAdded = false;
+    for (var hi = 0; hi < group.items.length; hi++) {
+      var hardSel = group.items[hi].selector;
+      if (actualOrder.indexOf(hardSel) === -1 && doc.querySelector(hardSel)) {
+        actualOrder.push(hardSel);
+        hardcodedAdded = true;
+      }
+    }
+    if (hardcodedAdded) { settings.reorder[groupId] = actualOrder; saveSettings(); }
+
     var colMap = {};
     var cached = settings.discoveryCache[groupId] || [];
     for (var c = 0; c < cached.length; c++) {
@@ -1547,80 +1573,83 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       });
 
       // ── Mobile touch ─────────────────────────────────
-      item.addEventListener('touchstart', function(e) {
-        if (e.touches.length !== 1) return;
-        e.preventDefault();
-        var touch = e.touches[0];
-        touchStartX = touch.clientX;
-        touchStartY = touch.clientY;
-        touchMoved = false;
+      var supportsTouch = 'ontouchstart' in win || (win.navigator && win.navigator.maxTouchPoints > 0);
+      if (supportsTouch) {
+        item.addEventListener('touchstart', function(e) {
+          if (e.touches.length !== 1) return;
+          e.preventDefault();
+          var touch = e.touches[0];
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+          touchMoved = false;
 
-        draggedItem = this;
-        draggedGroup = this.dataset.group;
-        draggedIndex = parseInt(this.dataset.index);
-        this.classList.add('dragging');
+          draggedItem = this;
+          draggedGroup = this.dataset.group;
+          draggedIndex = parseInt(this.dataset.index);
+          this.classList.add('dragging');
 
-        touchGhost = this.cloneNode(true);
-        touchGhost.style.position = 'fixed';
-        touchGhost.style.zIndex = '100001';
-        touchGhost.style.pointerEvents = 'none';
-        touchGhost.style.opacity = '0.85';
-        touchGhost.style.width = this.offsetWidth + 'px';
-        touchGhost.style.left = (touch.clientX - this.offsetWidth / 2) + 'px';
-        touchGhost.style.top = (touch.clientY - 20) + 'px';
-        touchGhost.classList.add('dragging');
-        doc.body.appendChild(touchGhost);
-      });
-
-      item.addEventListener('touchmove', function(e) {
-        if (!draggedItem) return;
-        e.preventDefault();
-        touchMoved = true;
-        var touch = e.touches[0];
-
-        if (touchGhost) {
-          touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
+          touchGhost = this.cloneNode(true);
+          touchGhost.style.position = 'fixed';
+          touchGhost.style.zIndex = '100001';
+          touchGhost.style.pointerEvents = 'none';
+          touchGhost.style.opacity = '0.85';
+          touchGhost.style.width = this.offsetWidth + 'px';
+          touchGhost.style.left = (touch.clientX - this.offsetWidth / 2) + 'px';
           touchGhost.style.top = (touch.clientY - 20) + 'px';
-        }
+          touchGhost.classList.add('dragging');
+          doc.body.appendChild(touchGhost);
+        });
 
-        if (touchGhost) touchGhost.style.display = 'none';
-        var target = doc.elementFromPoint(touch.clientX, touch.clientY);
-        if (touchGhost) touchGhost.style.display = '';
+        item.addEventListener('touchmove', function(e) {
+          if (!draggedItem) return;
+          e.preventDefault();
+          touchMoved = true;
+          var touch = e.touches[0];
 
-        var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
-
-        var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
-        for (var ai = 0; ai < allItems.length; ai++) {
-          if (allItems[ai] === targetItem && allItems[ai] !== draggedItem && allItems[ai].dataset.group === draggedGroup) {
-            allItems[ai].classList.add('drag-over');
-          } else {
-            allItems[ai].classList.remove('drag-over');
+          if (touchGhost) {
+            touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
+            touchGhost.style.top = (touch.clientY - 20) + 'px';
           }
-        }
-      });
 
-      item.addEventListener('touchend', function(e) {
-        if (!draggedItem) return;
-        e.preventDefault();
-
-        if (touchMoved) {
-          var touch = e.changedTouches[0];
           if (touchGhost) touchGhost.style.display = 'none';
           var target = doc.elementFromPoint(touch.clientX, touch.clientY);
           if (touchGhost) touchGhost.style.display = '';
 
           var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
-          if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
-            targetItem.classList.remove('drag-over');
-            dropTargetColumn = targetItem.dataset.column;
-            doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+
+          var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
+          for (var ai = 0; ai < allItems.length; ai++) {
+            if (allItems[ai] === targetItem && allItems[ai] !== draggedItem && allItems[ai].dataset.group === draggedGroup) {
+              allItems[ai].classList.add('drag-over');
+            } else {
+              allItems[ai].classList.remove('drag-over');
+            }
           }
-        }
+        });
 
-        cleanupDrag();
-      });
+        item.addEventListener('touchend', function(e) {
+          if (!draggedItem) return;
+          e.preventDefault();
 
-      item.addEventListener('touchcancel', function() { cleanupDrag(); });
+          if (touchMoved) {
+            var touch = e.changedTouches[0];
+            if (touchGhost) touchGhost.style.display = 'none';
+            var target = doc.elementFromPoint(touch.clientX, touch.clientY);
+            if (touchGhost) touchGhost.style.display = '';
+
+            var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
+            if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
+              targetItem.classList.remove('drag-over');
+              dropTargetColumn = targetItem.dataset.column;
+              doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+            }
+          }
+
+          cleanupDrag();
+        });
+
+        item.addEventListener('touchcancel', function() { cleanupDrag(); });
+      }
     }
 
     // Column-section drop targets for cross-column drag
@@ -1717,6 +1746,15 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     var body = doc.getElementById('menu-cleaner-popup-body');
     if (!body) return;
 
+    // Save expanded category state before rebuilding
+    var expandedGroups = {};
+    var existingBodies = doc.querySelectorAll('.menu-cleaner-category-body');
+    for (var eb = 0; eb < existingBodies.length; eb++) {
+      if (!existingBodies[eb].classList.contains('collapsed')) {
+        expandedGroups[existingBodies[eb].dataset.group] = true;
+      }
+    }
+
     var html = '';
 
     for (var g = 0; g < PANEL_GROUPS.length; g++) {
@@ -1765,6 +1803,15 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     }
 
     body.innerHTML = html;
+    // Restore expanded category state
+    for (var eg in expandedGroups) {
+      var catBody = doc.querySelector('.menu-cleaner-category-body[data-group="' + eg + '"]');
+      if (catBody) {
+        catBody.classList.remove('collapsed');
+        var catArrow = catBody.parentElement.querySelector('.menu-cleaner-category-arrow');
+        if (catArrow) catArrow.textContent = '▼';
+      }
+    }
     bindPopupEvents();
     positionPopup();
   }
