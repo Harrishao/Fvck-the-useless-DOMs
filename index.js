@@ -48,7 +48,6 @@ const PANEL_GROUPS = [
       containers: ["#extensionsMenu"],
       itemMatch: ".list-group-item",
       labelIn: "span",
-      exclude: ["#menu-cleaner-btn"],
       alsoMatchChildren: true
     }
   },
@@ -130,9 +129,11 @@ function loadSettings() {
   extension_settings[STORAGE_KEY] = Object.assign({}, defaultSettings, saved);
   settings = extension_settings[STORAGE_KEY];
 
+  // Selectors injected by this plugin — don't clean them up even if not yet in DOM
+  const SELF_INJECTED = ["#menu-cleaner-settings", "#menu-cleaner-btn"];
   // Clean up stale entries (elements that no longer exist in DOM)
   for (const key of Object.keys(settings.hiddenSelectors)) {
-    if (!document.querySelector(key)) delete settings.hiddenSelectors[key];
+    if (!document.querySelector(key) && !SELF_INJECTED.includes(key)) delete settings.hiddenSelectors[key];
   }
   for (const groupId of Object.keys(settings.discoveryCache)) {
     settings.discoveryCache[groupId] = settings.discoveryCache[groupId].filter(

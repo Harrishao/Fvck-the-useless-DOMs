@@ -51,7 +51,6 @@
         containers: ['#extensionsMenu'],
         itemMatch: '.list-group-item',
         labelIn: 'span',
-        exclude: ['#menu-cleaner-btn'],
         alsoMatchChildren: true
       }
     },
@@ -137,10 +136,12 @@
         settings = Object.assign({}, defaultSettings);
       }
 
+      // Selectors injected by this plugin — don't clean them up even if not yet in DOM
+      var SELF_INJECTED = ['#menu-cleaner-settings', '#menu-cleaner-btn'];
       // Clean up stale entries
       var hiddenKeys = Object.keys(settings.hiddenSelectors);
       for (var hk = 0; hk < hiddenKeys.length; hk++) {
-        if (!doc.querySelector(hiddenKeys[hk])) delete settings.hiddenSelectors[hiddenKeys[hk]];
+        if (!doc.querySelector(hiddenKeys[hk]) && SELF_INJECTED.indexOf(hiddenKeys[hk]) === -1) delete settings.hiddenSelectors[hiddenKeys[hk]];
       }
       var dcGroups = Object.keys(settings.discoveryCache);
       for (var dg = 0; dg < dcGroups.length; dg++) {
