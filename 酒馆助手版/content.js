@@ -11,6 +11,7 @@
   let showSettingsPanel = false;
   let extPanelVisible = false;
   let rescanTimer = null;
+  let dragActive = false; // set while user is dragging a reorder item
 
   // ── Hardcoded native elements ─────────────────────────────────
   const PANEL_GROUPS = [
@@ -367,7 +368,7 @@
   align-items: center;
   gap: 10px;
   padding: 7px 18px 7px 28px;
-  cursor: default;
+  cursor: grab;
   transition: background 0.15s;
   border-left: 3px solid transparent;
 }
@@ -1522,9 +1523,12 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     }
 
     function cleanupDrag() {
+      dragActive = false;
       if (draggedItem) draggedItem.classList.remove('dragging');
       var items = doc.querySelectorAll('.menu-cleaner-reorder-item');
       for (var i = 0; i < items.length; i++) items[i].classList.remove('drag-over');
+      var dragSections = doc.querySelectorAll('.menu-cleaner-reorder-column-section');
+      for (var ds = 0; ds < dragSections.length; ds++) dragSections[ds].classList.remove('drag-over-section');
       if (touchGhost) {
         touchGhost.remove();
         touchGhost = null;
@@ -1542,6 +1546,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
       // ── Desktop DnD ──────────────────────────────────
       item.addEventListener('dragstart', function(e) {
+        dragActive = true;
         draggedItem = this;
         draggedGroup = this.dataset.group;
         draggedIndex = parseInt(this.dataset.index);
@@ -1550,7 +1555,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
         e.dataTransfer.setData('text/plain', this.dataset.selector);
       });
 
-      item.addEventListener('dragend', function() { cleanupDrag(); });
+      item.addEventListener('dragend', function() { dragActive = false; cleanupDrag(); });
 
       item.addEventListener('dragover', function(e) {
         e.preventDefault();
@@ -1696,7 +1701,6 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
               remaining.push(movedItem);
               settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
               saveSettings();
-              // Defer panel refresh to avoid DOM conflicts during drop event
               if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
               renderReorderView();
             }
@@ -1912,7 +1916,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
     refreshDiscoveryCache();
     if (isPanelOpen()) renderExtensionsPanel();
-    refreshPopup();
+    if (!dragActive) refreshPopup();
 
     if (settings.rescanToast) {
       var count = 0;

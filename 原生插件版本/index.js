@@ -1020,7 +1020,7 @@ function renderColumnSection(group, items, colIndex, label, flatIndexMap) {
 }
 
 function buildReorderItemHTML(item, groupId, index, colIndex) {
-  return `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${groupId}" data-index="${index}" data-column="${colIndex}">
+  return `<div class="menu-cleaner-reorder-item" data-selector="${escHtml(item.selector)}" data-group="${groupId}" data-index="${index}" data-column="${colIndex}">
             <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
             <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
           </div>`;
@@ -1089,6 +1089,9 @@ function bindReorderDragEvents() {
     document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(el) {
       el.classList.remove("drag-over");
     });
+    document.querySelectorAll(".menu-cleaner-reorder-column-section").forEach(function(sec) {
+      sec.classList.remove("drag-over-section");
+    });
     if (touchGhost) {
       touchGhost.remove();
       touchGhost = null;
@@ -1100,42 +1103,105 @@ function bindReorderDragEvents() {
   }
 
   document.querySelectorAll(".menu-cleaner-reorder-item").forEach(function(item) {
-    // ── Native HTML5 DnD (desktop) ────────────────────────
-    item.addEventListener("dragstart", function(e) {
-      draggedItem = item;
-      draggedGroup = item.dataset.group;
-      draggedIndex = parseInt(item.dataset.index);
-      item.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", item.dataset.selector);
-    });
-
-    item.addEventListener("dragend", function() {
-      cleanupDrag();
-    });
-
-    item.addEventListener("dragover", function(e) {
+    // ── Desktop pointer drag ────────────────────────────
+    item.addEventListener("pointerdown", function(e) {
+      if (e.button !== 0) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      if (item !== draggedItem && item.dataset.group === draggedGroup) {
-        item.classList.add("drag-over");
+      draggedItem = this;
+      draggedGroup = this.dataset.group;
+      draggedIndex = parseInt(this.dataset.index);
+      this.classList.add("dragging");
+      this.setPointerCapture(e.pointerId);
+
+      touchGhost = this.cloneNode(true);
+      touchGhost.style.position = "fixed";
+      touchGhost.style.zIndex = "100001";
+      touchGhost.style.pointerEvents = "none";
+      touchGhost.style.opacity = "0.85";
+      touchGhost.style.width = this.offsetWidth + "px";
+      touchGhost.style.left = (e.clientX - this.offsetWidth / 2) + "px";
+      touchGhost.style.top = (e.clientY - 20) + "px";
+      touchGhost.classList.add("dragging");
+      document.body.appendChild(touchGhost);
+    });
+
+    item.addEventListener("pointermove", function(e) {
+      if (!draggedItem) return;
+      if (touchGhost) {
+        touchGhost.style.left = (e.clientX - touchGhost.offsetWidth / 2) + "px";
+        touchGhost.style.top = (e.clientY - 20) + "px";
+      }
+
+      if (touchGhost) touchGhost.style.display = "none";
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      if (touchGhost) touchGhost.style.display = "";
+
+      const targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+      const allItems = document.querySelectorAll(".menu-cleaner-reorder-item");
+      for (const ai of allItems) {
+        if (ai === targetItem && ai !== draggedItem && ai.dataset.group === draggedGroup) {
+          ai.classList.add("drag-over");
+        } else {
+          ai.classList.remove("drag-over");
+        }
+      }
+      // Highlight empty column sections
+      const allSections = document.querySelectorAll(".menu-cleaner-reorder-column-section");
+      const targetSection = target ? target.closest(".menu-cleaner-reorder-column-section") : null;
+      for (const sec of allSections) {
+        if (sec === targetSection && draggedItem && draggedItem.dataset.column !== sec.dataset.column) {
+          sec.classList.add("drag-over-section");
+        } else {
+          sec.classList.remove("drag-over-section");
+        }
       }
     });
 
-    item.addEventListener("dragleave", function() {
-      item.classList.remove("drag-over");
-    });
+    item.addEventListener("pointerup", function(e) {
+      if (!draggedItem) return;
 
-    item.addEventListener("drop", function(e) {
-      e.preventDefault();
-      item.classList.remove("drag-over");
-      if (!draggedItem || item === draggedItem) return;
-      if (item.dataset.group !== draggedGroup) return;
-      doReorder._dropTargetColumn = item.dataset.column;
-      doReorder(draggedIndex, parseInt(item.dataset.index), draggedGroup);
-      doReorder._dropTargetColumn = undefined;
+      if (touchGhost) touchGhost.style.display = "none";
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      if (touchGhost) touchGhost.style.display = "";
+
+      const targetItem = target ? target.closest(".menu-cleaner-reorder-item") : null;
+      if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
+        targetItem.classList.remove("drag-over");
+        doReorder._dropTargetColumn = targetItem.dataset.column;
+        doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
+        doReorder._dropTargetColumn = undefined;
+      } else {
+        // Check for cross-column drop into an empty section
+        const targetSection = target ? target.closest(".menu-cleaner-reorder-column-section") : null;
+        if (targetSection && draggedItem) {
+          let targetCol = -1;
+          const label = targetSection.querySelector(".menu-cleaner-reorder-column-label");
+          if (label) {
+            if (label.textContent.indexOf("右栏") !== -1) targetCol = 1;
+            else if (label.textContent.indexOf("左栏") !== -1) targetCol = 0;
+          }
+          if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
+            const sel = draggedItem.dataset.selector;
+            const gid = draggedGroup;
+            setColumnInCache(sel, gid, targetCol);
+            const items = getReorderItems(gid);
+            const moved = items.find(it => it.selector === sel);
+            if (moved) {
+              const remainder = items.filter(it => it.selector !== sel);
+              remainder.push(moved);
+              settings.reorder[gid] = remainder.map(i => i.selector);
+              saveSettings();
+              if (isPanelOpen() && gid === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
+              renderReorderView();
+            }
+          }
+        }
+      }
+
       cleanupDrag();
     });
+
+    item.addEventListener("pointercancel", function() { cleanupDrag(); });
 
     // ── Touch polyfill (mobile) ───────────────────────────
     const supportsTouch = "ontouchstart" in window || (window.navigator && window.navigator.maxTouchPoints > 0);
@@ -1219,52 +1285,13 @@ function bindReorderDragEvents() {
     }  // supportsTouch
   });
 
-  // Column-section drop targets for cross-column drag
+  // Column-section drop targets for cross-column drag (pointer-based)
   document.querySelectorAll(".menu-cleaner-reorder-column-section").forEach(function(section) {
-    section.addEventListener("dragover", function(e) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      section.classList.add("drag-over-section");
+    section.addEventListener("pointerenter", function() {
+      if (draggedItem) section.classList.add("drag-over-section");
     });
-
-    section.addEventListener("dragleave", function(e) {
-      if (!section.contains(e.relatedTarget)) {
-        section.classList.remove("drag-over-section");
-      }
-    });
-
-    section.addEventListener("drop", function(e) {
-      e.preventDefault();
+    section.addEventListener("pointerleave", function() {
       section.classList.remove("drag-over-section");
-      if (!draggedItem) return;
-
-      const firstItem = section.querySelector(".menu-cleaner-reorder-item");
-      if (!firstItem) {
-        // Empty column: move item to this column
-        let targetCol = -1;
-        const label = section.querySelector(".menu-cleaner-reorder-column-label");
-        if (label) {
-          if (label.textContent.indexOf("右栏") !== -1) targetCol = 1;
-          else if (label.textContent.indexOf("左栏") !== -1) targetCol = 0;
-        }
-        if (targetCol >= 0 && draggedItem.dataset.column !== String(targetCol)) {
-          const selector = draggedItem.dataset.selector;
-          const groupId = draggedGroup;
-          const items = getReorderItems(groupId);
-          const movedItem = items.find(function(it) { return it.selector === selector; });
-          if (movedItem) {
-            setColumnInCache(selector, groupId, targetCol);
-            const remaining = items.filter(function(it) { return it.selector !== selector; });
-            remaining.push(movedItem);
-            settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
-            saveSettings();
-            // Defer panel refresh to avoid DOM conflicts during drop event
-            if (isPanelOpen() && groupId === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
-            renderReorderView();
-          }
-        }
-        cleanupDrag();
-      }
     });
   });
 }
