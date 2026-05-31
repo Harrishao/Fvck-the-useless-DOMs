@@ -119,7 +119,8 @@ const defaultSettings = {
   discoveryCache: {},  // { groupId: [{selector, label, column?}, ...] }
   reorder: {},          // { groupId: [selector, ...] }
   initialSnapshot: null, // set once on first init, cleared by "清除插件数据"
-  rescanToast: false
+  rescanToast: false,
+  columnMode: "dual"   // "single" | "dual"
 };
 
 let settings = {};
@@ -523,51 +524,76 @@ function renderExtensionsPanel() {
     colMap[c.selector] = c.column !== undefined ? c.column : 0;
   }
 
-  // Collect elements by column in order
-  const col1Els = [];
-  const col2Els = [];
-  const placed = new Set();
-
-  for (const selector of actualOrder) {
-    if (settings.hiddenSelectors[selector]) continue;
-    const el = document.querySelector(selector);
-    if (!el) continue;
-    placed.add(selector);
-    const col = colMap[selector] === 1 ? 1 : 0;
-    if (col === 1) col2Els.push(el);
-    else col1Els.push(el);
-  }
-
-  // Append elements not in order (newly discovered, etc.)
-  for (const c of (settings.discoveryCache[groupId] || [])) {
-    if (placed.has(c.selector)) continue;
-    if (settings.hiddenSelectors[c.selector]) continue;
-    const el = document.querySelector(c.selector);
-    if (!el) continue;
-    placed.add(c.selector);
-    const col = c.column === 1 ? 1 : 0;
-    if (col === 1) col2Els.push(el);
-    else col1Els.push(el);
-  }
-
   // Move native topbar elements into our panel's top bar
   const topbar = document.getElementById("menu-cleaner-ext-topbar");
   if (topbar) {
-    // Ensure native topbar elements are in our panel
     const nativeDetails = document.getElementById("extensions_details");
     const nativeThirdParty = document.getElementById("third_party_extension_button");
     if (nativeDetails && nativeDetails.parentNode !== topbar) topbar.appendChild(nativeDetails);
     if (nativeThirdParty && nativeThirdParty.parentNode !== topbar) topbar.appendChild(nativeThirdParty);
-    // Move the "notify on update" checkbox label if it exists
     const notifyLabel = document.querySelector("#rm_extensions_block .checkbox_label.flexNoGap");
     if (notifyLabel && notifyLabel.parentNode !== topbar) topbar.appendChild(notifyLabel);
   }
 
-  // Render elements in order — clear and append
+  // Return elements from previous render back to native containers
+  returnElementsToNative();
+
+  // Clear columns
   col1.innerHTML = "";
   col2.innerHTML = "";
-  for (const el of col1Els) col1.appendChild(el);
-  for (const el of col2Els) col2.appendChild(el);
+
+  if (settings.columnMode === "single") {
+    // Single column: follow reorder array order exactly, ignore column origin
+    const placed = new Set();
+    for (let si = 0; si < actualOrder.length; si++) {
+      const selector = actualOrder[si];
+      if (settings.hiddenSelectors[selector]) continue;
+      const el = document.querySelector(selector);
+      if (!el) continue;
+      placed.add(selector);
+      col1.appendChild(el);
+    }
+    // Append any newly discovered elements not in order
+    for (let di = 0; di < (settings.discoveryCache[groupId] || []).length; di++) {
+      const c = settings.discoveryCache[groupId][di];
+      if (placed.has(c.selector)) continue;
+      if (settings.hiddenSelectors[c.selector]) continue;
+      const el = document.querySelector(c.selector);
+      if (el) col1.appendChild(el);
+    }
+    col2.style.display = "none";
+  } else {
+    // Dual column: collect by column, then split
+    const col1Els = [];
+    const col2Els = [];
+    const placed = new Set();
+
+    for (let si = 0; si < actualOrder.length; si++) {
+      const selector = actualOrder[si];
+      if (settings.hiddenSelectors[selector]) continue;
+      const el = document.querySelector(selector);
+      if (!el) continue;
+      placed.add(selector);
+      const col = colMap[selector] === 1 ? 1 : 0;
+      if (col === 1) col2Els.push(el);
+      else col1Els.push(el);
+    }
+    for (let di = 0; di < (settings.discoveryCache[groupId] || []).length; di++) {
+      const c = settings.discoveryCache[groupId][di];
+      if (placed.has(c.selector)) continue;
+      if (settings.hiddenSelectors[c.selector]) continue;
+      const el = document.querySelector(c.selector);
+      if (!el) continue;
+      placed.add(c.selector);
+      const col = c.column === 1 ? 1 : 0;
+      if (col === 1) col2Els.push(el);
+      else col1Els.push(el);
+    }
+
+    col2.style.display = "";
+    for (let ei = 0; ei < col1Els.length; ei++) col1.appendChild(col1Els[ei]);
+    for (let ei = 0; ei < col2Els.length; ei++) col2.appendChild(col2Els[ei]);
+  }
 }
 
 function toggleExtensionsPanel() {
@@ -762,6 +788,8 @@ function closePopup() {
   if (backdrop) backdrop.style.display = "none";
   if (popup) popup.style.display = "none";
   showSettingsPanel = false;
+  // Refresh extension panel to reflect any reorder changes made in popup
+  if (extPanelVisible) renderExtensionsPanel();
 }
 
 function toggleSettingsPanel() {
@@ -793,6 +821,29 @@ function switchTab(tabName) {
   refreshPopup();
 }
 
+// ── Column mode ──────────────────────────────────────────────────
+function applyColumnMode(mode) {
+  if (settings.columnMode === mode) return;
+  settings.columnMode = mode;
+
+  // When switching to single, move all extensionsSettings items to left column
+  if (mode === "single") {
+    const cache = settings.discoveryCache["extensionsSettings"] || [];
+    for (const c of cache) c.column = 0;
+  }
+
+  saveSettings();
+
+  // If extension panel is open, re-render to reflect mode change
+  if (isPanelOpen()) renderExtensionsPanel();
+
+  // If reorder view is showing, refresh it
+  if (!showSettingsPanel && activeTab === "reorder") renderReorderView();
+
+  // Refresh settings panel buttons
+  if (showSettingsPanel) renderSettingsView();
+}
+
 // ── Settings panel view ─────────────────────────────────────────
 function renderSettingsView() {
   const body = document.getElementById("menu-cleaner-popup-body");
@@ -803,6 +854,14 @@ function renderSettingsView() {
       <button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>
       <button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>
       <button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>
+
+      <div class="menu-cleaner-settings-divider">—————— 扩展面板分栏 ——————</div>
+      <div id="menu-cleaner-colmode-dual" class="menu-cleaner-settings-row menu-cleaner-colmode-option${settings.columnMode === "dual" ? " menu-cleaner-colmode-active" : ""}">
+        <span>双栏</span>
+      </div>
+      <div id="menu-cleaner-colmode-single" class="menu-cleaner-settings-row menu-cleaner-colmode-option${settings.columnMode === "single" ? " menu-cleaner-colmode-active" : ""}">
+        <span>单栏</span>
+      </div>
 
       <div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>
       <div class="menu-cleaner-settings-row">
@@ -843,6 +902,9 @@ function renderSettingsView() {
     saveSettings();
   });
 
+  document.getElementById("menu-cleaner-colmode-dual")?.addEventListener("click", () => applyColumnMode("dual"));
+  document.getElementById("menu-cleaner-colmode-single")?.addEventListener("click", () => applyColumnMode("single"));
+
   positionPopup();
 }
 
@@ -862,7 +924,7 @@ function renderReorderView() {
   for (const group of reorderGroups) {
     const items = getReorderItems(group.id);
     const isExpanded = expanded.has(group.id);
-    const isDualCol = group.id === "extensionsSettings";
+    const isDualCol = group.id === "extensionsSettings" && settings.columnMode !== "single";
 
     html += `<div class="menu-cleaner-category">`;
     html += `<div class="menu-cleaner-category-header" data-group="${group.id}">
@@ -980,8 +1042,8 @@ function bindReorderDragEvents() {
 
       settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
       saveSettings();
-      // Refresh extension panel if open
-      if (isPanelOpen() && groupId === "extensionsSettings") renderExtensionsPanel();
+      // Defer panel refresh to avoid DOM conflicts during drag event
+      if (isPanelOpen() && groupId === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
       renderReorderView();
       return;
     }
@@ -995,8 +1057,8 @@ function bindReorderDragEvents() {
 
     settings.reorder[groupId] = items.map(function(i) { return i.selector; });
     saveSettings();
-    // Refresh extension panel if open
-    if (isPanelOpen() && groupId === "extensionsSettings") renderExtensionsPanel();
+    // Defer panel refresh to avoid DOM conflicts during drag event
+    if (isPanelOpen() && groupId === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
     renderReorderView();
   }
 
@@ -1171,7 +1233,8 @@ function bindReorderDragEvents() {
             remaining.push(movedItem);
             settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
             saveSettings();
-            if (isPanelOpen() && groupId === "extensionsSettings") renderExtensionsPanel();
+            // Defer panel refresh to avoid DOM conflicts during drop event
+            if (isPanelOpen() && groupId === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
             renderReorderView();
           }
         }

@@ -333,6 +333,24 @@ button.menu-cleaner-settings-btn-full:active {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.menu-cleaner-colmode-option {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 10px 12px !important;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.menu-cleaner-colmode-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.menu-cleaner-colmode-active {
+  background: rgba(100, 150, 255, 0.15) !important;
+  border-color: rgba(100, 150, 255, 0.4) !important;
+}
+
 .menu-cleaner-settings-divider {
   text-align: center;
   color: var(--SmartThemeBodyColor, #888);

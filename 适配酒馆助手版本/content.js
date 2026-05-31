@@ -121,7 +121,8 @@
     discoveryCache: {},  // { groupId: [{selector, label, column?}, ...] }
     reorder: {},          // { groupId: [selector, ...] }
     initialSnapshot: null, // set once on first init, cleared by "清除插件数据"
-    rescanToast: false
+    rescanToast: false,
+    columnMode: 'dual'   // 'single' | 'dual'
   };
 
   let settings = {};
@@ -437,6 +438,20 @@ button.menu-cleaner-settings-btn-full {
 button.menu-cleaner-settings-btn-full:last-child { border-bottom: none; }
 button.menu-cleaner-settings-btn-full:hover { background: rgba(255, 255, 255, 0.06); }
 button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0.1); }
+
+.menu-cleaner-colmode-option {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 10px 12px !important;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.menu-cleaner-colmode-option:hover { background: rgba(255, 255, 255, 0.06); }
+.menu-cleaner-colmode-active {
+  background: rgba(100, 150, 255, 0.15) !important;
+  border-color: rgba(100, 150, 255, 0.4) !important;
+}
 
 .menu-cleaner-settings-divider {
   text-align: center;
@@ -937,33 +952,6 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       colMap[cached[c].selector] = cached[c].column !== undefined ? cached[c].column : 0;
     }
 
-    var col1Els = [];
-    var col2Els = [];
-    var placed = new Set();
-
-    for (var o = 0; o < actualOrder.length; o++) {
-      var selector = actualOrder[o];
-      if (settings.hiddenSelectors[selector]) continue;
-      var el = doc.querySelector(selector);
-      if (!el) continue;
-      placed.add(selector);
-      var col = colMap[selector] === 1 ? 1 : 0;
-      if (col === 1) col2Els.push(el);
-      else col1Els.push(el);
-    }
-
-    // Append elements not in order (newly discovered)
-    for (var d = 0; d < cached.length; d++) {
-      if (placed.has(cached[d].selector)) continue;
-      if (settings.hiddenSelectors[cached[d].selector]) continue;
-      var el2 = doc.querySelector(cached[d].selector);
-      if (!el2) continue;
-      placed.add(cached[d].selector);
-      var col2 = cached[d].column === 1 ? 1 : 0;
-      if (col2 === 1) col2Els.push(el2);
-      else col1Els.push(el2);
-    }
-
     // Move native topbar elements into our panel's top bar
     var topbar = doc.getElementById('menu-cleaner-ext-topbar');
     if (topbar) {
@@ -975,11 +963,64 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       if (notifyLabel && notifyLabel.parentNode !== topbar) topbar.appendChild(notifyLabel);
     }
 
-    // Render elements in order
+    // Return elements from previous render back to native containers
+    returnElementsToNative();
+
+    // Clear columns
     col1.innerHTML = '';
     col2.innerHTML = '';
-    for (var c1 = 0; c1 < col1Els.length; c1++) col1.appendChild(col1Els[c1]);
-    for (var c2 = 0; c2 < col2Els.length; c2++) col2.appendChild(col2Els[c2]);
+
+    if (settings.columnMode === 'single') {
+      // Single column: follow reorder array order exactly, ignore column origin
+      var placedSingle = new Set();
+      for (var si = 0; si < actualOrder.length; si++) {
+        var sel = actualOrder[si];
+        if (settings.hiddenSelectors[sel]) continue;
+        var elSingle = doc.querySelector(sel);
+        if (!elSingle) continue;
+        placedSingle.add(sel);
+        col1.appendChild(elSingle);
+      }
+      // Append any newly discovered elements not in order
+      for (var di = 0; di < cached.length; di++) {
+        var dc = cached[di];
+        if (placedSingle.has(dc.selector)) continue;
+        if (settings.hiddenSelectors[dc.selector]) continue;
+        var elDisc = doc.querySelector(dc.selector);
+        if (elDisc) col1.appendChild(elDisc);
+      }
+      col2.style.display = 'none';
+    } else {
+      // Dual column: collect by column, then split
+      var col1Els = [];
+      var col2Els = [];
+      var placed = new Set();
+
+      for (var o = 0; o < actualOrder.length; o++) {
+        var selector = actualOrder[o];
+        if (settings.hiddenSelectors[selector]) continue;
+        var el = doc.querySelector(selector);
+        if (!el) continue;
+        placed.add(selector);
+        var col = colMap[selector] === 1 ? 1 : 0;
+        if (col === 1) col2Els.push(el);
+        else col1Els.push(el);
+      }
+      for (var d = 0; d < cached.length; d++) {
+        if (placed.has(cached[d].selector)) continue;
+        if (settings.hiddenSelectors[cached[d].selector]) continue;
+        var el2 = doc.querySelector(cached[d].selector);
+        if (!el2) continue;
+        placed.add(cached[d].selector);
+        var col2 = cached[d].column === 1 ? 1 : 0;
+        if (col2 === 1) col2Els.push(el2);
+        else col1Els.push(el2);
+      }
+
+      col2.style.display = '';
+      for (var ei = 0; ei < col1Els.length; ei++) col1.appendChild(col1Els[ei]);
+      for (var ei = 0; ei < col2Els.length; ei++) col2.appendChild(col2Els[ei]);
+    }
   }
 
   function toggleExtensionsPanel() {
@@ -1171,6 +1212,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     if (backdrop) backdrop.style.display = 'none';
     if (popup) popup.style.display = 'none';
     showSettingsPanel = false;
+    // Refresh extension panel to reflect any reorder changes made in popup
+    if (extPanelVisible) renderExtensionsPanel();
   }
 
   function toggleSettingsPanel() {
@@ -1206,6 +1249,26 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     refreshPopup();
   }
 
+  // ── Column mode ──────────────────────────────────────────────────
+  function applyColumnMode(mode) {
+    if (settings.columnMode === mode) return;
+    settings.columnMode = mode;
+
+    // When switching to single, move all extensionsSettings items to left column
+    if (mode === 'single') {
+      var cache = settings.discoveryCache['extensionsSettings'] || [];
+      for (var ci = 0; ci < cache.length; ci++) cache[ci].column = 0;
+    }
+
+    saveSettings();
+
+    if (isPanelOpen()) renderExtensionsPanel();
+
+    if (!showSettingsPanel && activeTab === 'reorder') renderReorderView();
+
+    if (showSettingsPanel) renderSettingsView();
+  }
+
   // ── Settings panel view ─────────────────────────────────────────
   function renderSettingsView() {
     var body = doc.getElementById('menu-cleaner-popup-body');
@@ -1216,6 +1279,13 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
         '<button id="menu-cleaner-rescan" class="menu_button menu-cleaner-settings-btn-full">手动重新扫描</button>' +
         '<button id="menu-cleaner-reset-order" class="menu_button menu-cleaner-settings-btn-full">恢复原始排序</button>' +
         '<button id="menu-cleaner-clear-data" class="menu_button menu-cleaner-settings-btn-full">清除插件数据</button>' +
+        '<div class="menu-cleaner-settings-divider">—————— 扩展面板分栏 ——————</div>' +
+        '<div id="menu-cleaner-colmode-dual" class="menu-cleaner-settings-row menu-cleaner-colmode-option' + (settings.columnMode === 'dual' ? ' menu-cleaner-colmode-active' : '') + '">' +
+          '<span>双栏</span>' +
+        '</div>' +
+        '<div id="menu-cleaner-colmode-single" class="menu-cleaner-settings-row menu-cleaner-colmode-option' + (settings.columnMode === 'single' ? ' menu-cleaner-colmode-active' : '') + '">' +
+          '<span>单栏</span>' +
+        '</div>' +
         '<div class="menu-cleaner-settings-divider">—————— 调试用内容 ——————</div>' +
         '<div class="menu-cleaner-settings-row">' +
           '<span>重扫描消息toast</span>' +
@@ -1256,6 +1326,11 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       saveSettings();
     });
 
+    var dualBtn = doc.getElementById('menu-cleaner-colmode-dual');
+    dualBtn && dualBtn.addEventListener('click', function() { applyColumnMode('dual'); });
+    var singleBtn = doc.getElementById('menu-cleaner-colmode-single');
+    singleBtn && singleBtn.addEventListener('click', function() { applyColumnMode('single'); });
+
     positionPopup();
   }
 
@@ -1282,7 +1357,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       var group = reorderGroups[g];
       var items = getReorderItems(group.id);
       var isExpanded = expanded.has(group.id);
-      var isDualCol = group.id === 'extensionsSettings';
+      var isDualCol = group.id === 'extensionsSettings' && settings.columnMode !== 'single';
 
       html += '<div class="menu-cleaner-category">';
       html += '<div class="menu-cleaner-category-header" data-group="' + escHtml(group.id) + '">' +
@@ -1400,7 +1475,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
         settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
         saveSettings();
-        if (isPanelOpen() && groupId === 'extensionsSettings') renderExtensionsPanel();
+        // Defer panel refresh to avoid DOM conflicts during drag event
+        if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
         renderReorderView();
         return;
       }
@@ -1414,7 +1490,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
       settings.reorder[groupId] = sitems.map(function(i) { return i.selector; });
       saveSettings();
-      if (isPanelOpen() && groupId === 'extensionsSettings') renderExtensionsPanel();
+      // Defer panel refresh to avoid DOM conflicts during drag event
+      if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
       renderReorderView();
     }
 
@@ -1590,7 +1667,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
               remaining.push(movedItem);
               settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
               saveSettings();
-              if (isPanelOpen() && groupId === 'extensionsSettings') renderExtensionsPanel();
+              // Defer panel refresh to avoid DOM conflicts during drop event
+              if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
               renderReorderView();
             }
           }
