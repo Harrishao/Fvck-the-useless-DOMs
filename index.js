@@ -979,6 +979,9 @@ function renderReorderView() {
   // Bind drag-and-drop
   bindReorderDragEvents();
 
+  // Bind arrow button clicks (mobile fallback)
+  bindReorderArrowButtons();
+
   positionPopup();
 }
 
@@ -1001,6 +1004,8 @@ function buildReorderItemHTML(item, groupId, index, colIndex) {
   return `<div class="menu-cleaner-reorder-item" draggable="true" data-selector="${escHtml(item.selector)}" data-group="${groupId}" data-index="${index}" data-column="${colIndex}">
             <span class="menu-cleaner-drag-handle" title="拖动排序">⋮⋮</span>
             <span title="${escHtml(item.selector)}">${escHtml(item.label)}</span>
+            <button class="menu-cleaner-arrow-btn" data-dir="up" title="上移">▲</button>
+            <button class="menu-cleaner-arrow-btn" data-dir="down" title="下移">▼</button>
           </div>`;
 }
 
@@ -1240,6 +1245,112 @@ function bindReorderDragEvents() {
         }
         cleanupDrag();
       }
+    });
+  });
+}
+
+// ── Arrow button reorder (mobile fallback) ──────────────────────
+function bindReorderArrowButtons() {
+  document.querySelectorAll(".menu-cleaner-arrow-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = btn.dataset.dir;
+      const item = btn.closest(".menu-cleaner-reorder-item");
+      if (!item) return;
+      const groupId = item.dataset.group;
+      const selector = item.dataset.selector;
+      const col = item.dataset.column;
+
+      const allItems = getReorderItems(groupId);
+      const isDualCol = col !== "-1" && settings.columnMode !== "single" && groupId === "extensionsSettings";
+
+      // Get same-column siblings in flat order
+      let siblings;
+      if (isDualCol) {
+        const targetColumn = parseInt(col);
+        siblings = allItems.filter(function(it) {
+          return getColumnIndex(it.selector, groupId) === targetColumn;
+        });
+      } else {
+        siblings = allItems;
+      }
+
+      const fromIdx = siblings.findIndex(function(it) { return it.selector === selector; });
+      if (fromIdx < 0) return;
+      const toIdx = dir === "up" ? fromIdx - 1 : fromIdx + 1;
+
+      // Cross-column move (dual mode only)
+      if ((toIdx < 0 || toIdx >= siblings.length) && isDualCol) {
+        if (!(col === "0" && dir === "down") && !(col === "1" && dir === "up")) return;
+
+        const targetCol = col === "0" ? 1 : 0;
+
+        // Get target column siblings
+        const targetSiblings = allItems.filter(function(it) {
+          return getColumnIndex(it.selector, groupId) === targetCol;
+        });
+
+        // Remove from source
+        const moved = siblings.splice(fromIdx, 1)[0];
+
+        // Insert in target column
+        if (dir === "down") {
+          targetSiblings.splice(0, 0, moved);
+        } else {
+          targetSiblings.push(moved);
+        }
+
+        // Update column in cache
+        setColumnInCache(selector, groupId, targetCol);
+
+        // Reconstruct flat order from both columns
+        const col0Items = targetCol === 0 ? targetSiblings : siblings;
+        const col1Items = targetCol === 1 ? targetSiblings : siblings;
+        const col0Set = new Set(col0Items.map(function(it) { return it.selector; }));
+        const col1Set = new Set(col1Items.map(function(it) { return it.selector; }));
+
+        const newOrder = [];
+        let si0 = 0, si1 = 0;
+        for (let ai = 0; ai < allItems.length; ai++) {
+          const sel = allItems[ai].selector;
+          if (col0Set.has(sel)) {
+            newOrder.push(col0Items[si0++].selector);
+          } else if (col1Set.has(sel)) {
+            newOrder.push(col1Items[si1++].selector);
+          }
+        }
+
+        settings.reorder[groupId] = newOrder;
+        saveSettings();
+        if (isPanelOpen() && groupId === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
+        renderReorderView();
+        return;
+      }
+
+      // Out of bounds (non-dual mode): no-op
+      if (toIdx < 0 || toIdx >= siblings.length) return;
+
+      // Same-column/single-mode move
+      const moved = siblings.splice(fromIdx, 1)[0];
+      siblings.splice(toIdx, 0, moved);
+
+      // Reconstruct flat order
+      const siblingSet = new Set(siblings.map(function(s) { return s.selector; }));
+      const newOrder = [];
+      let si = 0;
+      for (let ai = 0; ai < allItems.length; ai++) {
+        if (siblingSet.has(allItems[ai].selector)) {
+          newOrder.push(siblings[si++].selector);
+        } else {
+          newOrder.push(allItems[ai].selector);
+        }
+      }
+
+      settings.reorder[groupId] = newOrder;
+      saveSettings();
+      if (isPanelOpen() && groupId === "extensionsSettings") setTimeout(() => renderExtensionsPanel(), 0);
+      renderReorderView();
     });
   });
 }

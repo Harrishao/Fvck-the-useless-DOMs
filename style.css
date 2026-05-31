@@ -301,6 +301,32 @@
   background: rgba(124, 92, 255, 0.05);
 }
 
+/* ── Arrow Buttons (mobile fallback) ──────────────────────────── */
+.menu-cleaner-arrow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.menu-cleaner-arrow-btn:hover {
+  color: #fff;
+  background: rgba(124, 92, 255, 0.2);
+}
+
+.menu-cleaner-arrow-btn:active {
+  background: rgba(124, 92, 255, 0.35);
+}
+
 /* ── Settings Panel ──────────────────────────────────────────── */
 .menu-cleaner-settings-panel {
   padding: 12px 18px;
