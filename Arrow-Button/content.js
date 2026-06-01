@@ -73,7 +73,7 @@
         { selector: '#expressions_container',      label: '角色表情' },
         { selector: '#sd_container',               label: '图像生成' },
         { selector: '#tts_container',              label: 'TTS' },
-        { selector: '#qr_container',               label: '快速回复' },
+        { selector: '#qr--settings',               label: '快速回复' },
         { selector: '#translation_container',      label: '聊天翻译' },
         { selector: '#caption_container',          label: '图像描述' },
         { selector: '#summarize_container',        label: '总结' },
@@ -987,6 +987,29 @@ button.menu-cleaner-settings-btn-full:active {
         }
       } else {
         for (const child of container.children) {
+          // Extension containers (like #qr_container) are wrappers that may contain
+          // multiple independent drawer elements. Scan their direct children so that
+          // each drawer (e.g. #qr--settings / #qr-assistant-settings) is discovered
+          // separately instead of being lumped under the wrapper.
+          if (child.classList.contains('extension_container') && !child.classList.contains('inline-drawer')) {
+            for (const wrapperChild of child.children) {
+              if (getComputedStyle(wrapperChild).display === 'none') continue;
+              const wHeader = wrapperChild.querySelector(group.discovery.hasHeader);
+              if (!wHeader) continue;
+              const wLabelEl = wHeader.querySelector(group.discovery.labelInHeader);
+              const wLabel = wLabelEl ? wLabelEl.textContent.trim() : '';
+              if (!wLabel) continue;
+              if (!wrapperChild.id) { wrapperChild.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
+              const wSelector = '#' + wrapperChild.id;
+              if (seen.has(wSelector)) continue;
+              seen.add(wSelector);
+              const wEntry = { selector: wSelector, label: wLabel };
+              if (columnIndex !== undefined) wEntry.column = columnIndex;
+              discovered.push(wEntry);
+            }
+            continue;
+          }
+
           const header = child.querySelector(group.discovery.hasHeader);
           if (!header) continue;
 

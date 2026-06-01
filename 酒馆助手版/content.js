@@ -12,6 +12,7 @@
   let extPanelVisible = false;
   let rescanTimer = null;
   let dragActive = false; // set while user is dragging a reorder item
+  let suppressObserver = false; // suppress MutationObserver during programmatic DOM moves
 
   // ── Hardcoded native elements ─────────────────────────────────
   const PANEL_GROUPS = [
@@ -64,7 +65,7 @@
         { selector: '#expressions_container',      label: '角色表情' },
         { selector: '#sd_container',               label: '图像生成' },
         { selector: '#tts_container',              label: 'TTS' },
-        { selector: '#qr_container',               label: '快速回复' },
+        { selector: '#qr--settings',               label: '快速回复' },
         { selector: '#translation_container',      label: '聊天翻译' },
         { selector: '#caption_container',          label: '图像描述' },
         { selector: '#summarize_container',        label: '总结' },
@@ -491,6 +492,9 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
   animation: none !important;
 }
 
+/* Hide redundant items from the top bar */
+#menu-cleaner-ext-topbar > label[for="extensions_autoconnect"] { display: none !important; }
+
 .menu-cleaner-ext-col {
   display: flex;
   flex-direction: column;
@@ -729,6 +733,30 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
         var headerChildren = container.children;
         for (var hc = 0; hc < headerChildren.length; hc++) {
           var hcChild = headerChildren[hc];
+
+          // Extension containers (like #qr_container) are wrappers that may contain
+          // multiple independent drawer elements. Scan their direct children so that
+          // each drawer (e.g. #qr--settings / #qr-assistant-settings) is discovered
+          // separately instead of being lumped under the wrapper.
+          if (hcChild.classList.contains('extension_container') && !hcChild.classList.contains('inline-drawer')) {
+            for (var wc = 0; wc < hcChild.children.length; wc++) {
+              var wrapperChild = hcChild.children[wc];
+              if (win.getComputedStyle(wrapperChild).display === 'none') continue;
+              var wHeader = wrapperChild.querySelector(group.discovery.hasHeader);
+              if (!wHeader) continue;
+              var wLabel = extractHeaderLabel(wHeader);
+              if (!wLabel) continue;
+              if (!wrapperChild.id) { wrapperChild.id = 'menu-cleaner-auto-' + (autoIdSeq++); }
+              var wSelector = '#' + wrapperChild.id;
+              if (seen.has(wSelector)) continue;
+              seen.add(wSelector);
+              var wEntry = { selector: wSelector, label: wLabel };
+              if (columnIndex !== undefined) wEntry.column = columnIndex;
+              discovered.push(wEntry);
+            }
+            continue;
+          }
+
           var header = hcChild.querySelector(group.discovery.hasHeader);
           if (!header) continue;
 
@@ -922,6 +950,66 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     return 0;
   }
 
+  // ── Native DOM reorder (for groups not managed by extensions panel) ─
+  function applyNativeReorder(groupId) {
+    // Use getReorderItems for the complete display order (includes missing items
+    // that aren't yet in settings.reorder, avoiding乱序 from partial order arrays)
+    var items = getReorderItems(groupId);
+    if (items.length < 2) return;
+
+    var els = [];
+    for (var i = 0; i < items.length; i++) {
+      // Some SillyTavern elements (e.g. #option_close_chat) have duplicate DOM
+      // nodes with the same id — an inactive one (class="displayNone") and an
+      // active one. querySelector returns the first match which may be hidden.
+      // Prefer the visible copy so reordering affects what the user actually sees.
+      var el = doc.querySelector(items[i].selector);
+      if (el && (el.offsetParent === null || win.getComputedStyle(el).display === 'none')) {
+        var all = doc.querySelectorAll(items[i].selector);
+        for (var ai = 0; ai < all.length; ai++) {
+          if (all[ai].offsetParent !== null && win.getComputedStyle(all[ai]).display !== 'none') {
+            el = all[ai];
+            break;
+          }
+        }
+      }
+      if (el) els.push(el);
+    }
+    if (els.length < 2) return;
+
+    // Find deepest common ancestor
+    var container = els[0].parentNode;
+    while (container) {
+      var ok = true;
+      for (var j = 0; j < els.length; j++) {
+        if (!container.contains(els[j])) { ok = false; break; }
+      }
+      if (ok) break;
+      container = container.parentNode;
+    }
+    if (!container) return;
+
+    // Find top-level units within the container
+    var units = [];
+    var seen = new Set();
+    for (var k = 0; k < els.length; k++) {
+      var unit = els[k];
+      while (unit.parentNode && unit.parentNode !== container) {
+        unit = unit.parentNode;
+      }
+      if (unit.parentNode === container && !seen.has(unit)) {
+        seen.add(unit);
+        units.push(unit);
+      }
+    }
+
+    suppressObserver = true;
+    for (var m = 0; m < units.length; m++) {
+      container.appendChild(units[m]);
+    }
+    win.setTimeout(function() { suppressObserver = false; }, 0);
+  }
+
   // ── Extensions panel ────────────────────────────────────────────
   function createExtensionsPanelDOM() {
     if (doc.getElementById('menu-cleaner-ext-panel')) return;
@@ -945,6 +1033,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     var col1 = doc.getElementById('menu-cleaner-ext-col1');
     var col2 = doc.getElementById('menu-cleaner-ext-col2');
     if (!col1 || !col2) return;
+
+    suppressObserver = true;
 
     var groupId = 'extensionsSettings';
     var order = settings.reorder[groupId] || [];
@@ -1048,6 +1138,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       for (var ei = 0; ei < col1Els.length; ei++) col1.appendChild(col1Els[ei]);
       for (var ei = 0; ei < col2Els.length; ei++) col2.appendChild(col2Els[ei]);
     }
+    win.setTimeout(function() { suppressObserver = false; }, 0);
   }
 
   function toggleExtensionsPanel() {
@@ -1241,6 +1332,10 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     showSettingsPanel = false;
     // Refresh extension panel to reflect any reorder changes made in popup
     if (extPanelVisible) renderExtensionsPanel();
+    // Apply native DOM reorder for non-panel groups
+    for (var rg = 0; rg < REORDER_GROUP_IDS.length; rg++) {
+      if (REORDER_GROUP_IDS[rg] !== 'extensionsSettings') applyNativeReorder(REORDER_GROUP_IDS[rg]);
+    }
   }
 
   function toggleSettingsPanel() {
@@ -1502,8 +1597,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
         settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
         saveSettings();
-        // Defer panel refresh to avoid DOM conflicts during drag event
         if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
+        if (groupId !== 'extensionsSettings') applyNativeReorder(groupId);
         renderReorderView();
         return;
       }
@@ -1517,8 +1612,8 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
 
       settings.reorder[groupId] = sitems.map(function(i) { return i.selector; });
       saveSettings();
-      // Defer panel refresh to avoid DOM conflicts during drag event
       if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
+      if (groupId !== 'extensionsSettings') applyNativeReorder(groupId);
       renderReorderView();
     }
 
@@ -1702,6 +1797,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
               settings.reorder[groupId] = remaining.map(function(i) { return i.selector; });
               saveSettings();
               if (isPanelOpen() && groupId === 'extensionsSettings') win.setTimeout(function() { renderExtensionsPanel(); }, 0);
+              if (groupId !== 'extensionsSettings') applyNativeReorder(groupId);
               renderReorderView();
             }
           }
@@ -1908,15 +2004,21 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     renderReorderView();
 
     if (isPanelOpen()) renderExtensionsPanel();
+    // Apply native DOM reorder for non-panel groups
+    for (var rg2 = 0; rg2 < REORDER_GROUP_IDS.length; rg2++) {
+      if (REORDER_GROUP_IDS[rg2] !== 'extensionsSettings') applyNativeReorder(REORDER_GROUP_IDS[rg2]);
+    }
   }
 
   // ── Rescan ───────────────────────────────────────────────────────
   function doRescan() {
     if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
 
+    suppressObserver = true;
     refreshDiscoveryCache();
     if (isPanelOpen()) renderExtensionsPanel();
     if (!dragActive) refreshPopup();
+    win.setTimeout(function() { suppressObserver = false; }, 0);
 
     if (settings.rescanToast) {
       var count = 0;
@@ -2035,6 +2137,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
           var el = doc.querySelector(sel);
           if (!el) return;
           var observer = new win.MutationObserver(function (mutations) {
+            if (suppressObserver) return;
             for (var m = 0; m < mutations.length; m++) {
               if (mutations[m].addedNodes.length > 0) {
                 scheduleAutoRescan();
@@ -2086,10 +2189,18 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     registerSlashCmd();
     setupAutoRescan();
 
+    // Step 6: Apply saved reorder to native DOM (extensionsMenu + options)
+    for (var rg = 0; rg < REORDER_GROUP_IDS.length; rg++) {
+      if (REORDER_GROUP_IDS[rg] !== 'extensionsSettings') applyNativeReorder(REORDER_GROUP_IDS[rg]);
+    }
+
     // Delayed re-scan catches extensions that inject buttons after init
     setTimeout(function () {
       refreshDiscoveryCache();
       if (settings.enabled && isPanelOpen()) renderExtensionsPanel();
+      for (var rg2 = 0; rg2 < REORDER_GROUP_IDS.length; rg2++) {
+        if (REORDER_GROUP_IDS[rg2] !== 'extensionsSettings') applyNativeReorder(REORDER_GROUP_IDS[rg2]);
+      }
     }, 3000);
   }
 
