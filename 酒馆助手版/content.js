@@ -75,7 +75,8 @@
       discovery: {
         containers: ['#extensions_settings', '#extensions_settings2'],
         hasHeader: '.inline-drawer-header',
-        labelInHeader: 'b, [data-i18n]'
+        labelInHeader: 'b, [data-i18n]',
+        exclude: ['#qr_container', '#agent_system_container', '#tauritavern_version_container']
       }
     },
     {
@@ -487,7 +488,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
   height: auto;
   visibility: visible; /* override ST .closedDrawer */
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-  z-index: 3000;
+  /* z-index is set dynamically from the native drawer to stay above theme overrides */
   transition: none !important;
   animation: none !important;
 }
@@ -810,9 +811,13 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
         }
       }
 
+      // Build exclude set for this group (TT-specific noisy elements etc.)
+      var excludeSet = new Set((group.discovery.exclude || []));
+
       // Preserve hardcoded items' column info (created by cross-column moves)
       for (var oi = 0; oi < oldCache.length; oi++) {
         var old = oldCache[oi];
+        if (excludeSet.has(old.selector)) continue;
         if (hardcodedSet.has(old.selector) && old.column !== undefined) {
           var found = false;
           for (var fi = 0; fi < newItems.length; fi++) {
@@ -827,6 +832,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       // Safety net: carry over non-hardcoded entries still in DOM but missed by current scan
       for (var si = 0; si < oldCache.length; si++) {
         var oldEntry = oldCache[si];
+        if (excludeSet.has(oldEntry.selector)) continue;
         if (hardcodedSet.has(oldEntry.selector)) continue;
         var alreadyInNew = false;
         for (var nj = 0; nj < newItems.length; nj++) {
@@ -1141,6 +1147,26 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     win.setTimeout(function() { suppressObserver = false; }, 0);
   }
 
+  function syncPanelZIndex() {
+    var panel = doc.getElementById('menu-cleaner-ext-panel');
+    if (!panel) return;
+    // Inherit z-index from the native drawer-content that our panel replaces.
+    // Some themes set aggressive z-index values; matching the native drawer
+    // ensures our panel never ends up underneath themed elements.
+    var sources = [
+      doc.querySelector('#extensions-settings-button > .drawer-content'),
+      doc.getElementById('rm_extensions_block'),
+      doc.getElementById('extensions_settings')
+    ];
+    for (var i = 0; i < sources.length; i++) {
+      if (sources[i]) {
+        var z = win.getComputedStyle(sources[i]).zIndex;
+        if (z && z !== 'auto') { panel.style.zIndex = z; return; }
+      }
+    }
+    panel.style.zIndex = '3000'; // fallback
+  }
+
   function toggleExtensionsPanel() {
     extPanelVisible = !extPanelVisible;
     var panel = doc.getElementById('menu-cleaner-ext-panel');
@@ -1151,6 +1177,7 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     }
 
     if (extPanelVisible) {
+      syncPanelZIndex();
       renderExtensionsPanel();
       panel.style.display = 'block';
       panel.style.visibility = 'visible';
