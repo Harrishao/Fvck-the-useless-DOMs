@@ -373,6 +373,7 @@
   cursor: grab;
   transition: background 0.15s;
   border-left: 3px solid transparent;
+  touch-action: none; /* let Pointer Events drive drag on touch instead of native scroll */
 }
 
 .menu-cleaner-reorder-item:hover { background: rgba(255, 255, 255, 0.03); }
@@ -1585,9 +1586,6 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     var draggedGroup = null;
     var draggedIndex = -1;
     var touchGhost = null;
-    var touchStartX = 0;
-    var touchStartY = 0;
-    var touchMoved = false;
     var dropTargetColumn = undefined;
 
     function doReorder(fromIndex, toIndex, groupId) {
@@ -1658,7 +1656,6 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       draggedItem = null;
       draggedGroup = null;
       draggedIndex = -1;
-      touchMoved = false;
       dropTargetColumn = undefined;
     }
 
@@ -1666,9 +1663,12 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
     for (var r = 0; r < reorderItems.length; r++) {
       var item = reorderItems[r];
 
-      // ── Desktop pointer drag ─────────────────────────
+      // ── Unified pointer drag (mouse + touch + pen) ───
+      // Pointer Events cover desktop and touch in one path; the prior
+      // separate touchstart/move/end block was redundant and removed.
+      // Relies on `touch-action: none` (CSS) so touch drives drag, not scroll.
       item.addEventListener('pointerdown', function(e) {
-        if (e.button !== 0) return; // left button only
+        if (e.button !== 0) return; // left button / primary touch only
         e.preventDefault(); // prevent text selection during drag
         dragActive = true;
         draggedItem = this;
@@ -1769,85 +1769,6 @@ button.menu-cleaner-settings-btn-full:active { background: rgba(255, 255, 255, 0
       });
 
       item.addEventListener('pointercancel', function() { cleanupDrag(); });
-
-      // ── Mobile touch ─────────────────────────────────
-      var supportsTouch = 'ontouchstart' in win || (win.navigator && win.navigator.maxTouchPoints > 0);
-      if (supportsTouch) {
-        item.addEventListener('touchstart', function(e) {
-          if (e.touches.length !== 1) return;
-          e.preventDefault();
-          var touch = e.touches[0];
-          touchStartX = touch.clientX;
-          touchStartY = touch.clientY;
-          touchMoved = false;
-
-          draggedItem = this;
-          draggedGroup = this.dataset.group;
-          draggedIndex = parseInt(this.dataset.index);
-          this.classList.add('dragging');
-
-          touchGhost = this.cloneNode(true);
-          touchGhost.style.position = 'fixed';
-          touchGhost.style.zIndex = '100001';
-          touchGhost.style.pointerEvents = 'none';
-          touchGhost.style.opacity = '0.85';
-          touchGhost.style.width = this.offsetWidth + 'px';
-          touchGhost.style.left = (touch.clientX - this.offsetWidth / 2) + 'px';
-          touchGhost.style.top = (touch.clientY - 20) + 'px';
-          touchGhost.classList.add('dragging');
-          doc.body.appendChild(touchGhost);
-        });
-
-        item.addEventListener('touchmove', function(e) {
-          if (!draggedItem) return;
-          e.preventDefault();
-          touchMoved = true;
-          var touch = e.touches[0];
-
-          if (touchGhost) {
-            touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
-            touchGhost.style.top = (touch.clientY - 20) + 'px';
-          }
-
-          if (touchGhost) touchGhost.style.display = 'none';
-          var target = doc.elementFromPoint(touch.clientX, touch.clientY);
-          if (touchGhost) touchGhost.style.display = '';
-
-          var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
-
-          var allItems = doc.querySelectorAll('.menu-cleaner-reorder-item');
-          for (var ai = 0; ai < allItems.length; ai++) {
-            if (allItems[ai] === targetItem && allItems[ai] !== draggedItem && allItems[ai].dataset.group === draggedGroup) {
-              allItems[ai].classList.add('drag-over');
-            } else {
-              allItems[ai].classList.remove('drag-over');
-            }
-          }
-        });
-
-        item.addEventListener('touchend', function(e) {
-          if (!draggedItem) return;
-          e.preventDefault();
-
-          if (touchMoved) {
-            var touch = e.changedTouches[0];
-            if (touchGhost) touchGhost.style.display = 'none';
-            var target = doc.elementFromPoint(touch.clientX, touch.clientY);
-            if (touchGhost) touchGhost.style.display = '';
-
-            var targetItem = target ? target.closest('.menu-cleaner-reorder-item') : null;
-            if (targetItem && targetItem !== draggedItem && targetItem.dataset.group === draggedGroup) {
-              targetItem.classList.remove('drag-over');
-              dropTargetColumn = targetItem.dataset.column;
-              doReorder(draggedIndex, parseInt(targetItem.dataset.index), draggedGroup);
-            }
-          }
-
-          cleanupDrag();
-        });
-
-        item.addEventListener('touchcancel', function() { cleanupDrag(); });
-      }
     }
 
     // Column-section drop targets for cross-column drag (pointer-based)
