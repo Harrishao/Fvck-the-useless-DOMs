@@ -6,7 +6,7 @@
   var win = window.frameElement ? window.parent : window;
 
   // ============================================================================
-  // 方案3 · 原地排序版
+  // 菜单精简器-0621 · 原地排序版
   // 架构四支柱：① 元素留在原生容器（不搬进自绘面板） ② 排序 = CSS `order`（不动 DOM）
   //            ③ 稳定 key + order map（后加载/跨情境天然归位） ④ 幂等 observer
   // 详见同目录 PLAN.md
@@ -107,7 +107,7 @@
       var raw = win.localStorage.getItem(STORAGE_KEY);
       settings = raw ? Object.assign({}, defaultSettings, JSON.parse(raw)) : Object.assign({}, defaultSettings);
     } catch (e) {
-      console.warn('[菜单精简器3] 读取设置失败，用默认值', e);
+      console.warn('[菜单精简器-0621] 读取设置失败，用默认值', e);
       settings = Object.assign({}, defaultSettings);
     }
     // 注意：刻意「不」清理当前不在场的 key —— 后加载元素要靠留存的 order/column/hidden 归位。
@@ -120,7 +120,7 @@
 
   function saveSettings() {
     try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
-    catch (e) { console.warn('[菜单精简器3] 保存设置失败', e); }
+    catch (e) { console.warn('[菜单精简器-0621] 保存设置失败', e); }
   }
 
   // ── 工具 ───────────────────────────────────────────────────────────────────
@@ -613,7 +613,7 @@
     injectPopupCSS();
     var ov = doc.createElement('div'); ov.id = 'mc3-overlay';
     ov.innerHTML = '<div id="mc3-popup">' +
-      '<div id="mc3-head"><span>菜单精简器 · 方案3</span><button class="mc3-x" data-action="close">✕</button></div>' +
+      '<div id="mc3-head"><span>菜单精简器-0621</span><button class="mc3-x" data-action="close">✕</button></div>' +
       '<div id="mc3-tools">' +
         '<button class="mc3-btn" data-action="enable">启用: 开</button>' +
         '<button class="mc3-btn" data-action="colmode">单双栏: 双</button>' +
@@ -683,7 +683,7 @@
       try {
         var ctx = win.SillyTavern && win.SillyTavern.getContext ? win.SillyTavern.getContext() : null;
         if (ctx && typeof ctx.registerSlashCommand === 'function') {
-          ctx.registerSlashCommand('menucleaner', function () { openPopup(); return ''; }, [], '打开菜单精简器·方案3', true, true);
+          ctx.registerSlashCommand('menucleaner', function () { openPopup(); return ''; }, [], '打开菜单精简器-0621', true, true);
           slashRegistered = true;
         }
       } catch (e) {}
@@ -711,7 +711,7 @@
       save: saveSettings,
       records: records,
     };
-    console.log('[菜单精简器3] M6 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
+    console.log('[菜单精简器-0621] M6 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
   }
 
   if (doc.readyState === 'loading') {

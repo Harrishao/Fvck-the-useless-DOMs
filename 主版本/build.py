@@ -10,7 +10,7 @@ with open(os.path.join(script_dir, "content.js"), "r", encoding="utf-8") as f:
 with open(os.path.join(script_dir, "info.html"), "r", encoding="utf-8") as f:
     info_html = f.read()
 
-output_path = os.path.join(script_dir, "酒馆助手脚本-菜单精简器-方案3.json")
+output_path = os.path.join(script_dir, "酒馆助手脚本-菜单精简器-0621.json")
 
 # Preserve existing UUID if the file already exists
 existing_id = None
@@ -22,7 +22,7 @@ if os.path.exists(output_path):
 result = {
     "type": "script",
     "enabled": True,
-    "name": "酒馆菜单精简器·方案3",
+    "name": "酒馆菜单精简器·0621",
     "id": existing_id or str(uuid.uuid4()),
     "content": content_js,
     "info": info_html,
