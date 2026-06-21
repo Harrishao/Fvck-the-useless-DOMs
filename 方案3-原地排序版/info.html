@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+body {
+  background-color: #0b0c10;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  margin: 0;
+  font-family: 'Microsoft YaHei', sans-serif;
+}
+.card {
+  position: relative;
+  padding: 40px 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(30,30,50,0.9), rgba(15,15,30,0.95));
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 0 40px rgba(127,0,255,0.15), 0 0 80px rgba(0,240,255,0.08), 0 20px 60px rgba(0,0,0,0.5);
+  text-align: center;
+}
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, #ff007f, #7f00ff, #00f0ff, #7f00ff, #ff007f);
+  background-size: 400% 400%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: rotateBorder 6s linear infinite;
+}
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 16px;
+  background: radial-gradient(circle at 0% 0%, rgba(255,0,127,0.3) 0%, transparent 40%),
+              radial-gradient(circle at 100% 0%, rgba(0,240,255,0.3) 0%, transparent 40%),
+              radial-gradient(circle at 0% 100%, rgba(0,240,255,0.2) 0%, transparent 40%),
+              radial-gradient(circle at 100% 100%, rgba(127,0,255,0.3) 0%, transparent 40%);
+}
+h1 {
+  position: relative;
+  z-index: 1;
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #e0e0f0;
+  text-shadow: 0 0 10px rgba(0,240,255,0.5), 0 0 30px rgba(127,0,255,0.3);
+  line-height: 1.5;
+}
+@keyframes rotateBorder {
+  0%   { background-position: 0% 0%; }
+  100% { background-position: 400% 0%; }
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>再见了，那些玩一辈子酒馆都不会点的按钮</h1>
+  <p style="position:relative;z-index:1;margin:12px 0 0;color:#9aa;font-size:14px;letter-spacing:1px;">方案3 · 原地排序版 —— 魔棒菜单「菜单精简器」或斜杠命令 <code>/menucleaner</code> 打开</p>
+</div>
+</body>
+</html>
