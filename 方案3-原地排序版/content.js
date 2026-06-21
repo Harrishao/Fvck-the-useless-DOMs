@@ -647,7 +647,7 @@
     d.id = 'mc3-launcher-panel';
     d.className = 'inline-drawer';
     d.innerHTML =
-      '<div class="inline-drawer-header" style="cursor:pointer">' +
+      '<div class="inline-drawer-toggle inline-drawer-header">' +
         '<b>菜单精简器</b>' +
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>' +
       '</div>' +
@@ -655,16 +655,18 @@
         '<label class="checkbox_label" style="display:flex;gap:6px;align-items:center;margin:4px 2px"><input type="checkbox" id="mc3-enable-cb"><span>启用插件</span></label>' +
         '<div id="mc3-open-btn" class="menu_button" style="cursor:pointer;width:fit-content">打开操作面板</div>' +
       '</div>';
-    var header = d.querySelector('.inline-drawer-header');
     var content = d.querySelector('.inline-drawer-content');
     var icon = d.querySelector('.inline-drawer-icon');
-    header.addEventListener('click', function () {
+    // header 用原生 `inline-drawer-toggle inline-drawer-header` 类获得与其它扩展完全一致的样式；
+    // 自行处理展开并 stopImmediatePropagation 阻断 ST 的委托 toggle，避免双重切换。
+    d.querySelector('.inline-drawer-header').addEventListener('click', function (e) {
+      e.stopImmediatePropagation();
       var openNow = content.style.display !== 'none';
       content.style.display = openNow ? 'none' : 'block';
       icon.classList.toggle('up', !openNow); icon.classList.toggle('down', openNow);
     });
     d.querySelector('#mc3-enable-cb').addEventListener('change', function (e) { settings.enabled = e.target.checked; saveSettings(); applyAll(); });
-    d.querySelector('#mc3-open-btn').addEventListener('click', openPopup);
+    d.querySelector('#mc3-open-btn').addEventListener('click', function (e) { e.stopPropagation(); openPopup(); });
     return d;
   }
 
