@@ -1,64 +1,23 @@
-import json
 import os
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.dirname(script_dir)
-dist_dir = os.path.join(repo_root, "dist")
+# build.py 只产出 jsDelivr 托管的代码本体：dist/menu-cleaner.js（content.js 原样）。
+# 发布走「双通道 SemVer tag」模型（详见 待办事项.md / README）：
+#   · 自动更新通道：稳定版打 tag v0.0.1 / v0.0.2 / …，用户用 @v0 取最新。
+#     loader（dist/酒馆助手脚本-菜单精简器.json）钉死 @v0，故【不】由本脚本生成，避免每次 build 改动它。
+#   · 指定版本通道：用 @v0.0.N 精确钉。
+# ⚠ tag 必须是合法 SemVer：主/次/修订号【不能有前导零】。
+#   实测：v621.0.0 ✓（@v621 → 621.0.0）；v0621.0.0 ✗（"0621" 前导零，jsDelivr 解析不到）。
+# 发布步骤：改 content.js → 跑本脚本 → git commit → git tag v0.0.N → git push origin main v0.0.N。
 
-# ── 发布配置 ─────────────────────────────────────────────────────────────────
-# 稳定 UUID：与历史发布保持一致，使已安装用户表现为「更新」而非「新脚本」。请勿随意更改。
-SCRIPT_ID = "3f5dba4b-ffdf-4569-89f3-639c684f0288"
-SCRIPT_NAME = "酒馆菜单精简器-0621"
-# jsDelivr 托管：代码放仓库 dist/menu-cleaner.js（ASCII 路径，避免中文路径编码），loader 钉到下面这个 tag。
-# 稳定性原则：用户只从「不可变的发布 tag」取代码 —— 调试只在 main 上推，永不影响已发布用户。
-#   出新稳定版时：把 TAG 改成一个【新的、永不复用】的 tag（如 0622）→ 重跑本脚本 → commit →
-#   git tag <新tag> && git push origin main <新tag> →（可选）在 GitHub 基于该 tag 建 Release 写说明。
-#   ⚠ 切勿把已发布的 tag 移到调试提交上：那会在缓存刷新瞬间把半成品推给所有用户。
-GH_REPO = "Harrishao/Fvck-the-useless-DOMs"
-TAG = "0621"
-DIST_JS = "menu-cleaner.js"
-JSDELIVR_URL = "https://cdn.jsdelivr.net/gh/{}@{}/dist/{}".format(GH_REPO, TAG, DIST_JS)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+dist_dir = os.path.join(os.path.dirname(script_dir), "dist")
+os.makedirs(dist_dir, exist_ok=True)
 
 with open(os.path.join(script_dir, "content.js"), "r", encoding="utf-8") as f:
     content_js = f.read()
-with open(os.path.join(script_dir, "info.html"), "r", encoding="utf-8") as f:
-    info_html = f.read()
 
-os.makedirs(dist_dir, exist_ok=True)
-
-
-def script_json(content):
-    """酒馆助手脚本 JSON 骨架，仅 content 不同。"""
-    return {
-        "type": "script",
-        "enabled": True,
-        "name": SCRIPT_NAME,
-        "id": SCRIPT_ID,
-        "content": content,
-        "info": info_html,
-        "button": {"enabled": True, "buttons": []},
-        "data": {},
-    }
-
-
-# 1) jsDelivr 托管的代码：内容＝content.js 原样（IIFE 当副作用模块被 import 即执行）
-dist_js_path = os.path.join(dist_dir, DIST_JS)
-with open(dist_js_path, "w", encoding="utf-8", newline="\n") as f:
+dist_js = os.path.join(dist_dir, "menu-cleaner.js")
+with open(dist_js, "w", encoding="utf-8", newline="\n") as f:
     f.write(content_js)
 
-# 2) loader JSON（主分发物）：content 仅一行 import，真代码从 jsDelivr 拉取
-loader_path = os.path.join(dist_dir, "酒馆助手脚本-菜单精简器.json")
-with open(loader_path, "w", encoding="utf-8") as f:
-    json.dump(script_json("import '{}'".format(JSDELIVR_URL)), f, ensure_ascii=False, indent=2)
-
-# 3) 内嵌 JSON（离线导入备用，不依赖网络）：content 直接内嵌全部代码
-inline_path = os.path.join(script_dir, "酒馆助手脚本-菜单精简器-0621.json")
-with open(inline_path, "w", encoding="utf-8") as f:
-    json.dump(script_json(content_js), f, ensure_ascii=False, indent=2)
-
-print("Generated:")
-print("  dist JS :", dist_js_path)
-print("  loader  :", loader_path, "(content = import jsDelivr)")
-print("  inline  :", inline_path, "(content = 内嵌全部代码)")
-print("  jsDelivr:", JSDELIVR_URL)
-print("  UUID    :", SCRIPT_ID)
+print("Generated:", dist_js)
