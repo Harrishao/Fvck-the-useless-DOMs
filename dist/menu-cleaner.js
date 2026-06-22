@@ -5,12 +5,7 @@
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
 
-  // ============================================================================
-  // 菜单精简器-0621 · 原地排序版
-  // 架构四支柱：① 元素留在原生容器（不搬进自绘面板） ② 排序 = CSS `order`（不动 DOM）
-  //            ③ 稳定 key + order map（后加载/跨情境天然归位） ④ 幂等 observer
-  // 详见同目录 PLAN.md
-  // ============================================================================
+
 
   // 独立 localStorage key，避免与主版本/旧版本互相污染
   const STORAGE_KEY = 'menu_cleaner3_settings';
@@ -34,7 +29,9 @@
       button: '#options_button',
       containers: ['#options .options-content'],
       forceFlex: true,                 // 实测此容器 display:block，需 flex 覆盖才能用 order
-      mode: 'children', itemFilter: '[id^="option_"]', label: 'text',
+      // itemFilter 取结构化的 'a'（菜单项都是 <a>，自动排除 <hr> 分隔线），不再假设
+      // id 以 option_ 开头 —— 第三方注入项（如世界书 #wb-menu-btn-v6）不守该命名约定。
+      mode: 'children', itemFilter: 'a', label: 'text',
     },
     {
       id: 'extensionsMenu', name: '魔棒',
@@ -107,7 +104,7 @@
       var raw = win.localStorage.getItem(STORAGE_KEY);
       settings = raw ? Object.assign({}, defaultSettings, JSON.parse(raw)) : Object.assign({}, defaultSettings);
     } catch (e) {
-      console.warn('[菜单精简器-0621] 读取设置失败，用默认值', e);
+      console.warn('[菜单精简器] 读取设置失败，用默认值', e);
       settings = Object.assign({}, defaultSettings);
     }
     // 注意：刻意「不」清理当前不在场的 key —— 后加载元素要靠留存的 order/column/hidden 归位。
@@ -120,7 +117,7 @@
 
   function saveSettings() {
     try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
-    catch (e) { console.warn('[菜单精简器-0621] 保存设置失败', e); }
+    catch (e) { console.warn('[菜单精简器] 保存设置失败', e); }
   }
 
   // ── 工具 ───────────────────────────────────────────────────────────────────
@@ -191,8 +188,15 @@
         return t || normLabel(el.textContent);
       }
       case 'span': {
-        var sp = el.querySelector('span');
-        return normLabel(sp ? sp.textContent : el.textContent);
+        // 取第一个「非空」span：有些按钮把图标也包进 <span>（如 #favorites_button：
+        // <span><i.fa-star></span><span>收藏</span>），首个 span 是空图标壳，旧逻辑
+        // 直接取首个 span 会得空标签 → 整条被 scanGroup 丢弃。
+        var sps = el.querySelectorAll('span');
+        for (var si = 0; si < sps.length; si++) { var st = normLabel(sps[si].textContent); if (st) return st; }
+        // 无非空 span：退回元素自身的直接文本节点（排除内部 <button>/徽标），再退回整体文本
+        var dt = '';
+        for (var di = 0; di < el.childNodes.length; di++) if (el.childNodes[di].nodeType === 3) dt += el.childNodes[di].textContent;
+        return normLabel(dt) || normLabel(el.textContent);
       }
       case 'attrTitle': {
         var withTitle = el.matches('[title]') ? el : el.querySelector('[title]');
@@ -628,7 +632,7 @@
     injectPopupCSS();
     var ov = doc.createElement('div'); ov.id = 'mc3-overlay';
     ov.innerHTML = '<div id="mc3-popup">' +
-      '<div id="mc3-head"><span>菜单精简器-0621</span><button class="mc3-x" data-action="close">✕</button></div>' +
+      '<div id="mc3-head"><span>菜单精简器</span><button class="mc3-x" data-action="close">✕</button></div>' +
       '<div id="mc3-tools">' +
         '<button class="mc3-btn" data-action="enable">启用: 开</button>' +
         '<button class="mc3-btn" data-action="colmode">单双栏: 双</button>' +
@@ -698,7 +702,7 @@
       try {
         var ctx = win.SillyTavern && win.SillyTavern.getContext ? win.SillyTavern.getContext() : null;
         if (ctx && typeof ctx.registerSlashCommand === 'function') {
-          ctx.registerSlashCommand('menucleaner', function () { openPopup(); return ''; }, [], '打开菜单精简器-0621', true, true);
+          ctx.registerSlashCommand('menucleaner', function () { openPopup(); return ''; }, [], '打开菜单精简器', true, true);
           slashRegistered = true;
         }
       } catch (e) {}
@@ -726,7 +730,7 @@
       save: saveSettings,
       records: records,
     };
-    console.log('[菜单精简器-0621] M6 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
+    console.log('[菜单精简器] 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
   }
 
   if (doc.readyState === 'loading') {
