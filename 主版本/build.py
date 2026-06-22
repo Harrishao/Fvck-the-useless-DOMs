@@ -22,7 +22,7 @@ if os.path.exists(output_path):
 result = {
     "type": "script",
     "enabled": True,
-    "name": "酒馆菜单精简器·0621",
+    "name": "酒馆菜单精简器-0621",
     "id": existing_id or str(uuid.uuid4()),
     "content": content_js,
     "info": info_html,
