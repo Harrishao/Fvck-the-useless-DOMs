@@ -17,6 +17,9 @@ reference/
 工作日志.md
 自查方法.md
 
+# 发布产物：loader JSON 需随仓库分发（dist/menu-cleaner.js 是 .js 默认已跟踪）
+!dist/酒馆助手脚本-菜单精简器.json
+
 # 系统文件
 .DS_Store
 Thumbs.db
