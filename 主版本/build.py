@@ -10,8 +10,10 @@ dist_dir = os.path.join(repo_root, "dist")
 SCRIPT_ID = "3f5dba4b-ffdf-4569-89f3-639c684f0288"
 SCRIPT_NAME = "酒馆菜单精简器-0621"
 # jsDelivr 托管：代码放仓库 dist/menu-cleaner.js（ASCII 路径，避免中文路径编码），loader 钉到下面这个 tag。
-# 发新补丁时：覆盖 dist/menu-cleaner.js → commit → 重新打 0621 tag（force）→ 刷 jsDelivr 缓存：
-#   https://purge.jsdelivr.net/gh/Harrishao/Fvck-the-useless-DOMs@0621/dist/menu-cleaner.js
+# 稳定性原则：用户只从「不可变的发布 tag」取代码 —— 调试只在 main 上推，永不影响已发布用户。
+#   出新稳定版时：把 TAG 改成一个【新的、永不复用】的 tag（如 0622）→ 重跑本脚本 → commit →
+#   git tag <新tag> && git push origin main <新tag> →（可选）在 GitHub 基于该 tag 建 Release 写说明。
+#   ⚠ 切勿把已发布的 tag 移到调试提交上：那会在缓存刷新瞬间把半成品推给所有用户。
 GH_REPO = "Harrishao/Fvck-the-useless-DOMs"
 TAG = "0621"
 DIST_JS = "menu-cleaner.js"

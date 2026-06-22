@@ -34,7 +34,7 @@ import 'https://cdn.jsdelivr.net/gh/Harrishao/Fvck-the-useless-DOMs@0621/dist/me
 
 ## 更新
 
-发布钉在 `@0621` tag。用 loader 的用户在 jsDelivr 缓存刷新后即自动拿到新版；如需指定版本，把导入地址里的 `@0621` 换成对应 tag 即可。
+每个稳定版对应一个**不可变的发布 tag**（当前 `@0621`），发布后不再改动。出新版时会发布一个新 tag；更新即把导入地址里的 `@0621` 换成新 tag（或重新导入新版 loader）。调试都在 `main` 分支进行，**不会影响已发布用户**。
 
 ## 构建（开发者）
 
@@ -46,5 +46,12 @@ import 'https://cdn.jsdelivr.net/gh/Harrishao/Fvck-the-useless-DOMs@0621/dist/me
 | `dist/酒馆助手脚本-菜单精简器.json` | loader（content 为一行 import） |
 | `主版本/酒馆助手脚本-菜单精简器-0621.json` | 内嵌全部代码的离线版（gitignore，不入库） |
 
-发新补丁：覆盖 `dist/menu-cleaner.js` → commit → 移动 `0621` tag（`git tag -f 0621 && git push -f origin 0621`）→ 刷 jsDelivr 缓存：
-`https://purge.jsdelivr.net/gh/Harrishao/Fvck-the-useless-DOMs@0621/dist/menu-cleaner.js`
+发新稳定版（不可变 tag 模型，避免半成品泄漏给用户）：
+
+1. 在 `主版本/build.py` 把 `TAG` 改成一个**新的、永不复用**的 tag（如 `0622`）
+2. 重跑 `python build.py` → `git add` → `commit`
+3. `git tag 0622 && git push origin main 0622`
+4. （可选）GitHub 上基于该 tag「Create release」写发布说明
+5. 更新 README / loader 里的版本号到新 tag
+
+> ⚠ **切勿移动已发布的 tag**（如把 `0621` force 到新提交）——调试请只在 `main` 上做、不打 tag，用户只会拿到你专门发布的不可变 tag。

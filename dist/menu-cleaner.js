@@ -5,12 +5,6 @@
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
 
-  // ============================================================================
-  // 菜单精简器-0621 · 原地排序版
-  // 架构四支柱：① 元素留在原生容器（不搬进自绘面板） ② 排序 = CSS `order`（不动 DOM）
-  //            ③ 稳定 key + order map（后加载/跨情境天然归位） ④ 幂等 observer
-  // 详见同目录 PLAN.md
-  // ============================================================================
 
   // 独立 localStorage key，避免与主版本/旧版本互相污染
   const STORAGE_KEY = 'menu_cleaner3_settings';
