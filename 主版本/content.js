@@ -126,6 +126,16 @@
   // ── 工具 ───────────────────────────────────────────────────────────────────
   function normLabel(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
 
+  // 元素是否带自身的直接文本节点（用于在 wrapper 内识别「带标签的按钮」，
+  // 排除纯图标 <i>/结构 div。如 #ttsExtensionMenuItem 文本直挂、无 span）。
+  function hasDirectText(el) {
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3 && n.textContent.trim()) return true;
+    }
+    return false;
+  }
+
   // 跳过本版自绘元素，但「入口」(mc3-launcher-*) 例外 —— 它们作为普通条目参与扫描/排序/隐藏（#1）
   function isSelf(el) { return el.id && el.id.indexOf(OWN_PREFIX) === 0 && el.id.indexOf('mc3-launcher') !== 0; }
 
@@ -212,21 +222,26 @@
     }
 
     if (group.mode === 'listItems') {
-      var items = container.querySelectorAll(group.itemMatch);
-      var matched = new Set();
-      for (var j = 0; j < items.length; j++) {
-        var it = items[j];
-        if (isSelf(it)) continue;
-        matched.add(it);
-        out.push({ el: it, label: labelOf(it, group) });
-      }
-      // 穿透：wrapper 下未被 itemMatch 命中、但自带 span 的直接子（兼容第三方按钮）
+      // 魔棒按钮的两种形态：
+      //   ① #extensionsMenu 的直接 .list-group-item 子（无 wrapper，如本版入口 #mc3-launcher-wand）
+      //   ② 被 ST 包进一层 *_wand_container(.extension_container, display:contents) —— 每个扩展的挂载点。
+      // **同一挂载点内可并列多个按钮**（如 #sd_wand_container 有生成图片+停止生成），且不保证都带
+      // .list-group-item 类：「隐藏助手」#hide-helper-wand-button 就是裸 div+<i>+<span>，与同容器的
+      // #manageAttachments(LGI) 并列。旧逻辑「querySelectorAll(LGI) 一把抓 + 含 LGI 的 wrapper 整个跳过」
+      // 会漏掉这类非 LGI 兄弟（待办 #1）。改为逐直接子：是挂载点则下潜一层逐按钮收，否则 c 本身即按钮。
       for (var w = 0; w < children.length; w++) {
-        var wc = children[w];
-        if (matched.has(wc) || isSelf(wc)) continue;
-        if (!wc.querySelector('span')) continue;
-        if (wc.querySelector(group.itemMatch)) continue; // 内部已有命中项，交给上面
-        out.push({ el: wc, label: labelOf(wc, group) });
+        var c = children[w];
+        if (isSelf(c)) continue;
+        var isWrapper = c.classList.contains('extension_container') && !c.matches(group.itemMatch);
+        if (!isWrapper) { out.push({ el: c, label: labelOf(c, group) }); continue; }
+        // 挂载点：下潜一层，每个「带标签」的直接子即一个按钮（图标/文字在更深层，不会被误收）
+        for (var x = 0; x < c.children.length; x++) {
+          var gc = c.children[x];
+          if (isSelf(gc)) continue;
+          if (gc.matches(group.itemMatch) || gc.querySelector('span') || hasDirectText(gc)) {
+            out.push({ el: gc, label: labelOf(gc, group) });
+          }
+        }
       }
       return out;
     }
