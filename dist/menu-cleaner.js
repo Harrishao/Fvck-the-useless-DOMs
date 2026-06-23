@@ -498,6 +498,7 @@
 
   function setupObserver() {
     var seen = new Set();
+    var watched = [];
     var obs = new win.MutationObserver(function (muts) {
       if (suppressObserver) return;
       for (var i = 0; i < muts.length; i++) {
@@ -508,9 +509,17 @@
       var conts = GROUPS[g].containers || GROUPS[g].observe || [];
       for (var c = 0; c < conts.length; c++) {
         var el = doc.querySelector(conts[c]);
-        if (el && !seen.has(el)) { seen.add(el); obs.observe(el, { childList: true, subtree: true }); }
+        if (el && !seen.has(el)) { seen.add(el); obs.observe(el, { childList: true, subtree: true }); watched.push(el); }
       }
     }
+    // 启动期临时加挂 characterData 监听：部分扩展（保活/输入助手等 Vue 组件）先插入「空标签」外壳
+    // —— childList 触发一次 applyAll，但此刻 <b> 标签为空 → 条目被 scanGroup 的 if(!label) 跳过 ——
+    // 稍后才用 characterData 补填 <b> 文本。主 observer 只监听 childList 对此盲，导致该条目永久漏隐藏/
+    // 漏排序，直到用户手动重开插件（0623 根因，已 Playwright 合成复现）。仅在启动窗口监听 characterData，
+    // 规避稳态下面板内 live 文本（计数器/状态）频繁触发扫描（实测稳态 idle 的 characterData 为 0）。
+    var cdObs = new win.MutationObserver(function () { if (!suppressObserver) scheduleApply(); });
+    for (var w = 0; w < watched.length; w++) cdObs.observe(watched[w], { characterData: true, subtree: true });
+    win.setTimeout(function () { cdObs.disconnect(); }, 20000);
     try {
       if (win.eventSource && win.event_types && win.event_types.CHAT_CHANGED) {
         win.eventSource.on(win.event_types.CHAT_CHANGED, scheduleApply);
@@ -715,8 +724,14 @@
     var records = applyAll();
     setupObserver();
     setupLaunchers();
+    // 启动补扫：异步/Vue 扩展的条目可能在初次 applyAll 之后才挂载或补标签（慢设备尤甚）。
+    // 在启动后几个递增时点重跑 applyAll，覆盖各种晚到时序，等价于用户「关掉再开启插件」的手动补救；
+    // 仅启动时一次性，稳态零开销。与 setupObserver 的 characterData 启动监听互为冗余兜底。
+    [600, 1800, 4000, 8000].forEach(function (d) {
+      win.setTimeout(function () { if (!suppressObserver) applyAll(); }, d);
+    });
     win.__mc3 = {
-      version: 'M7',
+      version: 'M8',
       settings: settings,
       groups: GROUPS,
       getGroup: getGroup,
