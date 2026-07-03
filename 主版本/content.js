@@ -8,7 +8,8 @@
 
 
   // 独立 localStorage key，避免与主版本/旧版本互相污染
-  const STORAGE_KEY = 'menu_cleaner3_settings';
+  const STORAGE_KEY = 'menu_cleaner3_settings'; // 保留：迁移源 + ctx 不可用时降级兜底
+  const EXT_KEY = 'menu_cleaner3';              // 新：extension_settings 里的 key（与旧版残留 menu_cleaner 不冲突）
   const OWN_PREFIX = 'mc3-';   // 本版自身注入元素 id 前缀（扫描时跳过）
 
   // id 是否「稳定、可用作 key」：排除空、本版自身、以及旧版方案2 残留的 menu-cleaner-auto-* 自增 id
@@ -99,13 +100,39 @@
   };
   let settings = {};
 
+  // 实测：window.extension_settings 全局不可用，必须走 SillyTavern.getContext()。
+  // init 时 extension_settings 天然就绪（酒馆助手脚本仓库本身就在 extension_settings.tavern_helper 里，
+  // iframe 创建必然在其加载之后），无需等 APP_READY。
+  function getCtx() {
+    try { return win.SillyTavern && win.SillyTavern.getContext ? win.SillyTavern.getContext() : null; }
+    catch (e) { return null; }
+  }
+
   function loadSettings() {
-    try {
-      var raw = win.localStorage.getItem(STORAGE_KEY);
-      settings = raw ? Object.assign({}, defaultSettings, JSON.parse(raw)) : Object.assign({}, defaultSettings);
-    } catch (e) {
-      console.warn('[菜单精简器] 读取设置失败，用默认值', e);
-      settings = Object.assign({}, defaultSettings);
+    var ctx = getCtx();
+    var ext = ctx && ctx.extensionSettings ? ctx.extensionSettings[EXT_KEY] : null;
+    if (ext && typeof ext === 'object') {
+      settings = Object.assign({}, defaultSettings, ext);
+    } else {
+      // 新存储为空 → 检查 localStorage 迁移源
+      try {
+        var raw = win.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          settings = Object.assign({}, defaultSettings, JSON.parse(raw));
+          // 迁移：写入 extension_settings，成功后清掉 localStorage
+          if (ctx && ctx.extensionSettings && ctx.saveSettingsDebounced) {
+            ctx.extensionSettings[EXT_KEY] = settings;
+            ctx.saveSettingsDebounced();
+            win.localStorage.removeItem(STORAGE_KEY);
+            console.log('[菜单精简器] 已从 localStorage 迁移至 extension_settings');
+          }
+        } else {
+          settings = Object.assign({}, defaultSettings);
+        }
+      } catch (e) {
+        console.warn('[菜单精简器] 读取设置失败，用默认值', e);
+        settings = Object.assign({}, defaultSettings);
+      }
     }
     // 注意：刻意「不」清理当前不在场的 key —— 后加载元素要靠留存的 order/column/hidden 归位。
     if (!settings.hidden) settings.hidden = {};
@@ -116,6 +143,12 @@
   }
 
   function saveSettings() {
+    var ctx = getCtx();
+    if (ctx && ctx.extensionSettings && ctx.saveSettingsDebounced) {
+      try { ctx.extensionSettings[EXT_KEY] = settings; ctx.saveSettingsDebounced(); return; }
+      catch (e) { console.warn('[菜单精简器] 保存到 extension_settings 失败，降级 localStorage', e); }
+    }
+    // 降级：ctx 不可用时退回 localStorage
     try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
     catch (e) { console.warn('[菜单精简器] 保存设置失败', e); }
   }
