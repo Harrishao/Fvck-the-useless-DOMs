@@ -509,10 +509,20 @@
     }
   }
 
+  // 隐藏左下菜单和魔棒菜单中的原生 <hr> 分隔线：排序/隐藏条目后原生分隔线失去语义，全部收起。
+  function applySeparatorHides(on) {
+    var sels = ['#options .options-content > hr', '#extensionsMenu > hr'];
+    for (var i = 0; i < sels.length; i++) {
+      var hrs = doc.querySelectorAll(sels[i]);
+      for (var j = 0; j < hrs.length; j++) hrs[j].classList.toggle('mc3-hidden', on);
+    }
+  }
+
   function applyAll() {
     injectStyle();
     setupLaunchers();   // 幂等：先补回入口，使其作为普通条目被随后的 scanAll 扫描/排序/隐藏（#1）
     applyAlwaysHidden(settings.enabled);
+    applySeparatorHides(settings.enabled);
     var all = scanAll();
     for (var i = 0; i < GROUPS.length; i++) {
       var recs = all[GROUPS[i].id] || [];
