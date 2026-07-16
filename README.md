@@ -5,5 +5,7 @@
 
 ## 使用
 
-- 在左下**魔棒菜单**找到「菜单精简器」，或聊天框输入 `/menucleaner`，打开操作面板
+- [点我获取用于自动更新的脚本](https://github.com/Harrishao/Fvck-the-useless-DOMs/releases/download/v0.0.1/menu-cleaner-autoupdate.json)
+- 将脚本导入酒馆助手
+- 在左下**魔棒菜单**找到「菜单精简器」
 - 大家一起和平地玩吧！！
