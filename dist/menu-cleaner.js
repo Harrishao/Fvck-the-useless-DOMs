@@ -839,14 +839,13 @@
     html += '<span class="mc3-handle mc3-sg-handle" title="拖动子分组排序">⠿</span>';
     html += '<span class="mc3-subgroup-name" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + escHtml(sg.name) + '</span>';
     html += '<button class="mc3-icon-btn" data-action="start-rename-sg" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="重命名">✎</button>';
-    // 右侧组（用 margin-left:auto 推到右边）
+    // 右侧组（用 margin-left:auto 推到右边），toggle 顺序与条目行一致：分栏 → 显隐
     html += '<span class="mc3-subgroup-collapse" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" style="margin-left:auto">' + (sg.collapsed ? '▶' : '▼') + '</span>';
-    html += '<button class="mc3-toggle' + (allHidden ? '' : ' on') + '" data-action="toggle-sg-hide" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + hideLabel + '</button>';
     if (group.id === 'extensionsSettings') {
       var sgCol = sg.column !== undefined ? sg.column : 0;
-      html += '<button class="mc3-toggle' + (sgCol === 0 ? ' on' : '') + '" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="0">左</button>';
-      html += '<button class="mc3-toggle' + (sgCol === 1 ? ' on' : '') + '" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="1">右</button>';
+      html += '<button class="mc3-toggle" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="' + sgCol + '">' + (sgCol === 1 ? '右' : '左') + '</button>';
     }
+    html += '<button class="mc3-toggle' + (allHidden ? '' : ' on') + '" data-action="toggle-sg-hide" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + hideLabel + '</button>';
     html += '<button class="mc3-icon-btn" data-action="delete-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="删除分组">✕</button>';
     html += '</div>';
     return html;
@@ -959,7 +958,7 @@
         html += renderSubgroupHeader(emptySg, group, [], map);
         if (!emptySg.collapsed) {
           html += '<div class="mc3-subgroup-items" data-sgid="' + emptySg.id + '" data-gid="' + group.id + '">';
-          html += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px">拖动条目到此处加入分组</div>';
+          html += '<div class="mc3-row" style="opacity:.25;font-style:italic;justify-content:center;padding:10px;font-size:12px">拖动条目到此处加入分组</div>';
           html += '</div>';
         }
         html += '</div>';
@@ -1052,9 +1051,8 @@
     else if (a === 'toggle-sg-col') {
       var tcGid = t.getAttribute('data-gid');
       var tcSgId = t.getAttribute('data-sgid');
-      var tcCol = Number(t.getAttribute('data-col'));
       var tcSg = getSubgroupById(tcGid, tcSgId);
-      if (tcSg) { tcSg.column = tcCol; saveSettings(); applyAll(); renderPopup(); }
+      if (tcSg) { tcSg.column = tcSg.column === 1 ? 0 : 1; saveSettings(); applyAll(); renderPopup(); }
     }
     else if (a === 'start-rename-sg') {
       var rnGid = t.getAttribute('data-gid');
@@ -1127,37 +1125,48 @@
 
   function onPopupPointerDown(e) {
     var handle = e.target.closest('.mc3-handle'); if (!handle) return;
-    var row = handle.closest('.mc3-row'); if (!row) return;
-    var list = row.closest('.mc3-list'); if (!list) return;
+    var isSgHandle = handle.classList.contains('mc3-sg-handle');
+    var dragEl, list;
+    if (isSgHandle) {
+      dragEl = handle.closest('.mc3-subgroup'); if (!dragEl) return;
+      list = dragEl.closest('.mc3-list'); if (!list) return;
+    } else {
+      dragEl = handle.closest('.mc3-row'); if (!dragEl) return;
+      list = dragEl.closest('.mc3-list'); if (!list) return;
+    }
     e.preventDefault();
 
     var gid = list.getAttribute('data-gid');
-    var key = row.getAttribute('data-key');
-    // 确定起始子分组
-    var startSg = getSubgroupForKey(gid, key);
+    var key = isSgHandle ? null : dragEl.getAttribute('data-key');
+    var startSg = key ? getSubgroupForKey(gid, key) : null;
     var startSgId = startSg ? startSg.id : null;
 
-    row.classList.add('mc3-drag');
-    try { row.setPointerCapture(e.pointerId); } catch (_) {}
+    dragEl.classList.add('mc3-drag');
+    try { dragEl.setPointerCapture(e.pointerId); } catch (_) {}
 
-    dragMeta = { row: row, list: list, gid: gid, key: key, startSgId: startSgId };
+    dragMeta = { row: dragEl, list: list, gid: gid, key: key, startSgId: startSgId, isSg: isSgHandle };
 
     var allSubgroups = list.querySelectorAll('.mc3-subgroup');
 
     function move(ev) {
-      var dropTarget = findDropTarget(ev);
-
-      // 更新子分组高亮
-      for (var s = 0; s < allSubgroups.length; s++) allSubgroups[s].classList.remove('mc3-drop-target');
-      if (dropTarget) {
-        var parentSg = dropTarget.closest('.mc3-subgroup');
-        if (parentSg) parentSg.classList.add('mc3-drop-target');
-        // 将 row 移入 dropTarget 并找插入位置
-        findInsertAfter(dropTarget, row, ev.clientY);
+      if (isSgHandle) {
+        // 子分组拖拽：只在 list 层级移动，不进入其它子分组
+        findInsertAfter(list, dragEl, ev.clientY);
       } else {
-        // row 不在任何子分组上 → 确保它在 list 层级，再找列表级插入位置
-        if (row.parentNode !== list) { list.appendChild(row); }
-        findInsertAfter(list, row, ev.clientY);
+        var dropTarget = findDropTarget(ev);
+
+        // 更新子分组高亮
+        for (var s = 0; s < allSubgroups.length; s++) allSubgroups[s].classList.remove('mc3-drop-target');
+        if (dropTarget) {
+          var parentSg = dropTarget.closest('.mc3-subgroup');
+          if (parentSg) parentSg.classList.add('mc3-drop-target');
+          // 将 dragEl 移入 dropTarget 并找插入位置
+          findInsertAfter(dropTarget, dragEl, ev.clientY);
+        } else {
+          // dragEl 不在任何子分组上 → 确保它在 list 层级，再找列表级插入位置
+          if (dragEl.parentNode !== list) { list.appendChild(dragEl); }
+          findInsertAfter(list, dragEl, ev.clientY);
+        }
       }
 
       // 记录最后坐标供 up 使用
@@ -1169,20 +1178,22 @@
       doc.removeEventListener('pointermove', move);
       doc.removeEventListener('pointerup', up);
 
-      row.classList.remove('mc3-drag');
+      dragEl.classList.remove('mc3-drag');
       for (var s = 0; s < allSubgroups.length; s++) allSubgroups[s].classList.remove('mc3-drop-target');
 
-      // 从 DOM 位置推断最终归属的子分组
-      var finalTarget = findDropTarget({ clientX: dragMeta._lastX || 0, clientY: dragMeta._lastY || 0 });
-      var targetSgId = finalTarget ? finalTarget.getAttribute('data-sgid') : null;
+      if (!isSgHandle) {
+        // 条目拖拽：从 DOM 位置推断最终归属的子分组
+        var finalTarget = findDropTarget({ clientX: dragMeta._lastX || 0, clientY: dragMeta._lastY || 0 });
+        var targetSgId = finalTarget ? finalTarget.getAttribute('data-sgid') : null;
 
-      // 更新子分组成员关系
-      if (targetSgId && targetSgId !== dragMeta.startSgId) {
-        // 拖入了（新的）子分组
-        addKeyToSubgroup(dragMeta.gid, targetSgId, dragMeta.key);
-      } else if (!targetSgId && dragMeta.startSgId) {
-        // 从子分组拖出到外部
-        removeKeyFromAnySubgroup(dragMeta.gid, dragMeta.key);
+        // 更新子分组成员关系
+        if (targetSgId && targetSgId !== dragMeta.startSgId) {
+          // 拖入了（新的）子分组
+          addKeyToSubgroup(dragMeta.gid, targetSgId, dragMeta.key);
+        } else if (!targetSgId && dragMeta.startSgId) {
+          // 从子分组拖出到外部
+          removeKeyFromAnySubgroup(dragMeta.gid, dragMeta.key);
+        }
       }
 
       // 提交排序：收集 list 下所有 .mc3-row（含嵌套在子分组内的），
