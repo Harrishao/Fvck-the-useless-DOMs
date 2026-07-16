@@ -60,6 +60,9 @@
     },
   ];
 
+  // 支持子分组的三组（待办：仅左下/魔棒/扩展菜单）
+  const SUBGROUP_GROUP_IDS = ['options', 'extensionsMenu', 'extensionsSettings'];
+
   // 预设面板：裸 div 无 id、跨 #range_block_openai/#openai_settings 两容器，必须人工打包成命名分组，
   // 按组隐藏（可见性同时作用于组内每个元素）。标题含括号部分，依 可展开列表.md。
   function presetRange(prefix, a, b, suffix) { var out = []; for (var n = a; n <= b; n++) out.push(prefix + n + suffix); return out; }
@@ -97,6 +100,8 @@
     nativeColumn: {},  // { key: 0|1 }                    — 首次扫描捕获的原生归属（供"恢复原始"）
     nativeOrder: {},   // { groupId: { key: slot } }       — 首次扫描捕获的原生顺序（供"恢复原始"）
     columnMode: 'dual', // 'single' | 'dual'
+    subgroups: {},     // { groupId: [{ id, name, memberKeys[], collapsed?, column? }] }
+                       // column 仅 extensionsSettings 子分组有效，决定组内条目归属栏位
   };
   let settings = {};
 
@@ -140,6 +145,11 @@
     if (!settings.column) settings.column = {};
     if (!settings.nativeColumn) settings.nativeColumn = {};
     if (!settings.nativeOrder) settings.nativeOrder = {};
+    if (!settings.subgroups) settings.subgroups = {};
+    // 确保所有有子分组能力的 groupId 在 subgroups 里有初始空数组
+    for (var g = 0; g < SUBGROUP_GROUP_IDS.length; g++) {
+      if (!settings.subgroups[SUBGROUP_GROUP_IDS[g]]) settings.subgroups[SUBGROUP_GROUP_IDS[g]] = [];
+    }
   }
 
   function saveSettings() {
@@ -151,6 +161,78 @@
     // 降级：ctx 不可用时退回 localStorage
     try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
     catch (e) { console.warn('[菜单精简器] 保存设置失败', e); }
+  }
+
+  // ── 子分组工具 ─────────────────────────────────────────────────────────────
+  function genSubgroupId() { return 'sg_' + Math.random().toString(36).slice(2, 10); }
+
+  function getSubgroupForKey(groupId, key) {
+    var list = settings.subgroups[groupId] || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].memberKeys.indexOf(key) !== -1) return list[i];
+    }
+    return null;
+  }
+
+  function getSubgroupById(groupId, sgId) {
+    var list = settings.subgroups[groupId] || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === sgId) return list[i];
+    }
+    return null;
+  }
+
+  function addSubgroup(groupId) {
+    if (SUBGROUP_GROUP_IDS.indexOf(groupId) === -1) return null;
+    var list = settings.subgroups[groupId] || (settings.subgroups[groupId] = []);
+    var sg = { id: genSubgroupId(), name: '新建分组', memberKeys: [], collapsed: false };
+    if (groupId === 'extensionsSettings') sg.column = 0;
+    list.push(sg);
+    saveSettings();
+    return sg;
+  }
+
+  function deleteSubgroup(groupId, sgId) {
+    var list = settings.subgroups[groupId] || [];
+    settings.subgroups[groupId] = list.filter(function (sg) { return sg.id !== sgId; });
+    saveSettings();
+  }
+
+  function renameSubgroup(groupId, sgId, newName) {
+    var sg = getSubgroupById(groupId, sgId);
+    if (sg) { sg.name = newName; saveSettings(); }
+  }
+
+  function addKeyToSubgroup(groupId, sgId, key) {
+    // 先从其他子分组中移除
+    removeKeyFromAnySubgroup(groupId, key);
+    var sg = getSubgroupById(groupId, sgId);
+    if (sg && sg.memberKeys.indexOf(key) === -1) {
+      sg.memberKeys.push(key);
+      saveSettings();
+    }
+  }
+
+  function removeKeyFromAnySubgroup(groupId, key) {
+    var list = settings.subgroups[groupId] || [];
+    var changed = false;
+    for (var i = 0; i < list.length; i++) {
+      var idx = list[i].memberKeys.indexOf(key);
+      if (idx !== -1) { list[i].memberKeys.splice(idx, 1); changed = true; }
+    }
+    if (changed) saveSettings();
+  }
+
+  // 构建 groupId 下 key→sgId 的快速查找表
+  function buildKeyToSgMap(groupId) {
+    var map = {};
+    var list = settings.subgroups[groupId] || [];
+    for (var i = 0; i < list.length; i++) {
+      for (var j = 0; j < list[i].memberKeys.length; j++) {
+        map[list[i].memberKeys[j]] = list[i].id;
+      }
+    }
+    return map;
   }
 
   // ── 工具 ───────────────────────────────────────────────────────────────────
@@ -381,7 +463,7 @@
     return all;
   }
 
-  // ── 应用层：原地排序(M2) + 可见性(M3) + 单双栏(M4) + 幂等observer(M5) ──────────
+  // ── 应用层：原地排序(M2) + 可见性(M3) + 单双栏(M4) + 幂等observer(M5) + 子分组分隔线 ──────────
   // 全程不动源 DOM（除 M4 跨栏搬「顶层单元」这一处，用户显式触发 + observer 抑制）。
 
   var suppressObserver = false;   // 程序性 DOM 搬运期间抑制 observer，防回环
@@ -389,7 +471,7 @@
 
   function injectStyle() {
     if (doc.getElementById('mc3-style')) return;
-    var rules = ['.mc3-hidden{display:none !important;}'];
+    var rules = ['.mc3-hidden{display:none !important;}', '.mc3-subgroup-sep{height:1px;border:none;background:var(--SmartThemeBorderColor,#555);margin:4px 8px;}'];
     for (var i = 0; i < GROUPS.length; i++) {
       if (!GROUPS[i].forceFlex) continue;
       for (var c = 0; c < GROUPS[i].containers.length; c++) {
@@ -457,12 +539,28 @@
     var col1 = doc.querySelector('#extensions_settings2');
     if (!col0 || !col1) return;
     var single = settings.columnMode === 'single';
+
+    // 子分组分栏约束：extensionsSettings 子分组内的条目遵循子分组的 column
+    var keyToSgCol = {};
+    var sgList = settings.subgroups['extensionsSettings'] || [];
+    for (var si = 0; si < sgList.length; si++) {
+      var sgCol = sgList[si].column !== undefined ? sgList[si].column : 0;
+      for (var mi = 0; mi < sgList[si].memberKeys.length; mi++) {
+        keyToSgCol[sgList[si].memberKeys[mi]] = sgCol;
+      }
+    }
+
     var moved = false;
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
       if (r.column === undefined) continue;
       if (settings.nativeColumn[r.key] === undefined) settings.nativeColumn[r.key] = r.column; // 首次=原生
-      var target = single ? 0 : (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
+      var target;
+      if (keyToSgCol[r.key] !== undefined) {
+        target = single ? 0 : keyToSgCol[r.key]; // 子分组栏位覆盖个体设置
+      } else {
+        target = single ? 0 : (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
+      }
       var tc = target === 1 ? col1 : col0;
       if (r.unit && r.unit.parentNode !== tc) { suppressObserver = true; tc.appendChild(r.unit); moved = true; }
     }
@@ -475,16 +573,61 @@
     if (mode === 'single') {
       var recs = scanGroup(getGroup('extensionsSettings'));
       for (var i = 0; i < recs.length; i++) settings.column[recs[i].key] = 0;
+      // 子分组的 column 也归零
+      var sgList = settings.subgroups['extensionsSettings'] || [];
+      for (var s = 0; s < sgList.length; s++) sgList[s].column = 0;
     }
     settings.columnMode = mode;
     saveSettings();
     applyAll();
   }
 
+  // 子分组分隔线：仅在左下菜单(options)和魔棒(extensionsMenu)注入真实 <hr>
+  function applySubgroupSeparators(group, records) {
+    if (group.id !== 'options' && group.id !== 'extensionsMenu') return;
+
+    // 先清除旧的子分组分隔线
+    var containers = group.containers;
+    for (var ci = 0; ci < containers.length; ci++) {
+      var container = doc.querySelector(containers[ci]);
+      if (!container) continue;
+      var oldSeps = container.querySelectorAll('.mc3-subgroup-sep');
+      for (var s = 0; s < oldSeps.length; s++) oldSeps[s].remove();
+    }
+
+    if (!settings.enabled) return;
+
+    var sgList = settings.subgroups[group.id] || [];
+    if (!sgList.length) return;
+
+    // 构建 key→sgId 映射
+    var keyToSg = buildKeyToSgMap(group.id);
+    // 按 order 排序
+    var map = settings.order[group.id] || {};
+    var sorted = records.slice().sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
+
+    // 扫描排序后的条目序列，在子分组边界注入 <hr>
+    // 逻辑：相邻两条目分别属于不同子分组/非子分组 → 中间插分隔线
+    for (var i = 0; i < sorted.length - 1; i++) {
+      var sgA = keyToSg[sorted[i].key] || null;
+      var sgB = keyToSg[sorted[i + 1].key] || null;
+      if (sgA !== sgB) {
+        // 边界：在 sorted[i] 的 unit 之后插入分隔线
+        var unit = sorted[i].unit;
+        if (unit && unit.parentNode) {
+          var hr = doc.createElement('hr');
+          hr.className = 'mc3-subgroup-sep';
+          unit.parentNode.insertBefore(hr, unit.nextSibling);
+        }
+      }
+    }
+  }
+
   function applyGroup(group, records) {
     if (group.id === 'extensionsSettings') applyColumns(records); // 先定栏（唯一搬 DOM 处）
     applyOrder(group, records);                                   // 再排序（CSS order）
     applyHides(group, records);                                   // 再可见性
+    applySubgroupSeparators(group, records);                      // 子分组分隔线（options/魔棒）
   }
 
   function clearGroup(records) {
@@ -511,7 +654,7 @@
 
   // 隐藏左下菜单和魔棒菜单中的原生 <hr> 分隔线：排序/隐藏条目后原生分隔线失去语义，全部收起。
   function applySeparatorHides(on) {
-    var sels = ['#options .options-content > hr', '#extensionsMenu > hr'];
+    var sels = ['#options .options-content > hr:not(.mc3-subgroup-sep)', '#extensionsMenu > hr:not(.mc3-subgroup-sep)'];
     for (var i = 0; i < sels.length; i++) {
       var hrs = doc.querySelectorAll(sels[i]);
       for (var j = 0; j < hrs.length; j++) hrs[j].classList.toggle('mc3-hidden', on);
@@ -575,21 +718,48 @@
 
   var POPUP_CSS =
     '#mc3-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;width:100dvw;height:100dvh;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);}' +
-    '#mc3-popup{display:flex;flex-direction:column;width:min(560px,92vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
+    '#mc3-popup{display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
     '#mc3-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);font-weight:bold;}' +
     '#mc3-head .mc3-x{cursor:pointer;background:none;border:none;color:inherit;font-size:18px;}' +
     '#mc3-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);}' +
     '#mc3-tools .mc3-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:4px 10px;}' +
     '#mc3-tools .mc3-tip{opacity:.6;font-size:11px;margin-left:auto;}' +
     '#mc3-body{overflow-y:auto;padding:6px 10px 12px;}' +
-    '.mc3-gname{margin:10px 4px 4px;font-weight:bold;opacity:.85;}' +
-    '.mc3-gname small{opacity:.5;font-weight:normal;}' +
-    '.mc3-row{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:3px 0;border:1px solid var(--SmartThemeBorderColor,#444);border-radius:6px;background:var(--black30a,rgba(255,255,255,.03));}' +
-    '.mc3-row.mc3-off{opacity:.45;}' +
-    '.mc3-row.mc3-drag{background:var(--SmartThemeQuoteColor,#3a6);opacity:.9;}' +
-    '.mc3-handle{cursor:grab;touch-action:none;opacity:.6;user-select:none;}' +
-    '.mc3-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
-    '.mc3-row button{cursor:pointer;background:none;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:5px;color:inherit;padding:2px 8px;font-size:12px;}';
+    // 卡片样式
+    '.mc3-card{background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:10px;margin:8px 4px;overflow:hidden;}' +
+    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);}' +
+    '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;}' +
+    '.mc3-card-title{opacity:.9;}' +
+    // 图标按钮（+ ✎ ✕）
+    '.mc3-icon-btn{cursor:pointer;background:none;border:none;color:inherit;opacity:.6;font-size:14px;padding:0 4px;line-height:1;transition:opacity .15s;}' +
+    '.mc3-icon-btn:hover{opacity:1;}' +
+    // 列表（卡片内）
+    '.mc3-list{padding:2px 0;}' +
+    // 行样式 — 无边框
+    '.mc3-row{display:flex;align-items:center;gap:8px;padding:5px 10px;margin:0;border:none;border-radius:0;background:transparent;}' +
+    '.mc3-row:hover{background:var(--black20a,rgba(255,255,255,.03));}' +
+    '.mc3-row.mc3-off{opacity:.4;}' +
+    '.mc3-row.mc3-drag{background:var(--SmartThemeQuoteColor,#3a6);opacity:.9;border-radius:6px;}' +
+    '.mc3-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
+    '.mc3-handle:hover{opacity:.9;}' +
+    '.mc3-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}' +
+    // Toggle 按钮（显隐 / 左右栏）
+    '.mc3-toggle{cursor:pointer;background:var(--black30a,rgba(0,0,0,.25));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:5px;padding:2px 10px;font-size:11px;white-space:nowrap;flex-shrink:0;min-width:34px;text-align:center;transition:background .15s;}' +
+    '.mc3-toggle:hover{background:var(--black50a,rgba(128,128,128,.3));}' +
+    '.mc3-toggle.on{background:var(--SmartThemeQuoteColor,#3a6);border-color:transparent;color:#fff;}' +
+    // 子分组
+    '.mc3-subgroup{margin:2px 6px;border:1px dashed var(--SmartThemeBorderColor,#444);border-radius:8px;overflow:hidden;}' +
+    '.mc3-subgroup-header{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--black20a,rgba(255,255,255,.02));cursor:default;}' +
+    '.mc3-subgroup-header .mc3-sg-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
+    '.mc3-subgroup-header .mc3-sg-handle:hover{opacity:.9;}' +
+    '.mc3-subgroup-collapse{cursor:pointer;font-size:10px;opacity:.7;flex-shrink:0;width:14px;text-align:center;}' +
+    '.mc3-subgroup-name{font-weight:bold;font-size:12px;opacity:.85;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+    '.mc3-subgroup-items{padding:0;}' +
+    '.mc3-subgroup-items .mc3-row{padding-left:18px;}' +
+    // 重命名输入框
+    '.mc3-rename-input{background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:4px;padding:2px 6px;font-size:12px;width:120px;flex:1;}' +
+    // 子分组拖入高亮
+    '.mc3-subgroup.mc3-drop-target{border-color:var(--SmartThemeQuoteColor,#3a6);border-style:solid;background:rgba(58,170,102,.08);}';
 
   function injectPopupCSS() {
     if (doc.getElementById('mc3-popup-style')) return;
@@ -598,12 +768,49 @@
   }
 
   // 提交重排序：在场 key 按新顺序取 0..N-1，缺席 key 按旧槽位顺序沉到末尾（无碰撞、可预期）。
+  // 子分组打包：同子分组的所有 memberKeys 取连续槽位，整体跟随第一个被拖动的成员。
   function commitReorder(groupId, orderedKeys) {
     var map = settings.order[groupId] || (settings.order[groupId] = {});
-    var present = {}, newMap = {};
-    orderedKeys.forEach(function (k, i) { newMap[k] = i; present[k] = 1; });
+    var sgList = settings.subgroups[groupId] || [];
+
+    // 构建 key→sg 的查找
+    var keyToSg = {};
+    var sgMembers = {}; // sgId -> memberKeys[]
+    for (var si = 0; si < sgList.length; si++) {
+      var sg = sgList[si];
+      sgMembers[sg.id] = sg.memberKeys.slice();
+      for (var mi = 0; mi < sg.memberKeys.length; mi++) {
+        keyToSg[sg.memberKeys[mi]] = sg.id;
+      }
+    }
+
+    var newMap = {};
+    var slot = 0;
+    var processedSg = {};
+    var present = {};
+
+    for (var i = 0; i < orderedKeys.length; i++) {
+      var key = orderedKeys[i];
+      var sgId = keyToSg[key];
+      if (sgId && !processedSg[sgId]) {
+        // 子分组打包：所有成员取连续槽位，组内按原有顺序排列
+        var members = sgMembers[sgId].slice();
+        members.sort(function (a, b) { return (map[a] || 0) - (map[b] || 0); });
+        for (var j = 0; j < members.length; j++) {
+          newMap[members[j]] = slot++;
+          present[members[j]] = 1;
+        }
+        processedSg[sgId] = true;
+      } else if (!sgId) {
+        newMap[key] = slot++;
+        present[key] = 1;
+      }
+      // sgId && processedSg[sgId] → 同组后续成员，已在前面打包时一起分配，跳过
+    }
+
+    // 缺席 key：不在任何已处理子分组中，也不在 orderedKeys 里 → 沉底
     var absent = Object.keys(map).filter(function (k) { return !present[k]; }).sort(function (a, b) { return map[a] - map[b]; });
-    absent.forEach(function (k, i) { newMap[k] = orderedKeys.length + i; });
+    for (var a = 0; a < absent.length; a++) { newMap[absent[a]] = slot++; }
     settings.order[groupId] = newMap;
   }
 
@@ -612,7 +819,65 @@
     settings.order = JSON.parse(JSON.stringify(settings.nativeOrder || {}));
     settings.column = Object.assign({}, settings.nativeColumn || {});
     settings.columnMode = 'dual';
+    // 清空全部子分组（不保留——恢复原始就是回到最初状态）
+    settings.subgroups = {};
+    for (var g = 0; g < SUBGROUP_GROUP_IDS.length; g++) {
+      settings.subgroups[SUBGROUP_GROUP_IDS[g]] = [];
+    }
     saveSettings(); applyAll(); renderPopup();
+  }
+
+  // ── Popup 渲染 ──────────────────────────────────────────────────────────────
+
+  // 渲染子分组标题栏
+  // 左侧：拖拽手柄 + 标题 + 重命名 ｜ 右侧（视觉从左到右）：折叠三角 + 显隐 + 分栏(可选) + 删除
+  function renderSubgroupHeader(sg, group, recs, map) {
+    var allHidden = recs.length > 0 && recs.every(function (r) { return !!settings.hidden[r.key]; });
+    var hideLabel = allHidden ? '隐藏' : '显示';
+    var html = '<div class="mc3-subgroup-header">';
+    // 左侧组
+    html += '<span class="mc3-handle mc3-sg-handle" title="拖动子分组排序">⠿</span>';
+    html += '<span class="mc3-subgroup-name" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + escHtml(sg.name) + '</span>';
+    html += '<button class="mc3-icon-btn" data-action="start-rename-sg" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="重命名">✎</button>';
+    // 右侧组（用 margin-left:auto 推到右边）
+    html += '<span class="mc3-subgroup-collapse" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" style="margin-left:auto">' + (sg.collapsed ? '▶' : '▼') + '</span>';
+    html += '<button class="mc3-toggle' + (allHidden ? '' : ' on') + '" data-action="toggle-sg-hide" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + hideLabel + '</button>';
+    if (group.id === 'extensionsSettings') {
+      var sgCol = sg.column !== undefined ? sg.column : 0;
+      html += '<button class="mc3-toggle' + (sgCol === 0 ? ' on' : '') + '" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="0">左</button>';
+      html += '<button class="mc3-toggle' + (sgCol === 1 ? ' on' : '') + '" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="1">右</button>';
+    }
+    html += '<button class="mc3-icon-btn" data-action="delete-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="删除分组">✕</button>';
+    html += '</div>';
+    return html;
+  }
+
+  // 渲染单行条目
+  function renderItemRow(r, group, inSubgroup) {
+    var hidden = !!settings.hidden[r.key];
+    var col = (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
+    var html = '<div class="mc3-row' + (hidden ? ' mc3-off' : '') + '" data-key="' + escHtml(r.key) + '" data-gid="' + group.id + '">';
+
+    // 拖动手柄（preset curated 不可拖）
+    if (r.curated) {
+      html += '<span style="visibility:hidden;width:16px;flex-shrink:0"></span>';
+    } else {
+      html += '<span class="mc3-handle" title="拖动排序">⠿</span>';
+    }
+
+    html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
+
+    // 分栏切换 —— 仅扩展面板非子分组内条目（子分组内条目由子分组的栏位统一控制）
+    if (r.column !== undefined && group.id === 'extensionsSettings' && !inSubgroup) {
+      var colLabel = col === 1 ? '右' : '左';
+      html += '<button class="mc3-toggle" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '">' + colLabel + '</button>';
+    }
+
+    // 显隐 Toggle
+    html += '<button class="mc3-toggle' + (hidden ? '' : ' on') + '" data-action="toggle-hide" data-key="' + escHtml(r.key) + '">' + (hidden ? '隐藏' : '显示') + '</button>';
+
+    html += '</div>';
+    return html;
   }
 
   function renderPopup() {
@@ -621,62 +886,321 @@
     setBtn('enable', '启用: ' + (settings.enabled ? '开' : '关'));
     setBtn('colmode', '单双栏: ' + (settings.columnMode === 'single' ? '单' : '双'));
     var all = scanAll();
+
+    // 确保 subgroups 初始化
+    if (!settings.subgroups) settings.subgroups = {};
+    for (var g = 0; g < SUBGROUP_GROUP_IDS.length; g++) {
+      if (!settings.subgroups[SUBGROUP_GROUP_IDS[g]]) settings.subgroups[SUBGROUP_GROUP_IDS[g]] = [];
+    }
+
     var html = '';
     for (var gi = 0; gi < GROUPS.length; gi++) {
       var group = GROUPS[gi];
       var recs = (all[group.id] || []).slice();
       var map = settings.order[group.id] || {};
+      var supportsSg = SUBGROUP_GROUP_IDS.indexOf(group.id) !== -1;
+      var sgList = supportsSg ? (settings.subgroups[group.id] || []) : [];
+
+      // 排序
       recs.sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
-      html += '<div class="mc3-group"><div class="mc3-gname">' + escHtml(group.name) + ' <small>(' + recs.length + ')</small></div><div class="mc3-list" data-gid="' + group.id + '">';
+
+      // 构建 key→sg 映射 & sg 数据
+      var keyToSg = {};
+      var sgData = {}; // sgId -> { subgroup, records[], minSlot }
+      for (var si = 0; si < sgList.length; si++) {
+        var sg = sgList[si];
+        sgData[sg.id] = { subgroup: sg, records: [], minSlot: Infinity };
+        for (var mi = 0; mi < sg.memberKeys.length; mi++) {
+          keyToSg[sg.memberKeys[mi]] = sg.id;
+        }
+      }
+
+      // 构建展示单元列表
+      var units = [];
       for (var ri = 0; ri < recs.length; ri++) {
         var r = recs[ri];
-        var hidden = !!settings.hidden[r.key];
-        var handle = '<span class="mc3-handle"' + (r.curated ? ' style="visibility:hidden"' : ' title="拖动排序"') + '>⠿</span>';
-        var col = (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
-        var colBtn = (r.column !== undefined) ? '<button data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '" title="' + (col === 1 ? '当前右栏，点击移到左栏' : '当前左栏，点击移到右栏') + '">' + (col === 1 ? '◨' : '◧') + '</button>' : '';
-        html += '<div class="mc3-row' + (hidden ? ' mc3-off' : '') + '" data-key="' + escHtml(r.key) + '">' +
-          handle +
-          '<span class="mc3-label">' + escHtml(r.label) + '</span>' + colBtn +
-          '<button data-action="toggle-hide" data-key="' + escHtml(r.key) + '">' + (hidden ? '🚫' : '👁') + '</button>' +
-          '</div>';
+        var sgId = keyToSg[r.key];
+        if (sgId && sgData[sgId]) {
+          sgData[sgId].records.push(r);
+          var slot = map[r.key] || 0;
+          if (slot < sgData[sgId].minSlot) sgData[sgId].minSlot = slot;
+        } else {
+          units.push({ type: 'item', record: r, slot: map[r.key] || 0 });
+        }
       }
-      html += '</div></div>';
+      // 把有成员的子分组也加入单元列表
+      for (var sid in sgData) {
+        if (sgData[sid].records.length > 0) {
+          units.push({ type: 'subgroup', data: sgData[sid], slot: sgData[sid].minSlot });
+        }
+      }
+      // 排序单元
+      units.sort(function (a, b) { return a.slot - b.slot; });
+
+      // === 渲染卡片 ===
+      html += '<div class="mc3-card">';
+      // 卡片标题
+      html += '<div class="mc3-card-header">';
+      html += '<span class="mc3-card-title">' + escHtml(group.name) + '</span>';
+      html += '<small>(' + recs.length + ')</small>';
+      if (supportsSg) {
+        html += '<button class="mc3-icon-btn" data-action="add-subgroup" data-gid="' + group.id + '" title="新建子分组" style="font-size:18px;font-weight:bold">+</button>';
+      }
+      html += '</div>';
+
+      // 列表区
+      html += '<div class="mc3-list" data-gid="' + group.id + '">';
+
+      // 空子分组（无成员）始终出现在父分组顶部，方便用户看到新建的分组
+      for (var esi = 0; esi < sgList.length; esi++) {
+        var emptySg = sgList[esi];
+        if (sgData[emptySg.id] && sgData[emptySg.id].records.length > 0) continue; // 有成员，走下方 units 渲染
+        html += '<div class="mc3-subgroup" data-sgid="' + emptySg.id + '" data-gid="' + group.id + '">';
+        html += renderSubgroupHeader(emptySg, group, [], map);
+        if (!emptySg.collapsed) {
+          html += '<div class="mc3-subgroup-items" data-sgid="' + emptySg.id + '" data-gid="' + group.id + '">';
+          html += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px">拖动条目到此处加入分组</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      for (var ui = 0; ui < units.length; ui++) {
+        var unit = units[ui];
+        if (unit.type === 'item') {
+          html += renderItemRow(unit.record, group, false);
+        } else {
+          // 子分组（有成员）
+          var sg = unit.data.subgroup;
+          var sgRecs = unit.data.records;
+          sgRecs.sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
+
+          html += '<div class="mc3-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
+          html += renderSubgroupHeader(sg, group, sgRecs, map);
+
+          if (!sg.collapsed) {
+            html += '<div class="mc3-subgroup-items" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
+            for (var sri = 0; sri < sgRecs.length; sri++) {
+              html += renderItemRow(sgRecs[sri], group, true);
+            }
+            html += '</div>';
+          }
+          html += '</div>';
+        }
+      }
+
+      html += '</div></div>'; // .mc3-list, .mc3-card
     }
     body.innerHTML = html;
   }
 
+  // ── Popup 事件处理 ──────────────────────────────────────────────────────────
+
   function onPopupClick(e) {
     var t = e.target.closest('[data-action]'); if (!t) return;
     var a = t.getAttribute('data-action');
+
     if (a === 'close') { closePopup(); }
     else if (a === 'enable') { settings.enabled = !settings.enabled; saveSettings(); applyAll(); renderPopup(); }
     else if (a === 'colmode') { setColumnMode(settings.columnMode === 'dual' ? 'single' : 'dual'); renderPopup(); }
     else if (a === 'reset') { resetAll(); }
-    else if (a === 'toggle-hide') { var k = t.getAttribute('data-key'); if (settings.hidden[k]) delete settings.hidden[k]; else settings.hidden[k] = true; saveSettings(); applyAll(); renderPopup(); }
-    else if (a === 'toggle-col') { var k2 = t.getAttribute('data-key'); settings.column[k2] = Number(t.getAttribute('data-col')) === 1 ? 0 : 1; saveSettings(); applyAll(); renderPopup(); }
+    else if (a === 'toggle-hide') {
+      var k = t.getAttribute('data-key');
+      if (settings.hidden[k]) delete settings.hidden[k]; else settings.hidden[k] = true;
+      saveSettings(); applyAll(); renderPopup();
+    }
+    else if (a === 'toggle-col') {
+      var k2 = t.getAttribute('data-key');
+      settings.column[k2] = Number(t.getAttribute('data-col')) === 1 ? 0 : 1;
+      saveSettings(); applyAll(); renderPopup();
+    }
+    // 子分组操作
+    else if (a === 'add-subgroup') {
+      var gid = t.getAttribute('data-gid');
+      addSubgroup(gid);
+      renderPopup();
+    }
+    else if (a === 'delete-subgroup') {
+      var delGid = t.getAttribute('data-gid');
+      var delSgId = t.getAttribute('data-sgid');
+      var delSg = getSubgroupById(delGid, delSgId);
+      var delName = delSg ? delSg.name : '未知分组';
+      if (!confirm('确定要删除子分组"' + delName + '"吗？\n分组内所有条目将按当前顺序回到列表中。')) return;
+      deleteSubgroup(delGid, delSgId);
+      applyAll();
+      renderPopup();
+    }
+    else if (a === 'toggle-subgroup') {
+      var tgGid = t.getAttribute('data-gid');
+      var tgSgId = t.getAttribute('data-sgid');
+      var tgSg = getSubgroupById(tgGid, tgSgId);
+      if (tgSg) { tgSg.collapsed = !tgSg.collapsed; saveSettings(); renderPopup(); }
+    }
+    else if (a === 'toggle-sg-hide') {
+      var thGid = t.getAttribute('data-gid');
+      var thSgId = t.getAttribute('data-sgid');
+      var thSg = getSubgroupById(thGid, thSgId);
+      if (!thSg) return;
+      // 判断当前状态：全员隐藏 → 全部显示；否则 → 全部隐藏
+      var allHidden = thSg.memberKeys.length > 0 && thSg.memberKeys.every(function (k) { return !!settings.hidden[k]; });
+      for (var mi = 0; mi < thSg.memberKeys.length; mi++) {
+        if (allHidden) delete settings.hidden[thSg.memberKeys[mi]];
+        else settings.hidden[thSg.memberKeys[mi]] = true;
+      }
+      saveSettings(); applyAll(); renderPopup();
+    }
+    else if (a === 'toggle-sg-col') {
+      var tcGid = t.getAttribute('data-gid');
+      var tcSgId = t.getAttribute('data-sgid');
+      var tcCol = Number(t.getAttribute('data-col'));
+      var tcSg = getSubgroupById(tcGid, tcSgId);
+      if (tcSg) { tcSg.column = tcCol; saveSettings(); applyAll(); renderPopup(); }
+    }
+    else if (a === 'start-rename-sg') {
+      var rnGid = t.getAttribute('data-gid');
+      var rnSgId = t.getAttribute('data-sgid');
+      // 找到对应的 .mc3-subgroup-name span 并替换为输入框
+      var nameSpan = doc.querySelector('.mc3-subgroup-name[data-sgid="' + rnSgId + '"][data-gid="' + rnGid + '"]');
+      if (!nameSpan) return;
+      var sg = getSubgroupById(rnGid, rnSgId);
+      if (!sg) return;
+      var input = doc.createElement('input');
+      input.type = 'text';
+      input.className = 'mc3-rename-input';
+      input.value = sg.name;
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+      var finishRename = function () {
+        var newName = input.value.trim() || '新建分组';
+        renameSubgroup(rnGid, rnSgId, newName);
+        renderPopup();
+      };
+      input.addEventListener('blur', finishRename);
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') { input.blur(); }
+        if (ev.key === 'Escape') { renderPopup(); }
+      });
+    }
   }
 
-  // Pointer 拖拽重排（鼠标 + 触摸 + 笔统一），提交到 order map
+  // ── Pointer 拖拽重排（鼠标 + 触摸 + 笔统一）─────────────────────────────────
+  // 支持：
+  //   - 普通条目在列表内排序（子分组内条目打包移动）
+  //   - 条目拖入子分组区域 → 吸入子分组
+  //   - 条目拖出子分组 → 移出子分组
+
+  var dragMeta = null; // { row, list, gid, key, startSgId }
+
+  // 在拖拽位置找到 .mc3-subgroup-items 容器（或穿透到子分组 header 取其内部 items）
+  function findDropTarget(ev) {
+    var el = doc.elementFromPoint(ev.clientX, ev.clientY);
+    if (!el) return null;
+    var items = el.closest('.mc3-subgroup-items');
+    if (items) return items;
+    // 也可能悬停在子分组 header 上 → 取其内部的 items
+    var sg = el.closest('.mc3-subgroup');
+    if (sg) {
+      var sgItems = sg.querySelector('.mc3-subgroup-items');
+      if (sgItems) return sgItems;
+    }
+    return null;
+  }
+
+  // 在指定容器中找到 row 的视觉插入位置
+  function findInsertAfter(container, row, clientY) {
+    var children = container.children;
+    var after = null;
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      if (child === row) continue;
+      if (!child.classList.contains('mc3-row') && !child.classList.contains('mc3-subgroup')) continue;
+      var rc = child.getBoundingClientRect();
+      if (clientY < rc.top + rc.height / 2) { after = child; break; }
+    }
+    if (after) {
+      container.insertBefore(row, after);
+    } else {
+      container.appendChild(row);
+    }
+  }
+
   function onPopupPointerDown(e) {
     var handle = e.target.closest('.mc3-handle'); if (!handle) return;
-    var row = handle.closest('.mc3-row'); var list = handle.closest('.mc3-list'); if (!row || !list) return;
+    var row = handle.closest('.mc3-row'); if (!row) return;
+    var list = row.closest('.mc3-list'); if (!list) return;
     e.preventDefault();
+
     var gid = list.getAttribute('data-gid');
+    var key = row.getAttribute('data-key');
+    // 确定起始子分组
+    var startSg = getSubgroupForKey(gid, key);
+    var startSgId = startSg ? startSg.id : null;
+
     row.classList.add('mc3-drag');
     try { row.setPointerCapture(e.pointerId); } catch (_) {}
+
+    dragMeta = { row: row, list: list, gid: gid, key: key, startSgId: startSgId };
+
+    var allSubgroups = list.querySelectorAll('.mc3-subgroup');
+
     function move(ev) {
-      var rows = [].slice.call(list.querySelectorAll('.mc3-row:not(.mc3-drag)'));
-      var after = null;
-      for (var i = 0; i < rows.length; i++) { var rc = rows[i].getBoundingClientRect(); if (ev.clientY < rc.top + rc.height / 2) { after = rows[i]; break; } }
-      if (after) list.insertBefore(row, after); else list.appendChild(row);
+      var dropTarget = findDropTarget(ev);
+
+      // 更新子分组高亮
+      for (var s = 0; s < allSubgroups.length; s++) allSubgroups[s].classList.remove('mc3-drop-target');
+      if (dropTarget) {
+        var parentSg = dropTarget.closest('.mc3-subgroup');
+        if (parentSg) parentSg.classList.add('mc3-drop-target');
+        // 将 row 移入 dropTarget 并找插入位置
+        findInsertAfter(dropTarget, row, ev.clientY);
+      } else {
+        // row 不在任何子分组上 → 确保它在 list 层级，再找列表级插入位置
+        if (row.parentNode !== list) { list.appendChild(row); }
+        findInsertAfter(list, row, ev.clientY);
+      }
+
+      // 记录最后坐标供 up 使用
+      dragMeta._lastX = ev.clientX;
+      dragMeta._lastY = ev.clientY;
     }
+
     function up() {
-      doc.removeEventListener('pointermove', move); doc.removeEventListener('pointerup', up);
+      doc.removeEventListener('pointermove', move);
+      doc.removeEventListener('pointerup', up);
+
       row.classList.remove('mc3-drag');
-      var keys = [].slice.call(list.querySelectorAll('.mc3-row')).map(function (r) { return r.getAttribute('data-key'); });
-      commitReorder(gid, keys); saveSettings(); applyAll();
+      for (var s = 0; s < allSubgroups.length; s++) allSubgroups[s].classList.remove('mc3-drop-target');
+
+      // 从 DOM 位置推断最终归属的子分组
+      var finalTarget = findDropTarget({ clientX: dragMeta._lastX || 0, clientY: dragMeta._lastY || 0 });
+      var targetSgId = finalTarget ? finalTarget.getAttribute('data-sgid') : null;
+
+      // 更新子分组成员关系
+      if (targetSgId && targetSgId !== dragMeta.startSgId) {
+        // 拖入了（新的）子分组
+        addKeyToSubgroup(dragMeta.gid, targetSgId, dragMeta.key);
+      } else if (!targetSgId && dragMeta.startSgId) {
+        // 从子分组拖出到外部
+        removeKeyFromAnySubgroup(dragMeta.gid, dragMeta.key);
+      }
+
+      // 提交排序：收集 list 下所有 .mc3-row（含嵌套在子分组内的），
+      // 按 DOM 序 = 视觉序，commitReorder 负责子分组打包
+      var orderedKeys = [];
+      var allRows = list.querySelectorAll('.mc3-row');
+      for (var r = 0; r < allRows.length; r++) {
+        orderedKeys.push(allRows[r].getAttribute('data-key'));
+      }
+      commitReorder(dragMeta.gid, orderedKeys);
+      saveSettings();
+      applyAll();
+      renderPopup();
+      dragMeta = null;
     }
-    doc.addEventListener('pointermove', move); doc.addEventListener('pointerup', up);
+
+    doc.addEventListener('pointermove', move);
+    doc.addEventListener('pointerup', up);
   }
 
   function buildPopup() {
@@ -774,7 +1298,7 @@
       win.setTimeout(function () { if (!suppressObserver) applyAll(); }, d);
     });
     win.__mc3 = {
-      version: 'M8',
+      version: 'M9',
       settings: settings,
       groups: GROUPS,
       getGroup: getGroup,
@@ -786,6 +1310,10 @@
       closePopup: closePopup,
       resetAll: resetAll,
       save: saveSettings,
+      addSubgroup: addSubgroup,
+      deleteSubgroup: deleteSubgroup,
+      renameSubgroup: renameSubgroup,
+      getSubgroupForKey: getSubgroupForKey,
       records: records,
     };
     console.log('[菜单精简器] 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
