@@ -793,9 +793,21 @@
       var key = orderedKeys[i];
       var sgId = keyToSg[key];
       if (sgId && !processedSg[sgId]) {
-        // 子分组打包：所有成员取连续槽位，组内按原有顺序排列
-        var members = sgMembers[sgId].slice();
-        members.sort(function (a, b) { return (map[a] || 0) - (map[b] || 0); });
+        // 子分组打包：从 orderedKeys 中按出现顺序提取本组成员（保持拖拽后的新顺序），
+        // 不在 orderedKeys 中的成员（如子分组折叠时不可见）按旧 map 顺序追加
+        var memberSet = {};
+        for (var mi2 = 0; mi2 < sgMembers[sgId].length; mi2++) memberSet[sgMembers[sgId][mi2]] = 1;
+        var members = [];
+        var seen = {};
+        for (var oi = 0; oi < orderedKeys.length; oi++) {
+          if (memberSet[orderedKeys[oi]] && !seen[orderedKeys[oi]]) {
+            members.push(orderedKeys[oi]);
+            seen[orderedKeys[oi]] = 1;
+          }
+        }
+        var rest = sgMembers[sgId].filter(function (k) { return !seen[k]; });
+        rest.sort(function (a, b) { return (map[a] || 0) - (map[b] || 0); });
+        members = members.concat(rest);
         for (var j = 0; j < members.length; j++) {
           newMap[members[j]] = slot++;
           present[members[j]] = 1;
@@ -1174,16 +1186,17 @@
       dragMeta._lastY = ev.clientY;
     }
 
-    function up() {
+    function up(ev) {
       doc.removeEventListener('pointermove', move);
       doc.removeEventListener('pointerup', up);
+      try { dragEl.releasePointerCapture(ev ? ev.pointerId : 0); } catch (_) {}
 
       dragEl.classList.remove('mc3-drag');
       for (var s = 0; s < allSubgroups.length; s++) allSubgroups[s].classList.remove('mc3-drop-target');
 
       if (!isSgHandle) {
         // 条目拖拽：从 DOM 位置推断最终归属的子分组
-        var finalTarget = findDropTarget({ clientX: dragMeta._lastX || 0, clientY: dragMeta._lastY || 0 });
+        var finalTarget = findDropTarget({ clientX: (ev && ev.clientX !== undefined) ? ev.clientX : (dragMeta._lastX || 0), clientY: (ev && ev.clientY !== undefined) ? ev.clientY : (dragMeta._lastY || 0) });
         var targetSgId = finalTarget ? finalTarget.getAttribute('data-sgid') : null;
 
         // 更新子分组成员关系
@@ -1196,13 +1209,28 @@
         }
       }
 
-      // 提交排序：收集 list 下所有 .mc3-row（含嵌套在子分组内的），
-      // 按 DOM 序 = 视觉序，commitReorder 负责子分组打包
+      // 提交排序：按视觉顺序深度遍历（展开折叠的子分组），确保正确收集 orderedKeys
       var orderedKeys = [];
-      var allRows = list.querySelectorAll('.mc3-row');
-      for (var r = 0; r < allRows.length; r++) {
-        orderedKeys.push(allRows[r].getAttribute('data-key'));
+      function collectKeys(el) {
+        if (el.classList.contains('mc3-row')) {
+          var rk = el.getAttribute('data-key');
+          if (rk) orderedKeys.push(rk);
+        } else if (el.classList.contains('mc3-subgroup')) {
+          var sgId = el.getAttribute('data-sgid');
+          var sg = getSubgroupById(dragMeta.gid, sgId);
+          if (sg && sg.collapsed) {
+            var oldMap = settings.order[dragMeta.gid] || {};
+            var members = sg.memberKeys.slice();
+            members.sort(function(a, b) { return (oldMap[a] || 0) - (oldMap[b] || 0); });
+            for (var m = 0; m < members.length; m++) orderedKeys.push(members[m]);
+          } else {
+            for (var i = 0; i < el.children.length; i++) collectKeys(el.children[i]);
+          }
+        } else {
+          for (var i = 0; i < el.children.length; i++) collectKeys(el.children[i]);
+        }
       }
+      collectKeys(list);
       commitReorder(dragMeta.gid, orderedKeys);
       saveSettings();
       applyAll();
@@ -1224,7 +1252,7 @@
         '<button class="mc3-btn" data-action="enable">启用: 开</button>' +
         '<button class="mc3-btn" data-action="colmode">单双栏: 双</button>' +
         '<button class="mc3-btn" data-action="reset">恢复原始</button>' +
-        '<span class="mc3-tip">⠿排序 · 👁显隐 · ◧◨切栏</span>' +
+        '<span class="mc3-tip">点击 + 号新建一个子分组</span>' +
       '</div><div id="mc3-body"></div></div>';
     (doc.documentElement || doc.body).appendChild(ov);   // 挂到 html，规避主题祖先 transform/filter 致 fixed 偏移（#3）
     ov.addEventListener('click', function (e) { if (e.target === ov) closePopup(); });
