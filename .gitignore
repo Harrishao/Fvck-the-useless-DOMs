@@ -1,5 +1,6 @@
 # Playwright MCP 测试产物
 .playwright-mcp/
+tests/
 
 # Claude Code 内部文件
 .claude/
@@ -18,6 +19,7 @@ reference/
 自查方法.md
 toggle-demo.html
 *.txt
+不同世界线的备份/
 
 # 发布产物：loader JSON 需随仓库分发（dist/menu-cleaner.js 是 .js 默认已跟踪）
 !dist/酒馆助手脚本-菜单精简器.json
