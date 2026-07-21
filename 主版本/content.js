@@ -542,7 +542,10 @@
       '.mc3-native-subgroup-arrow{width:12px;flex:0 0 12px;font-size:10px;opacity:.72;text-align:center;}',
       '.mc3-native-subgroup-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '.mc3-user-drawer-collapsed{display:none !important;}',
-      '.mc3-user-drawer-header{cursor:pointer;user-select:none;text-align:left;}',
+      '.mc3-user-drawer-header{cursor:pointer;user-select:none;}',
+      '#UI-presets-block > h4.mc3-user-drawer-header{position:relative;}',
+      '#UI-presets-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow{position:absolute;left:5px;top:50%;transform:translateY(-50%);}',
+      '#UI-presets-block > h4.mc3-user-drawer-header > span:first-of-type{padding-left:18px;}',
       'button.mc3-user-drawer-arrow{display:inline-block;width:14px;margin:0 4px 0 0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:10px;line-height:1;opacity:.72;cursor:pointer;vertical-align:middle;}',
       'button.mc3-user-drawer-arrow:hover{opacity:1;}',
       'button.mc3-user-drawer-arrow:focus-visible{outline:2px solid var(--SmartThemeQuoteColor,#3a6);outline-offset:1px;}',
@@ -745,8 +748,11 @@
       var header = doc.querySelector(definition.drawerHeader);
 
       if (header) {
-        header.classList.add('mc3-user-drawer-header');
-        header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        if (!header.classList.contains('mc3-user-drawer-header')) header.classList.add('mc3-user-drawer-header');
+        var expanded = collapsed ? 'false' : 'true';
+        if (header.getAttribute('aria-expanded') !== expanded) header.setAttribute('aria-expanded', expanded);
+        var arrowText = collapsed ? '▶' : '▼';
+        var arrowLabel = (collapsed ? '展开' : '收起') + definition.label;
         var arrow = header.querySelector(':scope > .mc3-user-drawer-arrow');
         if (!arrow) {
           arrow = doc.createElement('button');
@@ -755,8 +761,8 @@
           arrow.title = '折叠或展开' + definition.label;
           header.insertBefore(arrow, header.firstChild);
         }
-        arrow.textContent = collapsed ? '▶' : '▼';
-        arrow.setAttribute('aria-label', (collapsed ? '展开' : '收起') + definition.label);
+        if (arrow.textContent !== arrowText) arrow.textContent = arrowText;
+        if (arrow.getAttribute('aria-label') !== arrowLabel) arrow.setAttribute('aria-label', arrowLabel);
 
         if (!header.__mc3UserDrawerHandler) {
           header.__mc3UserDrawerHandler = function (e) {
