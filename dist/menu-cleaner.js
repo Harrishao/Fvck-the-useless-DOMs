@@ -471,7 +471,7 @@
 
   function injectStyle() {
     if (doc.getElementById('mc3-style')) return;
-    var rules = ['.mc3-hidden{display:none !important;}', '.mc3-subgroup-sep{height:1px;border:none;background:var(--SmartThemeBorderColor,#555);margin:4px 8px;}'];
+    var rules = ['.mc3-hidden{display:none !important;}', '.mc3-subgroup-sep{height:1px;border:none;background:var(--SmartThemeBorderColor,#555);margin:4px 8px;}', '.mc3-drawer-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:4px 0;background:var(--black30a,rgba(0,0,0,0.2));color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;cursor:pointer;font-weight:bold;font-size:13px;user-select:none;transition:background 0.15s;}', '.mc3-drawer-header:hover{background:var(--black50a,rgba(0,0,0,0.3));}', '.mc3-drawer-name{opacity:0.9;}', '.mc3-drawer-icon{opacity:0.6;font-size:12px;}'];
     for (var i = 0; i < GROUPS.length; i++) {
       if (!GROUPS[i].forceFlex) continue;
       for (var c = 0; c < GROUPS[i].containers.length; c++) {
@@ -509,6 +509,7 @@
     for (var i = 0; i < records.length; i++) {
       var slot = map[records[i].key];
       if (slot === undefined) continue;
+      slot = slot * 10;
       var u = records[i].unit;
       if (u && (!unitSlot.has(u) || slot < unitSlot.get(u))) unitSlot.set(u, slot);
       if (records[i].el && records[i].el !== u) records[i].el.style.order = String(slot);
@@ -519,15 +520,25 @@
   // M3：可见性。用 .mc3-hidden 类（不碰 inline display，避免覆盖原生/他插件的隐藏）。
   // 隐藏作用在「元素本身」（精确，兼容多抽屉容器）；某容器成员全隐藏时连容器一并收起。
   function applyHides(group, records) {
+    var keyToSg = buildKeyToSgMap(group.id);
+    var sgList = settings.subgroups[group.id] || [];
+    var collapsedSg = {};
+    for (var s = 0; s < sgList.length; s++) { if (sgList[s].collapsed) collapsedSg[sgList[s].id] = true; }
+
     var byUnit = new Map();
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
-      var hidden = !!settings.hidden[r.key];
+      var sgId = keyToSg[r.key];
+      var isSgCollapsed = sgId && collapsedSg[sgId];
+      var hidden = !!settings.hidden[r.key] || isSgCollapsed;
       for (var e = 0; e < r.els.length; e++) r.els[e].classList.toggle('mc3-hidden', hidden); // packed：按组隐藏全部元素
       if (r.unit) { if (!byUnit.has(r.unit)) byUnit.set(r.unit, []); byUnit.get(r.unit).push(r); }
     }
     byUnit.forEach(function (recs, unit) {
-      var allHidden = recs.every(function (r) { return !!settings.hidden[r.key]; });
+      var allHidden = recs.every(function (r) { 
+        var sid = keyToSg[r.key];
+        return !!settings.hidden[r.key] || (sid && collapsedSg[sid]); 
+      });
       unit.classList.toggle('mc3-hidden', allHidden);
     });
   }
@@ -582,17 +593,66 @@
     applyAll();
   }
 
-  // 子分组分隔线：仅在左下菜单(options)和魔棒(extensionsMenu)注入真实 <hr>
   function applySubgroupSeparators(group, records) {
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return;
-
-    // 先清除旧的子分组分隔线
+    if (SUBGROUP_GROUP_IDS.indexOf(group.id) === -1) return;
+    if (group.id === 'extensionsSettings') return; // 扩展面板自带抽屉结构，不需要底部分隔线
+    
     var containers = group.containers;
     for (var ci = 0; ci < containers.length; ci++) {
       var container = doc.querySelector(containers[ci]);
       if (!container) continue;
-      var oldSeps = container.querySelectorAll('.mc3-subgroup-sep');
+      var oldSeps = container.querySelectorAll('.mc3-injected-sep');
       for (var s = 0; s < oldSeps.length; s++) oldSeps[s].remove();
+    }
+
+    if (!settings.enabled) return;
+    var sgList = settings.subgroups[group.id] || [];
+    if (!sgList.length) return;
+
+    var keyToSg = buildKeyToSgMap(group.id);
+    var map = settings.order[group.id] || {};
+    
+    var sgMaxSlot = {};
+    for (var i = 0; i < records.length; i++) {
+      var sgId = keyToSg[records[i].key];
+      if (sgId) {
+        var slot = map[records[i].key];
+        if (slot !== undefined) {
+          if (sgMaxSlot[sgId] === undefined || slot > sgMaxSlot[sgId]) sgMaxSlot[sgId] = slot;
+        }
+      }
+    }
+
+    var moved = false;
+    for (var s2 = 0; s2 < sgList.length; s2++) {
+      var sg = sgList[s2];
+      if (sgMaxSlot[sg.id] === undefined) continue;
+      
+      var sep = doc.createElement('hr');
+      sep.className = 'mc3-subgroup-sep mc3-injected-sep';
+      sep.id = 'mc3-sg-sep-' + sg.id;
+      sep.style.order = String(sgMaxSlot[sg.id] * 10 + 1); // 放在最后一名成员之后
+      
+      var targetContainer = doc.querySelector(containers[0]);
+      if (targetContainer) {
+        suppressObserver = true;
+        targetContainer.appendChild(sep);
+        moved = true;
+      }
+    }
+    if (moved) win.setTimeout(function () { suppressObserver = false; }, 0);
+  }
+
+  // 子分组抽屉标题：在面板中注入可点击的分类标题条，实现展开/折叠
+  function applySubgroupHeaders(group, records) {
+    if (SUBGROUP_GROUP_IDS.indexOf(group.id) === -1) return;
+    // 移除旧的分组标题
+    var containers = group.containers;
+    for (var ci = 0; ci < containers.length; ci++) {
+      var container = doc.querySelector(containers[ci]);
+      if (!container) continue;
+      var oldHeaders = container.querySelectorAll('.mc3-drawer-header');
+      for (var s = 0; s < oldHeaders.length; s++) oldHeaders[s].remove();
     }
 
     if (!settings.enabled) return;
@@ -602,32 +662,71 @@
 
     // 构建 key→sgId 映射
     var keyToSg = buildKeyToSgMap(group.id);
-    // 按 order 排序
     var map = settings.order[group.id] || {};
-    var sorted = records.slice().sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
-
-    // 扫描排序后的条目序列，在子分组边界注入 <hr>
-    // 逻辑：相邻两条目分别属于不同子分组/非子分组 → 中间插分隔线
-    for (var i = 0; i < sorted.length - 1; i++) {
-      var sgA = keyToSg[sorted[i].key] || null;
-      var sgB = keyToSg[sorted[i + 1].key] || null;
-      if (sgA !== sgB) {
-        // 边界：在 sorted[i] 的 unit 之后插入分隔线
-        var unit = sorted[i].unit;
-        if (unit && unit.parentNode) {
-          var hr = doc.createElement('hr');
-          hr.className = 'mc3-subgroup-sep';
-          unit.parentNode.insertBefore(hr, unit.nextSibling);
+    
+    // 计算每个子分组的最小 slot
+    var sgMinSlot = {};
+    for (var i = 0; i < records.length; i++) {
+      var sgId = keyToSg[records[i].key];
+      if (sgId) {
+        var slot = map[records[i].key];
+        if (slot !== undefined) {
+          if (sgMinSlot[sgId] === undefined || slot < sgMinSlot[sgId]) sgMinSlot[sgId] = slot;
         }
       }
     }
+
+    // 注入 Header
+    var moved = false;
+    for (var s2 = 0; s2 < sgList.length; s2++) {
+      var sg = sgList[s2];
+      if (sgMinSlot[sg.id] === undefined) continue; // 空分组不渲染面板抽屉
+      
+      var header = doc.createElement('div');
+      header.id = 'mc3-sg-head-' + sg.id;
+      if (group.id === 'extensionsSettings') {
+        header.className = 'inline-drawer mc3-drawer-header';
+        header.innerHTML = '<div class="inline-drawer-toggle inline-drawer-header" style="background:var(--black30a,rgba(0,0,0,0.2));margin-top:4px;"><b>' + escHtml(sg.name) + '</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down ' + (sg.collapsed ? 'up' : 'down') + '"></div></div>';
+      } else {
+        header.className = 'mc3-drawer-header';
+        header.innerHTML = '<span class="mc3-drawer-name"></span><span class="mc3-drawer-icon">' + (sg.collapsed ? '▶' : '▼') + '</span>';
+        header.querySelector('.mc3-drawer-name').textContent = sg.name;
+      }
+      header.style.order = String(sgMinSlot[sg.id] * 10 - 1); // 放在成员前面
+      
+      // 点击切换折叠状态
+      (function(subgroup) {
+        header.addEventListener('click', function(e) {
+          e.stopImmediatePropagation();
+          subgroup.collapsed = !subgroup.collapsed;
+          saveSettings();
+          applyAll();
+          if (typeof renderPopup === 'function') renderPopup(); // 如果菜单开着，也同步更新
+        });
+      })(sg);
+
+      // 决定插入哪个容器 (针对 extensionsSettings 的双栏支持)
+      var targetContainer = doc.querySelector(containers[0]);
+      if (group.id === 'extensionsSettings' && settings.columnMode !== 'single') {
+        var targetCol = sg.column === 1 ? 1 : 0;
+        targetContainer = doc.querySelector(containers[targetCol]);
+      }
+      
+      if (targetContainer) {
+        suppressObserver = true;
+        targetContainer.appendChild(header);
+        moved = true;
+      }
+    }
+    if (moved) win.setTimeout(function () { suppressObserver = false; }, 0);
   }
 
   function applyGroup(group, records) {
     if (group.id === 'extensionsSettings') applyColumns(records); // 先定栏（唯一搬 DOM 处）
     applyOrder(group, records);                                   // 再排序（CSS order）
     applyHides(group, records);                                   // 再可见性
-    applySubgroupSeparators(group, records);                      // 子分组分隔线（options/魔棒）
+    applySubgroupHeaders(group, records);                         // 渲染子分组抽屉标题
+    applySubgroupSeparators(group, records);                      // 渲染底部分隔线
   }
 
   function clearGroup(records) {
@@ -738,6 +837,10 @@
     // 行样式 — 无边框
     '.mc3-row{display:flex;align-items:center;gap:8px;padding:5px 10px;margin:0;border:none;border-radius:0;background:transparent;}' +
     '.mc3-row:hover{background:var(--black20a,rgba(255,255,255,.03));}' +
+    '.mc3-drawer-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:4px 0;background:var(--black30a,rgba(0,0,0,0.2));color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;cursor:pointer;font-weight:bold;font-size:13px;user-select:none;transition:background 0.15s;}' +
+    '.mc3-drawer-header:hover{background:var(--black50a,rgba(0,0,0,0.3));}' +
+    '.mc3-drawer-name{opacity:0.9;}' +
+    '.mc3-drawer-icon{opacity:0.6;font-size:12px;}' +
     '.mc3-row.mc3-off{opacity:.4;}' +
     '.mc3-row.mc3-drag{background:var(--SmartThemeQuoteColor,#3a6);opacity:.9;border-radius:6px;}' +
     '.mc3-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
