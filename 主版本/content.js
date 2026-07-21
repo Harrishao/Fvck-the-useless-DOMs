@@ -581,9 +581,13 @@
   // 因为部分第三方扩展(柏宝箱/SP数据库/提示词查看器)把自己的 wand 容器设成 display:contents，
   // 此时真正参与 flex 的是里面的 .list-group-item(=rec.el)，order 必须落在 el 上才生效；
   // 同一 contents 容器内多条目还能各自独立排序。普通容器里 el 的 order 无副作用(块上下文不响应)。
+  function supportsPseudoSubgroups(group) {
+    return group.id === 'options' || group.id === 'extensionsMenu' || group.id === 'extensionsSettings';
+  }
+
   function applyOrder(group, records) {
     var map = ensureSlots(group, records);
-    var hasPseudoHeaders = group.id === 'options' || group.id === 'extensionsMenu';
+    var hasPseudoHeaders = supportsPseudoSubgroups(group);
     var unitSlot = new Map();
     for (var i = 0; i < records.length; i++) {
       var slot = map[records[i].key];
@@ -600,7 +604,7 @@
   // 隐藏作用在「元素本身」（精确，兼容多抽屉容器）；某容器成员全隐藏时连容器一并收起。
   function isRecordEffectivelyHidden(group, record) {
     if (settings.hidden[record.key]) return true;
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return false;
+    if (!supportsPseudoSubgroups(group)) return false;
     var subgroup = getSubgroupForKey(group.id, record.key);
     return !!(subgroup && subgroup.collapsed);
   }
@@ -670,7 +674,7 @@
   }
 
   function clearPseudoSubgroups(group) {
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return;
+    if (!supportsPseudoSubgroups(group)) return;
     for (var ci = 0; ci < group.containers.length; ci++) {
       var container = doc.querySelector(group.containers[ci]);
       if (!container) continue;
@@ -681,13 +685,18 @@
     }
   }
 
-  // 左下菜单与魔棒保持扁平 DOM，只插入可清理的标题按钮并用 order 放到首个成员之前。
+  // 左下菜单、魔棒与扩展面板保持扁平 DOM，只插入可清理的标题按钮并用 order 放到首个成员之前。
+  // 扩展面板的标题与成员共同跟随子分组栏位；不包裹也不改动成员的原生抽屉结构。
   function applyPseudoSubgroups(group, records) {
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return;
-    var container = doc.querySelector(group.containers[0]);
-    if (!container) return;
-    var oldSeps = container.querySelectorAll('.mc3-subgroup-sep');
-    for (var oldIndex = 0; oldIndex < oldSeps.length; oldIndex++) oldSeps[oldIndex].remove();
+    if (!supportsPseudoSubgroups(group)) return;
+    var defaultContainer = doc.querySelector(group.containers[0]);
+    if (!defaultContainer) return;
+    for (var ci = 0; ci < group.containers.length; ci++) {
+      var cleanupContainer = doc.querySelector(group.containers[ci]);
+      if (!cleanupContainer) continue;
+      var oldSeps = cleanupContainer.querySelectorAll('.mc3-subgroup-sep');
+      for (var oldIndex = 0; oldIndex < oldSeps.length; oldIndex++) oldSeps[oldIndex].remove();
+    }
     var sgList = settings.subgroups[group.id] || [];
     var map = settings.order[group.id] || {};
     var byKey = {};
@@ -699,6 +708,13 @@
       var present = sg.memberKeys.filter(function (key) { return !!byKey[key]; });
       if (!present.length) continue;
       present.sort(function (a, b) { return (map[a] || 0) - (map[b] || 0); });
+
+      var targetContainer = defaultContainer;
+      if (group.id === 'extensionsSettings') {
+        var targetColumn = settings.columnMode === 'single' ? 0 : (sg.column === 1 ? 1 : 0);
+        targetContainer = doc.querySelector(group.containers[targetColumn]);
+        if (!targetContainer) continue;
+      }
 
       var headerId = 'mc3-native-subgroup-' + group.id + '-' + sg.id;
       desiredIds[headerId] = true;
@@ -723,17 +739,23 @@
           var overlay = doc.getElementById('mc3-overlay');
           if (overlay && win.getComputedStyle(overlay).display !== 'none') renderPopup();
         });
-        container.appendChild(header);
       }
       var headerHtml = '<span class="mc3-native-subgroup-arrow" aria-hidden="true">' + (sg.collapsed ? '▶' : '▼') + '</span>' +
         '<span class="mc3-native-subgroup-name">' + escHtml(sg.name) + '</span>';
       if (header.innerHTML !== headerHtml) header.innerHTML = headerHtml;
+      var expanded = sg.collapsed ? 'false' : 'true';
+      if (header.getAttribute('aria-expanded') !== expanded) header.setAttribute('aria-expanded', expanded);
+      if (header.parentNode !== targetContainer) targetContainer.appendChild(header);
       header.style.order = String((map[present[0]] || 0) * 2);
     }
 
-    var existing = container.querySelectorAll('.mc3-native-subgroup-header[data-gid="' + group.id + '"]');
-    for (var ei = 0; ei < existing.length; ei++) {
-      if (!desiredIds[existing[ei].id]) existing[ei].remove();
+    for (var containerIndex = 0; containerIndex < group.containers.length; containerIndex++) {
+      var container = doc.querySelector(group.containers[containerIndex]);
+      if (!container) continue;
+      var existing = container.querySelectorAll('.mc3-native-subgroup-header[data-gid="' + group.id + '"]');
+      for (var ei = 0; ei < existing.length; ei++) {
+        if (!desiredIds[existing[ei].id]) existing[ei].remove();
+      }
     }
   }
 
@@ -1576,7 +1598,7 @@
       win.setTimeout(function () { if (!suppressObserver) applyAll(); }, d);
     });
     win.__mc3 = {
-      version: 'M11',
+      version: 'M12',
       settings: settings,
       groups: GROUPS,
       getGroup: getGroup,
