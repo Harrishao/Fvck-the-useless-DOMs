@@ -48,6 +48,12 @@
       mode: 'drawers', header: '.inline-drawer-header', label: 'header',
     },
     {
+      id: 'qrPanel', name: 'QR面板',
+      containers: ['#qr--bar'],
+      observe: ['#send_form'],
+      mode: 'qrItems', label: 'span',
+    },
+    {
       id: 'topSettings', name: '顶部导航栏',
       containers: ['#top-settings-holder'],
       mode: 'children', itemFilter: '.drawer', label: 'attrTitle',
@@ -66,8 +72,8 @@
     },
   ];
 
-  // 支持子分组的三组（待办：仅左下/魔棒/扩展菜单）
-  const SUBGROUP_GROUP_IDS = ['options', 'extensionsMenu', 'extensionsSettings'];
+  // 支持子分组的分组
+  const SUBGROUP_GROUP_IDS = ['options', 'extensionsMenu', 'extensionsSettings', 'qrPanel'];
 
   // 预设面板：裸 div 无 id、跨 #range_block_openai/#openai_settings 两容器，必须人工打包成命名分组，
   // 按组隐藏（可见性同时作用于组内每个元素）。标题含括号部分，依 可展开列表.md。
@@ -153,6 +159,7 @@
                        // column 仅 extensionsSettings 子分组有效，决定组内条目归属栏位
     groupCollapsed: {}, // { groupId: boolean } —— 管理面板父分组折叠；缺省一律收起
     userDrawerCollapsed: {}, // { 'userSettings|标签': boolean } —— 实际用户设置伪抽屉；缺省全收起
+    qrPanelCollapsed: false, // QR 面板折叠状态
   };
   let settings = {};
 
@@ -199,6 +206,7 @@
     if (!settings.subgroups) settings.subgroups = {};
     if (!settings.groupCollapsed) settings.groupCollapsed = {};
     if (!settings.userDrawerCollapsed) settings.userDrawerCollapsed = {};
+    if (settings.qrPanelCollapsed === undefined) settings.qrPanelCollapsed = false;
     // 新旧用户都以「未声明即收起」处理；之后每次切换均随 settings 持久化。
     for (var g = 0; g < GROUPS.length; g++) {
       if (settings.groupCollapsed[GROUPS[g].id] === undefined) settings.groupCollapsed[GROUPS[g].id] = true;
@@ -365,15 +373,13 @@
         return t || normLabel(el.textContent);
       }
       case 'span': {
-        // 取第一个「非空」span：有些按钮把图标也包进 <span>（如 #favorites_button：
-        // <span><i.fa-star></span><span>收藏</span>），首个 span 是空图标壳，旧逻辑
-        // 直接取首个 span 会得空标签 → 整条被 scanGroup 丢弃。
-        var sps = el.querySelectorAll('span');
+        // 取第一个「非空」span/.qr--button-label：有些按钮把图标也包进 <span>，优先提取文字
+        var sps = el.querySelectorAll('span, .qr--button-label, [data-i18n]');
         for (var si = 0; si < sps.length; si++) { var st = normLabel(sps[si].textContent); if (st) return st; }
-        // 无非空 span：退回元素自身的直接文本节点（排除内部 <button>/徽标），再退回整体文本
+        // 无非空 span：退回元素自身的直接文本节点，再退回整体文本/title
         var dt = '';
         for (var di = 0; di < el.childNodes.length; di++) if (el.childNodes[di].nodeType === 3) dt += el.childNodes[di].textContent;
-        return normLabel(dt) || normLabel(el.textContent);
+        return normLabel(dt) || normLabel(el.textContent) || normLabel(el.getAttribute('title'));
       }
       case 'attrTitle': {
         var withTitle = el.matches('[title]') ? el : el.querySelector('[title]');
@@ -423,6 +429,29 @@
             out.push({ el: gc, label: labelOf(gc, group) });
           }
         }
+      }
+      return out;
+    }
+
+    if (group.mode === 'qrItems') {
+      var visited = new Set();
+      function scanQrNode(node) {
+        if (!node || visited.has(node) || isSelf(node)) return;
+        visited.add(node);
+        if (node.id === 'qr--popoutTrigger' || node.id === 'mc3-qr-toggle-btn') return;
+        if (node.classList.contains('qr--buttons')) {
+          for (var b = 0; b < node.children.length; b++) {
+            scanQrNode(node.children[b]);
+          }
+          return;
+        }
+        if (node.matches('.qr--button, .menu_button, button, a') || node.querySelector('.qr--button-label, span, [data-i18n]') || hasDirectText(node)) {
+          var lbl = labelOf(node, group);
+          if (lbl) out.push({ el: node, label: lbl });
+        }
+      }
+      for (var q = 0; q < children.length; q++) {
+        scanQrNode(children[q]);
       }
       return out;
     }
@@ -542,6 +571,10 @@
       '.mc3-native-subgroup-arrow{width:12px;flex:0 0 12px;font-size:10px;opacity:.72;text-align:center;}',
       '.mc3-native-subgroup-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '.mc3-user-drawer-collapsed{display:none !important;}',
+      '.mc3-qr-toggle-btn{display:inline-flex;align-items:center;justify-content:center;padding:2px 6px;font-size:10px;line-height:1;border-radius:4px;cursor:pointer;user-select:none;background:var(--black30a,rgba(0,0,0,.25));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);margin-right:4px;flex-shrink:0;order:-999999;}',
+      '.mc3-qr-toggle-btn:hover{background:var(--black50a,rgba(128,128,128,.3));}',
+      '.mc3-qr-toggle-btn .mc3-qr-arrow{font-size:10px;opacity:.85;}',
+      '.mc3-qr-content-collapsed{display:none !important;}',
       '.mc3-user-drawer-header{cursor:pointer;user-select:none;}',
       '#UI-presets-block > h4.mc3-user-drawer-header{position:relative;}',
       '#UI-presets-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow{position:absolute;left:5px;top:50%;transform:translateY(-50%);}',
@@ -583,7 +616,7 @@
   // 同一 contents 容器内多条目还能各自独立排序。普通容器里 el 的 order 无副作用(块上下文不响应)。
   function applyOrder(group, records) {
     var map = ensureSlots(group, records);
-    var hasPseudoHeaders = group.id === 'options' || group.id === 'extensionsMenu';
+    var hasPseudoHeaders = group.id === 'options' || group.id === 'extensionsMenu' || group.id === 'qrPanel';
     var unitSlot = new Map();
     for (var i = 0; i < records.length; i++) {
       var slot = map[records[i].key];
@@ -600,7 +633,7 @@
   // 隐藏作用在「元素本身」（精确，兼容多抽屉容器）；某容器成员全隐藏时连容器一并收起。
   function isRecordEffectivelyHidden(group, record) {
     if (settings.hidden[record.key]) return true;
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return false;
+    if (group.id !== 'options' && group.id !== 'extensionsMenu' && group.id !== 'qrPanel') return false;
     var subgroup = getSubgroupForKey(group.id, record.key);
     return !!(subgroup && subgroup.collapsed);
   }
@@ -670,7 +703,7 @@
   }
 
   function clearPseudoSubgroups(group) {
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return;
+    if (group.id !== 'options' && group.id !== 'extensionsMenu' && group.id !== 'qrPanel') return;
     for (var ci = 0; ci < group.containers.length; ci++) {
       var container = doc.querySelector(group.containers[ci]);
       if (!container) continue;
@@ -683,7 +716,7 @@
 
   // 左下菜单与魔棒保持扁平 DOM，只插入可清理的标题按钮并用 order 放到首个成员之前。
   function applyPseudoSubgroups(group, records) {
-    if (group.id !== 'options' && group.id !== 'extensionsMenu') return;
+    if (group.id !== 'options' && group.id !== 'extensionsMenu' && group.id !== 'qrPanel') return;
     var container = doc.querySelector(group.containers[0]);
     if (!container) return;
     var oldSeps = container.querySelectorAll('.mc3-subgroup-sep');
@@ -847,6 +880,66 @@
     }
   }
 
+  // QR 面板向下折叠收起控制：在 #qr--bar 内存在按钮内容时原位注入折叠手柄，
+  // 允许用户向上/向下展开折叠，并持久化 settings.qrPanelCollapsed。
+  function applyQrPanelFold() {
+    var bar = doc.querySelector('#qr--bar');
+    if (!bar) return;
+
+    var toggleBtn = doc.getElementById('mc3-qr-toggle-btn');
+    if (!settings.enabled) {
+      if (toggleBtn) toggleBtn.style.display = 'none';
+      for (var i = 0; i < bar.children.length; i++) {
+        bar.children[i].classList.remove('mc3-qr-content-collapsed');
+      }
+      return;
+    }
+
+    var contents = [];
+    for (var c = 0; c < bar.children.length; c++) {
+      var ch = bar.children[c];
+      if (ch.id === 'mc3-qr-toggle-btn' || ch.id === 'qr--popoutTrigger') continue;
+      if (!ch.classList.contains('mc3-hidden')) {
+        contents.push(ch);
+      }
+    }
+
+    if (contents.length === 0) {
+      if (toggleBtn) toggleBtn.style.display = 'none';
+      for (var k = 0; k < bar.children.length; k++) {
+        bar.children[k].classList.remove('mc3-qr-content-collapsed');
+      }
+      return;
+    }
+
+    if (!toggleBtn) {
+      toggleBtn = doc.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.id = 'mc3-qr-toggle-btn';
+      toggleBtn.className = 'mc3-qr-toggle-btn';
+      toggleBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        settings.qrPanelCollapsed = !settings.qrPanelCollapsed;
+        saveSettings();
+        applyAll();
+      });
+      bar.insertBefore(toggleBtn, bar.firstChild);
+    }
+
+    toggleBtn.style.display = 'inline-flex';
+    var isCollapsed = !!settings.qrPanelCollapsed;
+    var arrow = isCollapsed ? '▲' : '▼';
+    toggleBtn.innerHTML = '<span class="mc3-qr-arrow">' + arrow + '</span>';
+    toggleBtn.title = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
+
+    for (var j = 0; j < bar.children.length; j++) {
+      var child = bar.children[j];
+      if (child.id === 'mc3-qr-toggle-btn' || child.id === 'qr--popoutTrigger') continue;
+      child.classList.toggle('mc3-qr-content-collapsed', isCollapsed);
+    }
+  }
+
   function applyAll() {
     injectStyle();
     setupLaunchers();   // 幂等：先补回入口，使其作为普通条目被随后的 scanAll 扫描/排序/隐藏（#1）
@@ -858,6 +951,7 @@
       if (settings.enabled) applyGroup(GROUPS[i], recs);
       else { clearGroup(GROUPS[i], recs); clearPseudoSubgroups(GROUPS[i]); }
     }
+    applyQrPanelFold();
     return all;
   }
 
@@ -1029,6 +1123,7 @@
     for (var ui = 0; ui < USER_SETTINGS_GROUPS.length; ui++) {
       settings.userDrawerCollapsed[getUserDrawerKey(USER_SETTINGS_GROUPS[ui])] = true;
     }
+    settings.qrPanelCollapsed = false;
     saveSettings(); applyAll(); renderPopup();
   }
 
