@@ -721,13 +721,6 @@
   // 左下菜单、魔棒与扩展面板保持扁平 DOM，只插入可清理的标题按钮并用 order 放到首个成员之前。
   // 扩展面板的标题与成员共同跟随子分组栏位；不包裹也不改动成员的原生抽屉结构。
   function applyPseudoSubgroups(group, records) {
-<<<<<<< HEAD
-    if (group.id !== 'options' && group.id !== 'extensionsMenu' && group.id !== 'qrPanel') return;
-    var container = doc.querySelector(group.containers[0]);
-    if (!container) return;
-    var oldSeps = container.querySelectorAll('.mc3-subgroup-sep');
-    for (var oldIndex = 0; oldIndex < oldSeps.length; oldIndex++) oldSeps[oldIndex].remove();
-=======
     if (!supportsPseudoSubgroups(group)) return;
     var defaultContainer = doc.querySelector(group.containers[0]);
     if (!defaultContainer) return;
@@ -737,7 +730,6 @@
       var oldSeps = cleanupContainer.querySelectorAll('.mc3-subgroup-sep');
       for (var oldIndex = 0; oldIndex < oldSeps.length; oldIndex++) oldSeps[oldIndex].remove();
     }
->>>>>>> db8d76d12b550e4013b5a39ad0bc46f47d82417d
     var sgList = settings.subgroups[group.id] || [];
     var map = settings.order[group.id] || {};
     var byKey = {};
