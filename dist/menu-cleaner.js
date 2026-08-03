@@ -575,6 +575,9 @@
       '.mc3-qr-toggle-btn:hover{background:var(--black50a,rgba(128,128,128,.3));}',
       '.mc3-qr-toggle-btn .mc3-qr-arrow{font-size:10px;opacity:.85;}',
       '.mc3-qr-content-collapsed{display:none !important;}',
+      '#qr--bar.mc3-qr-bar-collapsed{display:flex !important;justify-content:center !important;align-items:center !important;width:100% !important;margin:0 auto !important;}',
+      '#qr--bar.mc3-qr-bar-collapsed > .mc3-qr-toggle-btn{margin-right:0 !important;}',
+      '@media screen and (max-width:800px){#qr--bar.mc3-qr-bar-collapsed{padding-left:0 !important;padding-right:0 !important;}}',
       '.mc3-user-drawer-header{cursor:pointer;user-select:none;}',
       '#UI-presets-block > h4.mc3-user-drawer-header{position:relative;}',
       '#UI-presets-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow{position:absolute;left:5px;top:50%;transform:translateY(-50%);}',
@@ -911,6 +914,7 @@
     var toggleBtn = doc.getElementById('mc3-qr-toggle-btn');
     if (!settings.enabled) {
       if (toggleBtn) toggleBtn.style.display = 'none';
+      bar.classList.remove('mc3-qr-bar-collapsed');
       for (var i = 0; i < bar.children.length; i++) {
         bar.children[i].classList.remove('mc3-qr-content-collapsed');
       }
@@ -928,6 +932,7 @@
 
     if (contents.length === 0) {
       if (toggleBtn) toggleBtn.style.display = 'none';
+      bar.classList.remove('mc3-qr-bar-collapsed');
       for (var k = 0; k < bar.children.length; k++) {
         bar.children[k].classList.remove('mc3-qr-content-collapsed');
       }
@@ -951,6 +956,7 @@
 
     toggleBtn.style.display = 'inline-flex';
     var isCollapsed = !!settings.qrPanelCollapsed;
+    bar.classList.toggle('mc3-qr-bar-collapsed', isCollapsed);
     var arrow = isCollapsed ? '▲' : '▼';
     toggleBtn.innerHTML = '<span class="mc3-qr-arrow">' + arrow + '</span>';
     toggleBtn.title = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
