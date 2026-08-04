@@ -951,15 +951,23 @@
         saveSettings();
         applyAll();
       });
+      suppressObserver = true;
       bar.insertBefore(toggleBtn, bar.firstChild);
+      win.setTimeout(function () { suppressObserver = false; }, 0);
     }
 
     toggleBtn.style.display = 'inline-flex';
     var isCollapsed = !!settings.qrPanelCollapsed;
     bar.classList.toggle('mc3-qr-bar-collapsed', isCollapsed);
     var arrow = isCollapsed ? '▲' : '▼';
-    toggleBtn.innerHTML = '<span class="mc3-qr-arrow">' + arrow + '</span>';
-    toggleBtn.title = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
+    var arrowHtml = '<span class="mc3-qr-arrow">' + arrow + '</span>';
+    if (toggleBtn.innerHTML !== arrowHtml) {
+      toggleBtn.innerHTML = arrowHtml;
+    }
+    var titleText = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
+    if (toggleBtn.title !== titleText) {
+      toggleBtn.title = titleText;
+    }
 
     for (var j = 0; j < bar.children.length; j++) {
       var child = bar.children[j];
