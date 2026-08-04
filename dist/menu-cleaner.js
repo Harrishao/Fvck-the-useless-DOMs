@@ -160,6 +160,9 @@
     groupCollapsed: {}, // { groupId: boolean } —— 管理面板父分组折叠；缺省一律收起
     userDrawerCollapsed: {}, // { 'userSettings|标签': boolean } —— 实际用户设置伪抽屉；缺省全收起
     qrPanelCollapsed: false, // QR 面板折叠状态
+    enableQrFold: true,     // 启用 QR 面板折叠
+    enableUserFold: true,   // 启用用户条目折叠
+    activeTab: 'sort',      // 激活页签 'sort' | 'settings'
   };
   let settings = {};
 
@@ -207,6 +210,9 @@
     if (!settings.groupCollapsed) settings.groupCollapsed = {};
     if (!settings.userDrawerCollapsed) settings.userDrawerCollapsed = {};
     if (settings.qrPanelCollapsed === undefined) settings.qrPanelCollapsed = false;
+    if (settings.enableQrFold === undefined) settings.enableQrFold = true;
+    if (settings.enableUserFold === undefined) settings.enableUserFold = true;
+    if (!settings.activeTab) settings.activeTab = 'sort';
     // 新旧用户都以「未声明即收起」处理；之后每次切换均随 settings 持久化。
     for (var g = 0; g < GROUPS.length; g++) {
       if (settings.groupCollapsed[GROUPS[g].id] === undefined) settings.groupCollapsed[GROUPS[g].id] = true;
@@ -797,6 +803,10 @@
 
   // 用户设置的原位伪抽屉：不移动原生 DOM，只在指定 h4 前注入三角并切换内容类。
   function applyUserSettingsDrawers() {
+    if (!settings.enabled || settings.enableUserFold === false) {
+      clearUserSettingsDrawers();
+      return;
+    }
     if (!settings.userDrawerCollapsed) settings.userDrawerCollapsed = {};
     for (var i = 0; i < USER_SETTINGS_GROUPS.length; i++) {
       var definition = USER_SETTINGS_GROUPS[i];
@@ -912,7 +922,7 @@
     if (!bar) return;
 
     var toggleBtn = doc.getElementById('mc3-qr-toggle-btn');
-    if (!settings.enabled) {
+    if (!settings.enabled || settings.enableQrFold === false) {
       if (toggleBtn) toggleBtn.style.display = 'none';
       bar.classList.remove('mc3-qr-bar-collapsed');
       for (var i = 0; i < bar.children.length; i++) {
@@ -1036,11 +1046,25 @@
     '#mc3-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;width:100dvw;height:100dvh;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);}' +
     '#mc3-popup{display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
     '#mc3-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);font-weight:bold;}' +
+    '#mc3-head .mc3-head-title{display:flex;align-items:center;gap:12px;}' +
     '#mc3-head .mc3-x{cursor:pointer;background:none;border:none;color:inherit;font-size:18px;}' +
+    '#mc3-tabs{display:flex;gap:4px;}' +
+    '.mc3-tab{cursor:pointer;background:transparent;border:1px solid transparent;color:inherit;opacity:.6;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:normal;transition:all .15s;}' +
+    '.mc3-tab:hover{opacity:.9;background:var(--black20a,rgba(255,255,255,.05));}' +
+    '.mc3-tab.active{opacity:1;font-weight:bold;background:var(--black30a,rgba(0,0,0,.3));border-color:var(--SmartThemeBorderColor,#555);color:var(--SmartThemeQuoteColor,#3a6);}' +
     '#mc3-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);}' +
-    '#mc3-tools .mc3-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:4px 10px;}' +
     '#mc3-tools .mc3-tip{opacity:.6;font-size:11px;margin-left:auto;}' +
     '#mc3-body{overflow-y:auto;padding:6px 10px 12px;}' +
+    // 设置界面样式
+    '.mc3-settings-panel{padding:12px 16px;display:flex;flex-direction:column;gap:12px;}' +
+    '.mc3-setting-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:8px;font-size:13px;}' +
+    '.mc3-setting-row .mc3-setting-label{font-weight:500;display:flex;align-items:center;gap:8px;cursor:pointer;}' +
+    '.mc3-checkbox{width:18px;height:18px;cursor:pointer;accent-color:var(--SmartThemeQuoteColor,#3a6);}' +
+    '.mc3-segment-switch{display:flex;background:var(--black30a,rgba(0,0,0,.3));border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:2px;gap:2px;}' +
+    '.mc3-segment-btn{cursor:pointer;background:transparent;border:none;color:inherit;padding:3px 12px;border-radius:4px;font-size:12px;opacity:.7;transition:all .15s;}' +
+    '.mc3-segment-btn.active{background:var(--SmartThemeQuoteColor,#3a6);color:#fff;opacity:1;font-weight:bold;}' +
+    '.mc3-danger-btn{cursor:pointer;background:rgba(220,53,69,.15);color:#ff6b6b;border:1px solid rgba(220,53,69,.4);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:bold;transition:all .15s;}' +
+    '.mc3-danger-btn:hover{background:rgba(220,53,69,.3);border-color:#dc3545;color:#fff;}' +
     // 卡片样式
     '.mc3-card{background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:10px;margin:8px 4px;overflow:hidden;}' +
     '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);}' +
@@ -1144,10 +1168,13 @@
   }
 
   function resetAll() {
+    settings.enabled = true;
     settings.hidden = {};
     settings.order = JSON.parse(JSON.stringify(settings.nativeOrder || {}));
     settings.column = Object.assign({}, settings.nativeColumn || {});
     settings.columnMode = 'dual';
+    settings.enableQrFold = true;
+    settings.enableUserFold = true;
     // 清空全部子分组（不保留——恢复原始就是回到最初状态）
     settings.subgroups = {};
     for (var g = 0; g < SUBGROUP_GROUP_IDS.length; g++) {
@@ -1254,11 +1281,47 @@
     }
   }
 
-  function renderPopup() {
-    var body = doc.getElementById('mc3-body'); if (!body) return;
-    var setBtn = function (action, text) { var b = doc.querySelector('#mc3-tools [data-action="' + action + '"]'); if (b) b.textContent = text; };
-    setBtn('enable', '启用: ' + (settings.enabled ? '开' : '关'));
-    setBtn('colmode', '单双栏: ' + (settings.columnMode === 'single' ? '单' : '双'));
+  function renderSettingsPanel() {
+    var html = '<div class="mc3-settings-panel">';
+
+    // 1. 启用插件（复选框）
+    html += '<div class="mc3-setting-row">' +
+      '<label class="mc3-setting-label" for="mc3-set-enabled"><span>启用插件</span></label>' +
+      '<input type="checkbox" id="mc3-set-enabled" class="mc3-checkbox" data-action="set-enabled"' + (settings.enabled ? ' checked' : '') + '>' +
+      '</div>';
+
+    // 2. 扩展面板状态（单栏/双栏拨块）
+    html += '<div class="mc3-setting-row">' +
+      '<span class="mc3-setting-label">扩展面板状态</span>' +
+      '<div class="mc3-segment-switch">' +
+        '<button class="mc3-segment-btn' + (settings.columnMode === 'single' ? ' active' : '') + '" data-action="set-colmode" data-val="single">单栏</button>' +
+        '<button class="mc3-segment-btn' + (settings.columnMode === 'dual' ? ' active' : '') + '" data-action="set-colmode" data-val="dual">双栏</button>' +
+      '</div>' +
+      '</div>';
+
+    // 3. 启用QR面板折叠（复选框）
+    html += '<div class="mc3-setting-row">' +
+      '<label class="mc3-setting-label" for="mc3-set-qrfold"><span>启用QR面板折叠</span></label>' +
+      '<input type="checkbox" id="mc3-set-qrfold" class="mc3-checkbox" data-action="set-qrfold"' + (settings.enableQrFold !== false ? ' checked' : '') + '>' +
+      '</div>';
+
+    // 4. 启用用户条目折叠（复选框）
+    html += '<div class="mc3-setting-row">' +
+      '<label class="mc3-setting-label" for="mc3-set-userfold"><span>启用用户条目折叠</span></label>' +
+      '<input type="checkbox" id="mc3-set-userfold" class="mc3-checkbox" data-action="set-userfold"' + (settings.enableUserFold !== false ? ' checked' : '') + '>' +
+      '</div>';
+
+    // 5. 清除插件数据（按钮）
+    html += '<div class="mc3-setting-row">' +
+      '<span class="mc3-setting-label">恢复配置初始状态</span>' +
+      '<button class="mc3-danger-btn" data-action="clear-data">清除插件数据</button>' +
+      '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  function renderSortPanel() {
     var all = scanAll();
 
     // 确保 subgroups 初始化
@@ -1271,7 +1334,8 @@
       if (settings.groupCollapsed[GROUPS[gc].id] === undefined) settings.groupCollapsed[GROUPS[gc].id] = true;
     }
 
-    var html = '';
+    var html = '<div id="mc3-tools"><span class="mc3-tip">点击 + 号新建一个子分组</span></div>';
+
     for (var gi = 0; gi < GROUPS.length; gi++) {
       var group = GROUPS[gi];
       var recs = (all[group.id] || []).slice();
@@ -1366,7 +1430,25 @@
 
       html += '</div></div>'; // .mc3-list, .mc3-card
     }
-    body.innerHTML = html;
+    return html;
+  }
+
+  function renderPopup() {
+    var body = doc.getElementById('mc3-body'); if (!body) return;
+
+    // 更新 Tab 高亮
+    var tabs = doc.querySelectorAll('#mc3-head .mc3-tab');
+    var activeTab = settings.activeTab || 'sort';
+    for (var t = 0; t < tabs.length; t++) {
+      var tabName = tabs[t].getAttribute('data-tab');
+      tabs[t].classList.toggle('active', tabName === activeTab);
+    }
+
+    if (activeTab === 'settings') {
+      body.innerHTML = renderSettingsPanel();
+    } else {
+      body.innerHTML = renderSortPanel();
+    }
   }
 
   // ── Popup 事件处理 ──────────────────────────────────────────────────────────
@@ -1376,9 +1458,34 @@
     var a = t.getAttribute('data-action');
 
     if (a === 'close') { closePopup(); }
-    else if (a === 'enable') { settings.enabled = !settings.enabled; saveSettings(); applyAll(); renderPopup(); }
-    else if (a === 'colmode') { setColumnMode(settings.columnMode === 'dual' ? 'single' : 'dual'); renderPopup(); }
-    else if (a === 'reset') { resetAll(); }
+    else if (a === 'switch-tab') {
+      var tab = t.getAttribute('data-tab');
+      settings.activeTab = tab;
+      saveSettings();
+      renderPopup();
+    }
+    else if (a === 'set-enabled') {
+      settings.enabled = t.checked;
+      saveSettings(); applyAll(); renderPopup();
+    }
+    else if (a === 'set-colmode') {
+      var val = t.getAttribute('data-val');
+      setColumnMode(val);
+      renderPopup();
+    }
+    else if (a === 'set-qrfold') {
+      settings.enableQrFold = t.checked;
+      saveSettings(); applyAll(); renderPopup();
+    }
+    else if (a === 'set-userfold') {
+      settings.enableUserFold = t.checked;
+      saveSettings(); applyAll(); renderPopup();
+    }
+    else if (a === 'clear-data') {
+      if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) {
+        resetAll();
+      }
+    }
     else if (a === 'toggle-group') {
       var groupId = t.getAttribute('data-gid');
       settings.groupCollapsed[groupId] = !settings.groupCollapsed[groupId];
@@ -1617,13 +1724,17 @@
     injectPopupCSS();
     var ov = doc.createElement('div'); ov.id = 'mc3-overlay';
     ov.innerHTML = '<div id="mc3-popup">' +
-      '<div id="mc3-head"><span>菜单精简器</span><button class="mc3-x" data-action="close">✕</button></div>' +
-      '<div id="mc3-tools">' +
-        '<button class="mc3-btn" data-action="enable">启用: 开</button>' +
-        '<button class="mc3-btn" data-action="colmode">单双栏: 双</button>' +
-        '<button class="mc3-btn" data-action="reset">恢复原始</button>' +
-        '<span class="mc3-tip">点击 + 号新建一个子分组</span>' +
-      '</div><div id="mc3-body"></div></div>';
+      '<div id="mc3-head">' +
+        '<div class="mc3-head-title">' +
+          '<span>菜单精简器</span>' +
+          '<div class="mc3-tabs">' +
+            '<button type="button" class="mc3-tab" data-action="switch-tab" data-tab="sort">菜单排序</button>' +
+            '<button type="button" class="mc3-tab" data-action="switch-tab" data-tab="settings">插件设置</button>' +
+          '</div>' +
+        '</div>' +
+        '<button class="mc3-x" data-action="close">✕</button>' +
+      '</div>' +
+      '<div id="mc3-body"></div></div>';
     (doc.documentElement || doc.body).appendChild(ov);   // 挂到 html，规避主题祖先 transform/filter 致 fixed 偏移（#3）
     ov.addEventListener('click', function (e) { if (e.target === ov) closePopup(); });
     var popup = ov.querySelector('#mc3-popup');
