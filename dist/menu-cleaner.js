@@ -1756,11 +1756,6 @@
     }
     else if (a === 'delete-custom-selector') {
       var delCId = t.getAttribute('data-custom-id');
-      var cList = settings.customSelectors || [];
-      var cTarget = null;
-      for (var ci = 0; ci < cList.length; ci++) if (cList[ci].id === delCId) { cTarget = cList[ci]; break; }
-      var cLabel = cTarget ? cTarget.selector : '该选择器';
-      if (!confirm('确定要删除自定义 Selector "' + cLabel + '" 吗？\n匹配的元素将恢复原生显示状态。')) return;
       deleteCustomSelector(delCId);
       renderPopup();
     }
