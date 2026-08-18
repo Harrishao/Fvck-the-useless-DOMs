@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+
+  // version 805.0.1
   // 酒馆助手在 iframe 中执行脚本，需要操作父页面的 document
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
@@ -157,6 +159,7 @@
     columnMode: 'dual', // 'single' | 'dual'
     subgroups: {},     // { groupId: [{ id, name, memberKeys[], collapsed?, column? }] }
                        // column 仅 extensionsSettings 子分组有效，决定组内条目归属栏位
+    customSelectors: [], // [{ id, selector, label }]      — 用户自定义 Selector
     groupCollapsed: {}, // { groupId: boolean } —— 管理面板父分组折叠；缺省一律收起
     userDrawerCollapsed: {}, // { 'userSettings|标签': boolean } —— 实际用户设置伪抽屉；缺省全收起
     qrPanelCollapsed: false, // QR 面板折叠状态
@@ -207,6 +210,7 @@
     if (!settings.nativeColumn) settings.nativeColumn = {};
     if (!settings.nativeOrder) settings.nativeOrder = {};
     if (!settings.subgroups) settings.subgroups = {};
+    if (!settings.customSelectors || !Array.isArray(settings.customSelectors)) settings.customSelectors = [];
     if (!settings.groupCollapsed) settings.groupCollapsed = {};
     if (!settings.userDrawerCollapsed) settings.userDrawerCollapsed = {};
     if (settings.qrPanelCollapsed === undefined) settings.qrPanelCollapsed = false;
@@ -217,6 +221,7 @@
     for (var g = 0; g < GROUPS.length; g++) {
       if (settings.groupCollapsed[GROUPS[g].id] === undefined) settings.groupCollapsed[GROUPS[g].id] = true;
     }
+    if (settings.groupCollapsed['customSelectors'] === undefined) settings.groupCollapsed['customSelectors'] = true;
     for (var u = 0; u < USER_SETTINGS_GROUPS.length; u++) {
       if (settings.userDrawerCollapsed[getUserDrawerKey(USER_SETTINGS_GROUPS[u])] === undefined) {
         settings.userDrawerCollapsed[getUserDrawerKey(USER_SETTINGS_GROUPS[u])] = true;
@@ -309,6 +314,66 @@
       }
     }
     return map;
+  }
+
+  // ── 自定义 Selector工具 ─────────────────────────────────────────────────────────
+  function genCustomSelectorId() { return 'cs_' + Math.random().toString(36).slice(2, 10); }
+
+  function isValidCssSelector(selector) {
+    if (!selector || typeof selector !== 'string') return false;
+    try {
+      doc.querySelector(selector);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function addCustomSelector(selector, label) {
+    var sel = (selector || '').trim();
+    if (!sel) return { success: false, error: '选择器不能为空喵！' };
+    if (!isValidCssSelector(sel)) return { success: false, error: '选择器格式不合法喵，请输入有效的 CSS Selector！' };
+    if (!settings.customSelectors) settings.customSelectors = [];
+    for (var i = 0; i < settings.customSelectors.length; i++) {
+      if (settings.customSelectors[i].selector === sel) {
+        return { success: false, error: '该选择器已经存在了喵！' };
+      }
+    }
+    var id = genCustomSelectorId();
+    var item = {
+      id: id,
+      selector: sel,
+      label: (label || '').trim() || sel,
+    };
+    settings.customSelectors.push(item);
+    saveSettings();
+    applyAll();
+    return { success: true, item: item };
+  }
+
+  function deleteCustomSelector(id) {
+    if (!settings.customSelectors) return;
+    var targetItem = null;
+    for (var i = 0; i < settings.customSelectors.length; i++) {
+      if (settings.customSelectors[i].id === id) {
+        targetItem = settings.customSelectors[i];
+        break;
+      }
+    }
+    if (targetItem && isValidCssSelector(targetItem.selector)) {
+      try {
+        var els = doc.querySelectorAll(targetItem.selector);
+        for (var e = 0; e < els.length; e++) {
+          if (!isSelf(els[e])) els[e].classList.remove('mc3-hidden');
+        }
+      } catch (_) {}
+    }
+    settings.customSelectors = settings.customSelectors.filter(function (item) { return item.id !== id; });
+    if (settings.hidden && settings.hidden[id]) {
+      delete settings.hidden[id];
+    }
+    saveSettings();
+    applyAll();
   }
 
   // ── 工具 ───────────────────────────────────────────────────────────────────
@@ -915,6 +980,24 @@
     }
   }
 
+  // 自定义 Selector显隐应用
+  function applyCustomSelectors(on) {
+    var list = settings.customSelectors || [];
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i];
+      if (!isValidCssSelector(item.selector)) continue;
+      try {
+        var els = doc.querySelectorAll(item.selector);
+        var hidden = on && !!settings.hidden[item.id];
+        for (var j = 0; j < els.length; j++) {
+          var el = els[j];
+          if (isSelf(el) || el.closest('#mc3-overlay') || el.closest('#mc3-popup')) continue;
+          el.classList.toggle('mc3-hidden', hidden);
+        }
+      } catch (_) {}
+    }
+  }
+
   // QR 面板向下折叠收起控制：在 #qr--bar 内存在按钮内容时原位注入折叠手柄，
   // 允许用户向上/向下展开折叠，并持久化 settings.qrPanelCollapsed。
   function applyQrPanelFold() {
@@ -991,6 +1074,7 @@
     setupLaunchers();   // 幂等：先补回入口，使其作为普通条目被随后的 scanAll 扫描/排序/隐藏（#1）
     applyAlwaysHidden(settings.enabled);
     applySeparatorHides(settings.enabled);
+    applyCustomSelectors(settings.enabled);
     var all = scanAll();
     for (var i = 0; i < GROUPS.length; i++) {
       var recs = all[GROUPS[i].id] || [];
@@ -1100,7 +1184,11 @@
     // 重命名输入框
     '.mc3-rename-input{background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:4px;padding:2px 6px;font-size:12px;width:120px;flex:1;}' +
     // 子分组拖入高亮
-    '.mc3-subgroup.mc3-drop-target{border-color:var(--SmartThemeQuoteColor,#3a6);border-style:solid;background:rgba(58,170,102,.08);}';
+    '.mc3-subgroup.mc3-drop-target{border-color:var(--SmartThemeQuoteColor,#3a6);border-style:solid;background:rgba(58,170,102,.08);}' +
+    // 自定义 Selector样式
+    '.mc3-custom-add-row{display:flex;gap:6px;align-items:center;margin-bottom:8px;}' +
+    '.mc3-custom-input{flex:1;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:4px 8px;font-size:12px;outline:none;}' +
+    '.mc3-custom-input:focus{border-color:var(--SmartThemeQuoteColor,#3a6);}';
 
   function injectPopupCSS() {
     if (doc.getElementById('mc3-popup-style')) return;
@@ -1180,8 +1268,22 @@
     for (var g = 0; g < SUBGROUP_GROUP_IDS.length; g++) {
       settings.subgroups[SUBGROUP_GROUP_IDS[g]] = [];
     }
+    // 清空自定义 Selector
+    if (settings.customSelectors && settings.customSelectors.length > 0) {
+      for (var cs = 0; cs < settings.customSelectors.length; cs++) {
+        var item = settings.customSelectors[cs];
+        if (isValidCssSelector(item.selector)) {
+          try {
+            var els = doc.querySelectorAll(item.selector);
+            for (var e = 0; e < els.length; e++) els[e].classList.remove('mc3-hidden');
+          } catch (_) {}
+        }
+      }
+    }
+    settings.customSelectors = [];
     settings.groupCollapsed = {};
     for (var gi = 0; gi < GROUPS.length; gi++) settings.groupCollapsed[GROUPS[gi].id] = true;
+    settings.groupCollapsed['customSelectors'] = true;
     settings.userDrawerCollapsed = {};
     for (var ui = 0; ui < USER_SETTINGS_GROUPS.length; ui++) {
       settings.userDrawerCollapsed[getUserDrawerKey(USER_SETTINGS_GROUPS[ui])] = true;
@@ -1430,6 +1532,58 @@
 
       html += '</div></div>'; // .mc3-list, .mc3-card
     }
+
+    // === 自定义 Selector卡片 ===
+    var customList = settings.customSelectors || [];
+    var customCollapsed = settings.groupCollapsed['customSelectors'] !== false;
+
+    html += '<div class="mc3-card">';
+    // 卡片标题
+    html += '<div class="mc3-card-header">';
+    html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="customSelectors" title="折叠或展开自定义 Selector">' + (customCollapsed ? '▶' : '▼') + '</button>';
+    html += '<span class="mc3-card-title" data-action="toggle-group" data-gid="customSelectors" title="折叠或展开自定义 Selector">指哪消哪</span>';
+    html += '<small>(' + customList.length + ')</small>';
+    html += '</div>';
+
+    if (!customCollapsed) {
+      html += '<div style="padding:8px 10px;">';
+      // 新增输入区
+      html += '<div class="mc3-custom-add-row">' +
+        '<input type="text" id="mc3-custom-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，然后将它们送入虚空">' +
+        '<button type="button" class="mc3-toggle on" data-action="add-custom-selector" style="padding:4px 12px;font-size:12px;cursor:pointer;">+ 添加</button>' +
+        '</div>';
+
+      // 列表区
+      html += '<div class="mc3-list">';
+      if (customList.length === 0) {
+        html += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px;font-size:12px">暂无自定义 Selector，在上方输入后点击添加喵～</div>';
+      } else {
+        for (var ci = 0; ci < customList.length; ci++) {
+          var cItem = customList[ci];
+          var cHidden = !!settings.hidden[cItem.id];
+          var matchedCount = 0;
+          if (isValidCssSelector(cItem.selector)) {
+            try {
+              var matches = doc.querySelectorAll(cItem.selector);
+              for (var mi = 0; mi < matches.length; mi++) {
+                if (!isSelf(matches[mi]) && !matches[mi].closest('#mc3-overlay') && !matches[mi].closest('#mc3-popup')) matchedCount++;
+              }
+            } catch (_) {}
+          }
+          var countBadge = '<span style="opacity:.5;font-size:11px;margin-left:6px;">(' + matchedCount + '个匹配)</span>';
+
+          html += '<div class="mc3-row' + (cHidden ? ' mc3-off' : '') + '" data-custom-id="' + escHtml(cItem.id) + '">';
+          html += '<span class="mc3-label" title="' + escHtml(cItem.selector) + '" style="font-family:monospace;font-size:12px;">' + escHtml(cItem.label || cItem.selector) + countBadge + '</span>';
+          html += '<button class="mc3-toggle' + (cHidden ? '' : ' on') + '" data-action="toggle-custom-hide" data-custom-id="' + escHtml(cItem.id) + '">' + (cHidden ? '隐藏' : '显示') + '</button>';
+          html += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此选择器" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
+          html += '</div>';
+        }
+      }
+      html += '</div>'; // .mc3-list
+      html += '</div>';
+    }
+
+    html += '</div>'; // .mc3-card
     return html;
   }
 
@@ -1567,6 +1721,33 @@
         if (ev.key === 'Enter') { input.blur(); }
         if (ev.key === 'Escape') { renderPopup(); }
       });
+    }
+    // 自定义 Selector操作
+    else if (a === 'add-custom-selector') {
+      var customInput = doc.getElementById('mc3-custom-selector-input');
+      var customVal = customInput ? customInput.value.trim() : '';
+      var addRes = addCustomSelector(customVal);
+      if (!addRes.success) {
+        alert(addRes.error);
+        if (customInput) customInput.focus();
+      } else {
+        renderPopup();
+      }
+    }
+    else if (a === 'delete-custom-selector') {
+      var delCId = t.getAttribute('data-custom-id');
+      var cList = settings.customSelectors || [];
+      var cTarget = null;
+      for (var ci = 0; ci < cList.length; ci++) if (cList[ci].id === delCId) { cTarget = cList[ci]; break; }
+      var cLabel = cTarget ? cTarget.selector : '该选择器';
+      if (!confirm('确定要删除自定义 Selector "' + cLabel + '" 吗？\n匹配的元素将恢复原生显示状态。')) return;
+      deleteCustomSelector(delCId);
+      renderPopup();
+    }
+    else if (a === 'toggle-custom-hide') {
+      var chId = t.getAttribute('data-custom-id');
+      if (settings.hidden[chId]) delete settings.hidden[chId]; else settings.hidden[chId] = true;
+      saveSettings(); applyAll(); renderPopup();
     }
   }
 
@@ -1740,6 +1921,19 @@
     var popup = ov.querySelector('#mc3-popup');
     popup.addEventListener('click', onPopupClick);
     popup.addEventListener('pointerdown', onPopupPointerDown);
+    popup.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && e.target && e.target.id === 'mc3-custom-selector-input') {
+        e.preventDefault();
+        var val = e.target.value.trim();
+        var res = addCustomSelector(val);
+        if (!res.success) {
+          alert(res.error);
+          e.target.focus();
+        } else {
+          renderPopup();
+        }
+      }
+    });
   }
 
   function openPopup() { buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
@@ -1827,6 +2021,9 @@
       scanAll: scanAll,
       applyAll: applyAll,
       applyPseudoSubgroups: applyPseudoSubgroups,
+      applyCustomSelectors: applyCustomSelectors,
+      addCustomSelector: addCustomSelector,
+      deleteCustomSelector: deleteCustomSelector,
       setColumnMode: setColumnMode,
       openPopup: openPopup,
       closePopup: closePopup,
