@@ -376,6 +376,21 @@
     applyAll();
   }
 
+  // 渲染头尾保留、中部省略的 Selector 标签 HTML
+  function renderSelectorLabelHtml(selectorText, count) {
+    var text = selectorText || '';
+    var countBadge = count !== undefined ? '<span class="mc3-match-badge"></span>' : '';
+    if (text.length <= 16) {
+      return '<span class="mc3-mid-start">' + escHtml(text) + '</span>' + countBadge;
+    }
+    var tailLen = Math.min(22, Math.max(8, Math.floor(text.length * 0.35)));
+    var startStr = text.slice(0, text.length - tailLen);
+    var endStr = text.slice(text.length - tailLen);
+    return '<span class="mc3-mid-start">' + escHtml(startStr) + '</span>' +
+           '<span class="mc3-mid-end">' + escHtml(endStr) + '</span>' +
+           countBadge;
+  }
+
   // ── 工具 ───────────────────────────────────────────────────────────────────
   function normLabel(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
 
@@ -1188,7 +1203,12 @@
     // 自定义 Selector样式
     '.mc3-custom-add-row{display:flex;gap:6px;align-items:center;margin-bottom:8px;}' +
     '.mc3-custom-input{flex:1;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:4px 8px;font-size:12px;outline:none;}' +
-    '.mc3-custom-input:focus{border-color:var(--SmartThemeQuoteColor,#3a6);}';
+    '.mc3-custom-input:focus{border-color:var(--SmartThemeQuoteColor,#3a6);}' +
+    // 自定义 Selector 中段省略样式
+    '.mc3-mid-truncate{display:flex !important;align-items:center;min-width:0;overflow:hidden;font-family:monospace;font-size:12px;}' +
+    '.mc3-mid-start{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0;}' +
+    '.mc3-mid-end{flex:0 0 auto;white-space:nowrap;}' +
+    '.mc3-match-badge{flex:0 0 auto;opacity:.5;font-size:11px;margin-left:6px;white-space:nowrap;}';
 
   function injectPopupCSS() {
     if (doc.getElementById('mc3-popup-style')) return;
@@ -1570,10 +1590,10 @@
               }
             } catch (_) {}
           }
-          var countBadge = '<span style="opacity:.5;font-size:11px;margin-left:6px;">(' + matchedCount + '个匹配)</span>';
-
           html += '<div class="mc3-row' + (cHidden ? ' mc3-off' : '') + '" data-custom-id="' + escHtml(cItem.id) + '">';
-          html += '<span class="mc3-label" title="' + escHtml(cItem.selector) + '" style="font-family:monospace;font-size:12px;">' + escHtml(cItem.label || cItem.selector) + countBadge + '</span>';
+          html += '<span class="mc3-label mc3-mid-truncate" title="' + escHtml(cItem.selector) + '">' +
+                  renderSelectorLabelHtml(cItem.label || cItem.selector, matchedCount) +
+                  '</span>';
           html += '<button class="mc3-toggle' + (cHidden ? '' : ' on') + '" data-action="toggle-custom-hide" data-custom-id="' + escHtml(cItem.id) + '">' + (cHidden ? '隐藏' : '显示') + '</button>';
           html += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此选择器" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
           html += '</div>';
