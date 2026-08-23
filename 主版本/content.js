@@ -1141,12 +1141,12 @@
   // ── M6：管理 UI（popup）──────────────────────────────────────────────────────
   function escHtml(s) { return (s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
-  // 依据条目数非线性计算展开/折叠过渡时长（<=4 项兜底 0.25s，>4 项对数递增，上限 0.55s）
+  // 依据条目数非线性计算展开/折叠过渡时长（<=4 项兜底 0.22s，>4 项对数递增，上限 0.55s）
   function calcCollapseDuration(itemCount) {
     var count = Number(itemCount) || 0;
-    if (count <= 4) return 0.25;
-    var dur = 0.25 + 0.12 * (Math.log(count / 4) / Math.LN2);
-    return Math.min(0.55, Math.round(dur * 1000) / 1000);
+    if (count <= 4) return 0.22;
+    var dur = 0.22 + 0.08 * (Math.log(count / 4) / Math.LN2);
+    return Math.min(0.50, Math.round(dur * 1000) / 1000);
   }
 
   var POPUP_CSS =
