@@ -2,7 +2,7 @@
   'use strict';
 
 
-  // version 805.0.1
+  // version 824.0.0
   // 酒馆助手在 iframe 中执行脚本，需要操作父页面的 document
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
@@ -2066,7 +2066,7 @@
       win.setTimeout(function () { if (!suppressObserver) applyAll(); }, d);
     });
     win.__mc3 = {
-      version: 'M12',
+      version: 'M13',
       settings: settings,
       groups: GROUPS,
       getGroup: getGroup,
