@@ -1158,19 +1158,26 @@
     '.mc3-settings-panel{padding:12px 16px;display:flex;flex-direction:column;gap:12px;}' +
     '.mc3-setting-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:8px;font-size:13px;}' +
     '.mc3-setting-row .mc3-setting-label{font-weight:500;display:flex;align-items:center;gap:8px;cursor:pointer;}' +
-    '.mc3-checkbox{width:18px;height:18px;cursor:pointer;accent-color:var(--SmartThemeQuoteColor,#3a6);}' +
+    '.mc3-checkbox{width:28px;height:28px;cursor:pointer;accent-color:var(--SmartThemeQuoteColor,#3a6);}' +
     '.mc3-segment-switch{display:flex;background:var(--black30a,rgba(0,0,0,.3));border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:2px;gap:2px;}' +
     '.mc3-segment-btn{cursor:pointer;background:transparent;border:none;color:inherit;padding:3px 12px;border-radius:4px;font-size:12px;opacity:.7;transition:all .15s;}' +
     '.mc3-segment-btn.active{background:var(--SmartThemeQuoteColor,#3a6);color:#fff;opacity:1;font-weight:bold;}' +
     '.mc3-danger-btn{cursor:pointer;background:rgba(220,53,69,.15);color:#ff6b6b;border:1px solid rgba(220,53,69,.4);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:bold;transition:all .15s;}' +
     '.mc3-danger-btn:hover{background:rgba(220,53,69,.3);border-color:#dc3545;color:#fff;}' +
+    // 折叠箭头与动画
+    '.mc3-chevron{display:inline-block;transition:transform .25s cubic-bezier(.4,0,.2,1);transform:rotate(0deg);line-height:1;font-size:28px;}' +
     // 卡片样式
     '.mc3-card{background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:10px;margin:8px 4px;overflow:hidden;}' +
-    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);}' +
+    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);transition:border-bottom-color .25s ease;}' +
+    '.mc3-card.mc3-collapsed .mc3-card-header{border-bottom-color:transparent;}' +
     '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;}' +
-    '.mc3-card-collapse,.mc3-subgroup-collapse{cursor:pointer;background:none;border:0;color:inherit;padding:0;line-height:1;font-size:10px;opacity:.7;flex-shrink:0;width:14px;text-align:center;}' +
+    '.mc3-card-collapse,.mc3-subgroup-collapse{cursor:pointer;background:none;border:0;color:inherit;padding:0;line-height:1;opacity:.7;flex-shrink:0;width:18px;height:18px;text-align:center;display:inline-flex;align-items:center;justify-content:center;}' +
     '.mc3-card-collapse:hover,.mc3-subgroup-collapse:hover{opacity:1;}' +
     '.mc3-card-title{opacity:.9;cursor:pointer;}' +
+    '.mc3-card-body{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .25s ease,opacity .2s ease;}' +
+    '.mc3-card-body-inner{min-height:0;overflow:hidden;}' +
+    '.mc3-card.mc3-collapsed .mc3-card-body{grid-template-rows:0fr;opacity:0;}' +
+    '.mc3-card.mc3-collapsed .mc3-card-collapse .mc3-chevron{transform:rotate(-90deg);}' +
     // 图标按钮（+ ✎ ✕）
     '.mc3-icon-btn{cursor:pointer;background:none;border:none;color:inherit;opacity:.6;font-size:14px;padding:0 4px;line-height:1;transition:opacity .15s;}' +
     '.mc3-icon-btn:hover{opacity:1;}' +
@@ -1194,6 +1201,10 @@
     '.mc3-subgroup-header .mc3-sg-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
     '.mc3-subgroup-header .mc3-sg-handle:hover{opacity:.9;}' +
     '.mc3-subgroup-name{font-weight:bold;font-size:12px;opacity:.85;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}' +
+    '.mc3-subgroup-body{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .25s ease,opacity .2s ease;}' +
+    '.mc3-subgroup-body-inner{min-height:0;overflow:hidden;}' +
+    '.mc3-subgroup.mc3-collapsed .mc3-subgroup-body{grid-template-rows:0fr;opacity:0;}' +
+    '.mc3-subgroup.mc3-collapsed .mc3-subgroup-collapse .mc3-chevron{transform:rotate(-90deg);}' +
     '.mc3-subgroup-items{padding:0;}' +
     '.mc3-subgroup-items .mc3-row{padding-left:18px;}' +
     // 重命名输入框
@@ -1322,7 +1333,7 @@
     var html = '<div class="mc3-subgroup-header">';
     // 左侧组
     html += '<span class="mc3-handle mc3-sg-handle" title="拖动子分组排序">⠿</span>';
-    html += '<button type="button" class="mc3-subgroup-collapse" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组">' + (sg.collapsed ? '▶' : '▼') + '</button>';
+    html += '<button type="button" class="mc3-subgroup-collapse" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组"><span class="mc3-chevron">▾</span></button>';
     html += '<span class="mc3-subgroup-name" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组">' + escHtml(sg.name) + '</span>';
     html += '<button class="mc3-icon-btn" data-action="start-rename-sg" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="重命名">✎</button>';
     // 右侧组，toggle 顺序与条目行一致：分栏 → 显隐
@@ -1503,10 +1514,11 @@
       insertEmptySubgroupUnits(units, sgList, sgData);
 
       // === 渲染卡片 ===
-      html += '<div class="mc3-card">';
+      var isCollapsed = !!settings.groupCollapsed[group.id];
+      html += '<div class="mc3-card' + (isCollapsed ? ' mc3-collapsed' : '') + '">';
       // 卡片标题
       html += '<div class="mc3-card-header">';
-      html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="' + group.id + '" title="折叠或展开父分组">' + (settings.groupCollapsed[group.id] ? '▶' : '▼') + '</button>';
+      html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="' + group.id + '" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>';
       html += '<span class="mc3-card-title" data-action="toggle-group" data-gid="' + group.id + '" title="折叠或展开父分组">' + escHtml(group.name) + '</span>';
       html += '<small>(' + recs.length + ')</small>';
       if (supportsSg) {
@@ -1514,12 +1526,8 @@
       }
       html += '</div>';
 
-      if (settings.groupCollapsed[group.id]) {
-        html += '</div>';
-        continue;
-      }
-
       // 列表区
+      html += '<div class="mc3-card-body"><div class="mc3-card-body-inner">';
       html += '<div class="mc3-list" data-gid="' + group.id + '">';
 
       for (var ui = 0; ui < units.length; ui++) {
@@ -1531,77 +1539,80 @@
           var sg = unit.data.subgroup;
           var sgRecs = unit.data.records;
           sgRecs.sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
+          var isSgCollapsed = !!sg.collapsed;
 
-          html += '<div class="mc3-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
+          html += '<div class="mc3-subgroup' + (isSgCollapsed ? ' mc3-collapsed' : '') + '" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
           html += renderSubgroupHeader(sg, group, sgRecs, map);
 
-          if (!sg.collapsed) {
-            html += '<div class="mc3-subgroup-items" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
-            if (sgRecs.length === 0) {
-              html += '<div class="mc3-row" style="opacity:.25;font-style:italic;justify-content:center;padding:10px;font-size:12px">拖动条目到此处加入分组</div>';
-            } else {
-              for (var sri = 0; sri < sgRecs.length; sri++) {
-                html += renderItemRow(sgRecs[sri], group, true);
-              }
+          html += '<div class="mc3-subgroup-body"><div class="mc3-subgroup-body-inner">';
+          html += '<div class="mc3-subgroup-items" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
+          if (sgRecs.length === 0) {
+            html += '<div class="mc3-row" style="opacity:.25;font-style:italic;justify-content:center;padding:10px;font-size:12px">拖动条目到此处加入分组</div>';
+          } else {
+            for (var sri = 0; sri < sgRecs.length; sri++) {
+              html += renderItemRow(sgRecs[sri], group, true);
             }
-            html += '</div>';
           }
-          html += '</div>';
+          html += '</div>'; // .mc3-subgroup-items
+          html += '</div></div>'; // .mc3-subgroup-body-inner, .mc3-subgroup-body
+          html += '</div>'; // .mc3-subgroup
         }
       }
 
-      html += '</div></div>'; // .mc3-list, .mc3-card
+      html += '</div>'; // .mc3-list
+      html += '</div></div>'; // .mc3-card-body-inner, .mc3-card-body
+      html += '</div>'; // .mc3-card
     }
 
     // === 自定义 Selector卡片 ===
     var customList = settings.customSelectors || [];
     var customCollapsed = settings.groupCollapsed['customSelectors'] !== false;
 
-    html += '<div class="mc3-card">';
+    html += '<div class="mc3-card' + (customCollapsed ? ' mc3-collapsed' : '') + '">';
     // 卡片标题
     html += '<div class="mc3-card-header">';
-    html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="customSelectors" title="折叠或展开自定义 Selector">' + (customCollapsed ? '▶' : '▼') + '</button>';
+    html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="customSelectors" title="折叠或展开自定义 Selector"><span class="mc3-chevron">▾</span></button>';
     html += '<span class="mc3-card-title" data-action="toggle-group" data-gid="customSelectors" title="折叠或展开自定义 Selector">指哪消哪</span>';
     html += '<small>(' + customList.length + ')</small>';
     html += '</div>';
 
-    if (!customCollapsed) {
-      html += '<div style="padding:8px 10px;">';
-      // 新增输入区
-      html += '<div class="mc3-custom-add-row">' +
-        '<input type="text" id="mc3-custom-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，然后将它们送入虚空">' +
-        '<button type="button" class="mc3-toggle on" data-action="add-custom-selector" style="padding:4px 12px;font-size:12px;cursor:pointer;">+ 添加</button>' +
-        '</div>';
+    html += '<div class="mc3-card-body"><div class="mc3-card-body-inner">';
+    html += '<div style="padding:8px 10px;">';
+    // 新增输入区
+    html += '<div class="mc3-custom-add-row">' +
+      '<input type="text" id="mc3-custom-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，然后将它们送入虚空">' +
+      '<button type="button" class="mc3-toggle on" data-action="add-custom-selector" style="padding:4px 12px;font-size:12px;cursor:pointer;">+ 添加</button>' +
+      '</div>';
 
-      // 列表区
-      html += '<div class="mc3-list">';
-      if (customList.length === 0) {
-        html += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px;font-size:12px">暂无自定义 Selector，在上方输入后点击添加喵～</div>';
-      } else {
-        for (var ci = 0; ci < customList.length; ci++) {
-          var cItem = customList[ci];
-          var cHidden = !!settings.hidden[cItem.id];
-          var matchedCount = 0;
-          if (isValidCssSelector(cItem.selector)) {
-            try {
-              var matches = doc.querySelectorAll(cItem.selector);
-              for (var mi = 0; mi < matches.length; mi++) {
-                if (!isSelf(matches[mi]) && !matches[mi].closest('#mc3-overlay') && !matches[mi].closest('#mc3-popup')) matchedCount++;
-              }
-            } catch (_) {}
-          }
-          html += '<div class="mc3-row' + (cHidden ? ' mc3-off' : '') + '" data-custom-id="' + escHtml(cItem.id) + '">';
-          html += '<span class="mc3-label mc3-mid-truncate" title="' + escHtml(cItem.selector) + '">' +
-                  renderSelectorLabelHtml(cItem.label || cItem.selector, matchedCount) +
-                  '</span>';
-          html += '<button class="mc3-toggle' + (cHidden ? '' : ' on') + '" data-action="toggle-custom-hide" data-custom-id="' + escHtml(cItem.id) + '">' + (cHidden ? '隐藏' : '显示') + '</button>';
-          html += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此选择器" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
-          html += '</div>';
+    // 列表区
+    html += '<div class="mc3-list">';
+    if (customList.length === 0) {
+      html += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px;font-size:12px">暂无自定义 Selector，在上方输入后点击添加喵～</div>';
+    } else {
+      for (var ci = 0; ci < customList.length; ci++) {
+        var cItem = customList[ci];
+        var cHidden = !!settings.hidden[cItem.id];
+        var matchedCount = 0;
+        if (isValidCssSelector(cItem.selector)) {
+          try {
+            var matches = doc.querySelectorAll(cItem.selector);
+            for (var mi = 0; mi < matches.length; mi++) {
+              if (!isSelf(matches[mi]) && !matches[mi].closest('#mc3-overlay') && !matches[mi].closest('#mc3-popup')) matchedCount++;
+            }
+          } catch (_) {}
         }
+        html += '<div class="mc3-row' + (cHidden ? ' mc3-off' : '') + '" data-custom-id="' + escHtml(cItem.id) + '">';
+        html += '<span class="mc3-label mc3-mid-truncate" title="' + escHtml(cItem.selector) + '">' +
+                renderSelectorLabelHtml(cItem.label || cItem.selector, matchedCount) +
+                '</span>';
+        html += '<button class="mc3-toggle' + (cHidden ? '' : ' on') + '" data-action="toggle-custom-hide" data-custom-id="' + escHtml(cItem.id) + '">' + (cHidden ? '隐藏' : '显示') + '</button>';
+        html += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此选择器" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
+        html += '</div>';
       }
-      html += '</div>'; // .mc3-list
-      html += '</div>';
     }
+    html += '</div>'; // .mc3-list
+    html += '</div>'; // padding wrapper
+    html += '</div></div>'; // .mc3-card-body-inner, .mc3-card-body
 
     html += '</div>'; // .mc3-card
     return html;
@@ -1662,8 +1673,13 @@
     }
     else if (a === 'toggle-group') {
       var groupId = t.getAttribute('data-gid');
-      settings.groupCollapsed[groupId] = !settings.groupCollapsed[groupId];
-      saveSettings(); renderPopup();
+      var card = t.closest('.mc3-card');
+      var willCollapse = card ? !card.classList.contains('mc3-collapsed') : !settings.groupCollapsed[groupId];
+      settings.groupCollapsed[groupId] = willCollapse;
+      if (card) {
+        card.classList.toggle('mc3-collapsed', willCollapse);
+      }
+      saveSettings();
     }
     else if (a === 'toggle-hide') {
       var k = t.getAttribute('data-key');
@@ -1695,7 +1711,15 @@
       var tgGid = t.getAttribute('data-gid');
       var tgSgId = t.getAttribute('data-sgid');
       var tgSg = getSubgroupById(tgGid, tgSgId);
-      if (tgSg) { tgSg.collapsed = !tgSg.collapsed; saveSettings(); applyAll(); renderPopup(); }
+      var sgEl = t.closest('.mc3-subgroup');
+      if (tgSg) {
+        tgSg.collapsed = sgEl ? !sgEl.classList.contains('mc3-collapsed') : !tgSg.collapsed;
+        if (sgEl) {
+          sgEl.classList.toggle('mc3-collapsed', tgSg.collapsed);
+        }
+        saveSettings();
+        applyAll();
+      }
     }
     else if (a === 'toggle-sg-hide') {
       var thGid = t.getAttribute('data-gid');
