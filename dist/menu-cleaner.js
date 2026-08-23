@@ -1141,6 +1141,14 @@
   // ── M6：管理 UI（popup）──────────────────────────────────────────────────────
   function escHtml(s) { return (s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
+  // 依据条目数非线性计算展开/折叠过渡时长（<=4 项兜底 0.25s，>4 项对数递增，上限 0.55s）
+  function calcCollapseDuration(itemCount) {
+    var count = Number(itemCount) || 0;
+    if (count <= 4) return 0.25;
+    var dur = 0.25 + 0.12 * (Math.log(count / 4) / Math.LN2);
+    return Math.min(0.55, Math.round(dur * 1000) / 1000);
+  }
+
   var POPUP_CSS =
     '#mc3-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;width:100dvw;height:100dvh;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);}' +
     '#mc3-popup{display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
@@ -1165,16 +1173,16 @@
     '.mc3-danger-btn{cursor:pointer;background:rgba(220,53,69,.15);color:#ff6b6b;border:1px solid rgba(220,53,69,.4);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:bold;transition:all .15s;}' +
     '.mc3-danger-btn:hover{background:rgba(220,53,69,.3);border-color:#dc3545;color:#fff;}' +
     // 折叠箭头与动画
-    '.mc3-chevron{display:inline-block;transition:transform .25s cubic-bezier(.4,0,.2,1);transform:rotate(0deg);line-height:1;font-size:28px;}' +
+    '.mc3-chevron{display:inline-block;transition:transform var(--mc3-dur,.25s) cubic-bezier(.4,0,.2,1);transform:rotate(0deg);line-height:1;font-size:28px;}' +
     // 卡片样式
     '.mc3-card{background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:10px;margin:8px 4px;overflow:hidden;}' +
-    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);transition:border-bottom-color .25s ease;}' +
+    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);transition:border-bottom-color var(--mc3-dur,.25s) ease;}' +
     '.mc3-card.mc3-collapsed .mc3-card-header{border-bottom-color:transparent;}' +
     '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;}' +
     '.mc3-card-collapse,.mc3-subgroup-collapse{cursor:pointer;background:none;border:0;color:inherit;padding:0;line-height:1;opacity:.7;flex-shrink:0;width:18px;height:18px;text-align:center;display:inline-flex;align-items:center;justify-content:center;}' +
     '.mc3-card-collapse:hover,.mc3-subgroup-collapse:hover{opacity:1;}' +
     '.mc3-card-title{opacity:.9;cursor:pointer;}' +
-    '.mc3-card-body{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .25s ease,opacity .2s ease;}' +
+    '.mc3-card-body{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--mc3-dur,.25s) ease,opacity calc(var(--mc3-dur,.25s) * .8) ease;}' +
     '.mc3-card-body-inner{min-height:0;overflow:hidden;}' +
     '.mc3-card.mc3-collapsed .mc3-card-body{grid-template-rows:0fr;opacity:0;}' +
     '.mc3-card.mc3-collapsed .mc3-card-collapse .mc3-chevron{transform:rotate(-90deg);}' +
@@ -1201,7 +1209,7 @@
     '.mc3-subgroup-header .mc3-sg-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
     '.mc3-subgroup-header .mc3-sg-handle:hover{opacity:.9;}' +
     '.mc3-subgroup-name{font-weight:bold;font-size:12px;opacity:.85;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}' +
-    '.mc3-subgroup-body{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .25s ease,opacity .2s ease;}' +
+    '.mc3-subgroup-body{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--mc3-dur,.25s) ease,opacity calc(var(--mc3-dur,.25s) * .8) ease;}' +
     '.mc3-subgroup-body-inner{min-height:0;overflow:hidden;}' +
     '.mc3-subgroup.mc3-collapsed .mc3-subgroup-body{grid-template-rows:0fr;opacity:0;}' +
     '.mc3-subgroup.mc3-collapsed .mc3-subgroup-collapse .mc3-chevron{transform:rotate(-90deg);}' +
@@ -1515,7 +1523,8 @@
 
       // === 渲染卡片 ===
       var isCollapsed = !!settings.groupCollapsed[group.id];
-      html += '<div class="mc3-card' + (isCollapsed ? ' mc3-collapsed' : '') + '">';
+      var cardDur = calcCollapseDuration(recs.length);
+      html += '<div class="mc3-card' + (isCollapsed ? ' mc3-collapsed' : '') + '" style="--mc3-dur:' + cardDur + 's;">';
       // 卡片标题
       html += '<div class="mc3-card-header">';
       html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="' + group.id + '" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>';
@@ -1540,8 +1549,9 @@
           var sgRecs = unit.data.records;
           sgRecs.sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
           var isSgCollapsed = !!sg.collapsed;
+          var sgDur = calcCollapseDuration(sgRecs.length);
 
-          html += '<div class="mc3-subgroup' + (isSgCollapsed ? ' mc3-collapsed' : '') + '" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
+          html += '<div class="mc3-subgroup' + (isSgCollapsed ? ' mc3-collapsed' : '') + '" data-sgid="' + sg.id + '" data-gid="' + group.id + '" style="--mc3-dur:' + sgDur + 's;">';
           html += renderSubgroupHeader(sg, group, sgRecs, map);
 
           html += '<div class="mc3-subgroup-body"><div class="mc3-subgroup-body-inner">';
@@ -1567,8 +1577,9 @@
     // === 自定义 Selector卡片 ===
     var customList = settings.customSelectors || [];
     var customCollapsed = settings.groupCollapsed['customSelectors'] !== false;
+    var customDur = calcCollapseDuration(customList.length);
 
-    html += '<div class="mc3-card' + (customCollapsed ? ' mc3-collapsed' : '') + '">';
+    html += '<div class="mc3-card' + (customCollapsed ? ' mc3-collapsed' : '') + '" style="--mc3-dur:' + customDur + 's;">';
     // 卡片标题
     html += '<div class="mc3-card-header">';
     html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="customSelectors" title="折叠或展开自定义 Selector"><span class="mc3-chevron">▾</span></button>';
@@ -1677,6 +1688,8 @@
       var willCollapse = card ? !card.classList.contains('mc3-collapsed') : !settings.groupCollapsed[groupId];
       settings.groupCollapsed[groupId] = willCollapse;
       if (card) {
+        var rowCount = card.querySelectorAll('.mc3-row').length;
+        card.style.setProperty('--mc3-dur', calcCollapseDuration(rowCount) + 's');
         card.classList.toggle('mc3-collapsed', willCollapse);
       }
       saveSettings();
@@ -1715,6 +1728,8 @@
       if (tgSg) {
         tgSg.collapsed = sgEl ? !sgEl.classList.contains('mc3-collapsed') : !tgSg.collapsed;
         if (sgEl) {
+          var sgRowCount = sgEl.querySelectorAll('.mc3-row').length;
+          sgEl.style.setProperty('--mc3-dur', calcCollapseDuration(sgRowCount) + 's');
           sgEl.classList.toggle('mc3-collapsed', tgSg.collapsed);
         }
         saveSettings();
