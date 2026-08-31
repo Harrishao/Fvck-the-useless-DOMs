@@ -2,7 +2,7 @@
   'use strict';
 
 
-  // version 824.0.0
+  // version 831.0.0
   // 酒馆助手在 iframe 中执行脚本，需要操作父页面的 document
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
@@ -417,7 +417,18 @@
 
   // 元素「本身」是否被显式隐藏（不依赖菜单是否展开：computed display 是元素自身的，
   // 不受祖先 display:none 影响）。用于在重复副本中挑出可见的那一个 —— 直接修 #5。
-  function isOwnVisible(el) { return win.getComputedStyle(el).display !== 'none'; }
+  // 注意：若元素已被 mc3 打上 .mc3-hidden，需排除 .mc3-hidden 的影响以判断其原生可见性。
+  function isOwnVisible(el) {
+    if (!el) return false;
+    if (el.classList.contains('displayNone') || el.hidden || el.style.display === 'none') return false;
+    if (el.classList.contains('mc3-hidden')) {
+      el.classList.remove('mc3-hidden');
+      var vis = win.getComputedStyle(el).display !== 'none';
+      el.classList.add('mc3-hidden');
+      return vis;
+    }
+    return win.getComputedStyle(el).display !== 'none';
+  }
 
   // 标签提取（自旧版移植，多级 fallback 已成熟）
   function extractHeaderLabel(header) {
@@ -591,9 +602,11 @@
 
         var key;
         if (isStableId(el.id)) {
-          // T1/T2：元素自带稳定 id。重复 id（#option_close_chat ×2）共享同一 key，保留可见副本。
+          // T1/T2：元素自带稳定 id。重复 id（#option_close_chat ×2）共享同一 key，保留可见副本并收集全部副本。
           key = '#' + el.id;
           if (byKey[key]) {
+            byKey[key].els.push(el);
+            if (byKey[key].units && unit) byKey[key].units.push(unit);
             if (!isOwnVisible(byKey[key].el) && isOwnVisible(el)) { byKey[key].el = el; byKey[key].unit = unit; }
             continue;
           }
@@ -606,7 +619,7 @@
           key = cnt === 0 ? base : base + '|' + cnt;
         }
 
-        var rec = { key: key, el: el, els: [el], unit: unit, groupId: group.id, container: containerSel, label: label };
+        var rec = { key: key, el: el, els: [el], unit: unit, units: unit ? [unit] : [], groupId: group.id, container: containerSel, label: label };
         if (column !== undefined) rec.column = column;
         records.push(rec);
         byKey[key] = rec;
@@ -627,7 +640,7 @@
         for (var f = 0; f < found.length; f++) if (els.indexOf(found[f]) === -1 && !isSelf(found[f])) els.push(found[f]);
       }
       if (!els.length) continue;
-      records.push({ key: group.id + '|' + pg.label, el: els[0], els: els, unit: null, groupId: group.id, label: pg.label, curated: true });
+      records.push({ key: group.id + '|' + pg.label, el: els[0], els: els, unit: null, units: [], groupId: group.id, label: pg.label, curated: true });
     }
     return records;
   }
@@ -712,12 +725,16 @@
     var hasPseudoHeaders = supportsPseudoSubgroups(group);
     var unitSlot = new Map();
     for (var i = 0; i < records.length; i++) {
-      var slot = map[records[i].key];
+      var r = records[i];
+      var slot = map[r.key];
       if (slot === undefined) continue;
       var displaySlot = hasPseudoHeaders ? slot * 2 + 1 : slot;
-      var u = records[i].unit;
-      if (u && (!unitSlot.has(u) || displaySlot < unitSlot.get(u))) unitSlot.set(u, displaySlot);
-      if (records[i].el && records[i].el !== u) records[i].el.style.order = String(displaySlot);
+      for (var e = 0; e < r.els.length; e++) {
+        var el = r.els[e];
+        var u = (r.units && r.units[e]) ? r.units[e] : (r.unit || el);
+        if (u && (!unitSlot.has(u) || displaySlot < unitSlot.get(u))) unitSlot.set(u, displaySlot);
+        if (el && el !== u) el.style.order = String(displaySlot);
+      }
     }
     unitSlot.forEach(function (slot, unit) { if (unit) unit.style.order = String(slot); });
   }
@@ -736,8 +753,15 @@
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
       var hidden = isRecordEffectivelyHidden(group, r);
-      for (var e = 0; e < r.els.length; e++) r.els[e].classList.toggle('mc3-hidden', hidden); // packed：按组隐藏全部元素
-      if (r.unit) { if (!byUnit.has(r.unit)) byUnit.set(r.unit, []); byUnit.get(r.unit).push(r); }
+      for (var e = 0; e < r.els.length; e++) {
+        var el = r.els[e];
+        el.classList.toggle('mc3-hidden', hidden); // packed：按组隐藏全部元素
+        var u = (r.units && r.units[e]) ? r.units[e] : (r.unit || el);
+        if (u) {
+          if (!byUnit.has(u)) byUnit.set(u, []);
+          byUnit.get(u).push(r);
+        }
+      }
     }
     byUnit.forEach(function (recs, unit) {
       var allHidden = recs.every(function (r) { return isRecordEffectivelyHidden(group, r); });
@@ -775,7 +799,11 @@
         target = single ? 0 : (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
       }
       var tc = target === 1 ? col1 : col0;
-      if (r.unit && r.unit.parentNode !== tc) { suppressObserver = true; tc.appendChild(r.unit); moved = true; }
+      var unitsToMove = (r.units && r.units.length) ? r.units : (r.unit ? [r.unit] : []);
+      for (var ui = 0; ui < unitsToMove.length; ui++) {
+        var un = unitsToMove[ui];
+        if (un && un.parentNode !== tc) { suppressObserver = true; tc.appendChild(un); moved = true; }
+      }
     }
     col1.style.display = single ? 'none' : '';   // 单栏时右栏收起，左栏占满
     if (moved) win.setTimeout(function () { suppressObserver = false; }, 0);
@@ -967,12 +995,17 @@
     var seen = new Set();
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
-      for (var e = 0; e < r.els.length; e++) { r.els[e].classList.remove('mc3-hidden'); r.els[e].style.order = ''; }
-      if (r.unit && !seen.has(r.unit)) {
-        seen.add(r.unit);
-        r.unit.style.order = '';
-        r.unit.classList.remove('mc3-hidden');
-        if (r.unit.style.display === 'contents') r.unit.style.display = '';
+      for (var e = 0; e < r.els.length; e++) {
+        var el = r.els[e];
+        el.classList.remove('mc3-hidden');
+        el.style.order = '';
+        var u = (r.units && r.units[e]) ? r.units[e] : (r.unit || el);
+        if (u && !seen.has(u)) {
+          seen.add(u);
+          u.style.order = '';
+          u.classList.remove('mc3-hidden');
+          if (u.style.display === 'contents') u.style.display = '';
+        }
       }
     }
     if (group.id === 'userSettings') clearUserSettingsDrawers();
