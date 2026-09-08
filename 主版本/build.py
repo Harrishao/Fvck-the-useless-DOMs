@@ -36,7 +36,7 @@ for tpl_path in (loader_path, fallback_path):
         break
 if template is None:
     template = {
-        "type": "script", "enabled": True, "name": "酒馆菜单精简器",
+        "type": "script", "enabled": True, "name": "菜单精简器",
         "id": "3f5dba4b-ffdf-4569-89f3-639c684f0288", "content": "",
         "info": "", "button": {"enabled": True, "buttons": []}, "data": {},
     }

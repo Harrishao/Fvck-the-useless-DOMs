@@ -110,7 +110,13 @@
     {
       label: '杂项', selectors: ['div[name="MiscellaneousToggles"]', '#CustomCSS-block'],
       drawerHeader: 'div[name="MiscellaneousToggles"] > h4',
-      drawerTargets: ['div[name="MiscellaneousToggles"] > :not(h4)', '#CustomCSS-block'],
+      drawerTargets: ['div[name="MiscellaneousToggles"] > :not(h4)'],
+    },
+    {
+      label: '自定义CSS',
+      noCuratedRecord: true,
+      drawerHeader: '#CustomCSS-block > h4',
+      drawerTargets: ['#CustomCSS-block > :not(h4)'],
     },
     {
       label: '聊天/消息处理', selectors: [
@@ -635,6 +641,7 @@
     var definitions = CURATED_GROUPS[group.id] || [];
     for (var i = 0; i < definitions.length; i++) {
       var pg = definitions[i];
+      if (pg.noCuratedRecord || !pg.selectors) continue;
       var els = [];
       for (var s = 0; s < pg.selectors.length; s++) {
         var found = doc.querySelectorAll(pg.selectors[s]);
@@ -679,9 +686,9 @@
       '#qr--bar.mc3-qr-bar-collapsed > .mc3-qr-toggle-btn{margin-right:0 !important;}',
       '@media screen and (max-width:800px){#qr--bar.mc3-qr-bar-collapsed{padding-left:0 !important;padding-right:0 !important;}}',
       '.mc3-user-drawer-header{cursor:pointer;user-select:none;}',
-      '#UI-presets-block > h4.mc3-user-drawer-header{position:relative;}',
-      '#UI-presets-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow{position:absolute;left:5px;top:50%;transform:translateY(-50%);}',
-      '#UI-presets-block > h4.mc3-user-drawer-header > span:first-of-type{padding-left:18px;}',
+      '#UI-presets-block > h4.mc3-user-drawer-header, #CustomCSS-block > h4.mc3-user-drawer-header{position:relative;}',
+      '#UI-presets-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow, #CustomCSS-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow{position:absolute;left:5px;top:50%;transform:translateY(-50%);}',
+      '#UI-presets-block > h4.mc3-user-drawer-header > span:first-of-type, #CustomCSS-block > h4.mc3-user-drawer-header > span:first-of-type{padding-left:18px;}',
       'button.mc3-user-drawer-arrow{display:inline-block;width:14px;margin:0 4px 0 0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:10px;line-height:1;opacity:.72;cursor:pointer;vertical-align:middle;}',
       'button.mc3-user-drawer-arrow:hover{opacity:1;}',
       'button.mc3-user-drawer-arrow:focus-visible{outline:2px solid var(--SmartThemeQuoteColor,#3a6);outline-offset:1px;}',
@@ -943,7 +950,7 @@
 
         if (!header.__mc3UserDrawerHandler) {
           header.__mc3UserDrawerHandler = function (e) {
-            var interactive = e.target.closest('button,input,select,textarea,a,label,.menu_button');
+            var interactive = e.target.closest('button,input,select,textarea,a,label,.menu_button,.right_menu_button,.editor_maximize');
             if (interactive && !interactive.classList.contains('mc3-user-drawer-arrow')) return;
             e.preventDefault();
             var currentHeader = e.currentTarget;
