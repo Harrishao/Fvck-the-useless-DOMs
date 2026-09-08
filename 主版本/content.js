@@ -2,7 +2,7 @@
   'use strict';
 
 
-  // version 831.0.0
+  // version 908.0.0
   // 酒馆助手在 iframe 中执行脚本，需要操作父页面的 document
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
@@ -95,7 +95,7 @@
 
   // 用户设置面板：保持原生三栏与嵌套结构，仅用标题原位伪抽屉控制内容。
   // selectors 供管理面板的整组显隐使用；drawerTargets 仅收起标题下方内容。
-  // 「杂项」的容器本身包含 #CustomCSS-block，因此两者按一个整体控制。
+  // 使用 name 属性与稳定 id 进行语义化匹配，避免对 DOM 顺位(:nth-child)或栏位结构的脆弱依赖。
   const USER_SETTINGS_GROUPS = [
     {
       label: 'UI主题', selectors: ['#UI-Theme-Block'],
@@ -103,29 +103,30 @@
       drawerTargets: ['#UI-Theme-Block > :not(#UI-presets-block)', '#UI-presets-block > :not(h4)'],
     },
     {
-      label: '角色处理', selectors: ['#UI-Customization > div:nth-child(1)'],
-      drawerHeader: '#UI-Customization > div:nth-child(1) > h4',
-      drawerTargets: ['#UI-Customization > div:nth-child(1) > :not(h4)'],
+      label: '角色处理', selectors: ['div[name="CharacterHandlingToggles"]'],
+      drawerHeader: 'div[name="CharacterHandlingToggles"] > h4',
+      drawerTargets: ['div[name="CharacterHandlingToggles"] > :not(h4)'],
     },
     {
-      label: '杂项', selectors: ['#UI-Customization > div:nth-child(2)'],
-      drawerHeader: '#UI-Customization > div:nth-child(2) > h4',
-      drawerTargets: ['#UI-Customization > div:nth-child(2) > :not(h4)'],
+      label: '杂项', selectors: ['div[name="MiscellaneousToggles"]', '#CustomCSS-block'],
+      drawerHeader: 'div[name="MiscellaneousToggles"] > h4',
+      drawerTargets: ['div[name="MiscellaneousToggles"] > :not(h4)', '#CustomCSS-block'],
     },
-    { label: '聊天/消息处理', selectors: [
-      '#power-user-option-checkboxes > div:nth-child(1)',
-      '#power-user-option-checkboxes > div.inline-drawer.wide100p.flexFlowColumn',
-    ],
-      drawerHeader: '#power-user-option-checkboxes > div:nth-child(1) > h4',
+    {
+      label: '聊天/消息处理', selectors: [
+        'div[name="ChatMessageHandlingToggles"]',
+        'div[name="AutoCompleteToggle"]',
+      ],
+      drawerHeader: 'div[name="ChatMessageHandlingToggles"] > h4',
       drawerTargets: [
-        '#power-user-option-checkboxes > div:nth-child(1) > :not(h4)',
-        '#power-user-option-checkboxes > div.inline-drawer.wide100p.flexFlowColumn',
+        'div[name="ChatMessageHandlingToggles"] > :not(h4)',
+        'div[name="AutoCompleteToggle"]',
       ],
     },
     {
-      label: 'ST Script设置', selectors: ['#power-user-option-checkboxes > div:nth-child(3)'],
-      drawerHeader: '#power-user-option-checkboxes > div:nth-child(3) > h4',
-      drawerTargets: ['#power-user-option-checkboxes > div:nth-child(3) > :not(h4)'],
+      label: 'ST Script设置', selectors: ['div[name="STscriptToggles"]'],
+      drawerHeader: 'div[name="STscriptToggles"] > h4',
+      drawerTargets: ['div[name="STscriptToggles"] > :not(h4)'],
     },
   ];
 
