@@ -1724,7 +1724,7 @@
 
     // 栏0：被省略号收纳
     html += '<div class="mc3-mes-column" data-col="0">';
-    html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">被省略号收纳</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
+    html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">收纳至...内</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
     html += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
     if (col0Recs.length === 0) {
       html += '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">拖动元素到此处收纳</div>';
@@ -1735,7 +1735,7 @@
 
     // 栏1：不被省略号收纳
     html += '<div class="mc3-mes-column" data-col="1">';
-    html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">不被省略号收纳 (外显)</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
+    html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">始终外显</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
     html += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
     if (col1Recs.length === 0) {
       html += '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">拖动元素到此处外显</div>';
