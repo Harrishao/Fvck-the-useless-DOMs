@@ -72,7 +72,31 @@
       curated: true,                   // 三栏且含嵌套容器，仅按配置打包显隐，不跨容器排序
       observe: ['#user-settings-block'],
     },
+    {
+      id: 'mesButtons', name: '消息操作',
+      containers: ['#message_template .mes_buttons'],
+      observe: ['#chat', '#message_template'],
+      mode: 'mesButtons',
+    },
   ];
+
+  // 内置消息按钮友好标签映射
+  const MES_BUTTON_DEFAULT_LABELS = {
+    '.mes_edit': '编辑',
+    '.mes_bookmark': '书签/检查点',
+    '.mes_copy': '复制',
+    '.mes_translate': '翻译',
+    '.sd_message_gen': '生成图片',
+    '.mes_narrate': '朗读',
+    '.mes_prompt': '提示词',
+    '.mes_hide': '排除提示词',
+    '.mes_unhide': '包含提示词',
+    '.mes_media_gallery': '媒体画廊',
+    '.mes_media_list': '媒体列表',
+    '.mes_embed': '嵌入文件/图片',
+    '.mes_create_bookmark': '创建检查点',
+    '.mes_create_branch': '创建分支',
+  };
 
   // 支持子分组的分组
   const SUBGROUP_GROUP_IDS = ['options', 'extensionsMenu', 'extensionsSettings', 'qrPanel'];
@@ -653,11 +677,123 @@
     return records;
   }
 
+  // 消息操作按钮语义选择器提取
+  function getMesButtonSelector(el) {
+    if (isStableId(el.id)) return '#' + el.id;
+    var ignoredClasses = ['mes_button', 'interactable', 'menu_button', 'displayNone', 'mc3-hidden', 'visible', 'fa-solid', 'fa-regular'];
+    var cl = [];
+    var len = el.classList ? el.classList.length : 0;
+    for (var i = 0; i < len; i++) {
+      var c = el.classList.item ? el.classList.item(i) : el.classList[i];
+      if (!c || typeof c !== 'string') continue;
+      if (ignoredClasses.indexOf(c) === -1 && c.indexOf('fa-') !== 0 && c.indexOf(OWN_PREFIX) !== 0) {
+        cl.push(c);
+      }
+    }
+    if (cl.length > 0) return '.' + cl[0];
+    var title = el.getAttribute('title') || el.getAttribute('data-tooltip') || el.getAttribute('data-i18n');
+    if (title) return '[title="' + title.replace(/"/g, '\\"') + '"]';
+    for (var j = 0; j < len; j++) {
+      var fc = el.classList.item ? el.classList.item(j) : el.classList[j];
+      if (!fc || typeof fc !== 'string') continue;
+      if (fc.indexOf('fa-') === 0 && fc !== 'fa-solid' && fc !== 'fa-regular') return '.' + fc;
+    }
+    return null;
+  }
+
+  // 消息操作按钮标签提取
+  function getMesButtonLabel(el, selector) {
+    if (selector && MES_BUTTON_DEFAULT_LABELS[selector]) {
+      return MES_BUTTON_DEFAULT_LABELS[selector];
+    }
+    var title = el.getAttribute('title') || el.getAttribute('data-tooltip');
+    if (title) {
+      var trimmed = normLabel(title);
+      if (trimmed) return trimmed;
+    }
+    var i18n = el.getAttribute('data-i18n');
+    if (i18n) {
+      var cleanI18n = i18n.replace(/^\[.*?\]/, '');
+      if (cleanI18n) return normLabel(cleanI18n);
+    }
+    var dt = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) dt += el.childNodes[i].textContent;
+    }
+    dt = normLabel(dt);
+    if (dt) return dt;
+    return selector ? selector.replace(/^[.#]/, '') : '未知按钮';
+  }
+
+  // 消息操作专属扫描：收集 .mes_buttons 模板及各楼层中的所有功能按钮，捕获 nativeColumn
+  function scanMesButtons(group) {
+    var containers = doc.querySelectorAll('#message_template .mes_buttons, #chat .mes_buttons');
+    if (!containers.length) containers = doc.querySelectorAll('.mes_buttons');
+    var records = [];
+    var seenKeys = new Set();
+
+    for (var ci = 0; ci < containers.length; ci++) {
+      var container = containers[ci];
+      var extraBox = container.querySelector('.extraMesButtons');
+      var allButtons = [];
+
+      // 1. 被收纳按钮（在 .extraMesButtons 内部）
+      if (extraBox) {
+        for (var eb = 0; eb < extraBox.children.length; eb++) {
+          var eBtn = extraBox.children[eb];
+          if (isSelf(eBtn)) continue;
+          allButtons.push({ el: eBtn, nativeCol: 0 });
+        }
+      }
+
+      // 2. 外显按钮（在 .mes_buttons 直接子级）
+      for (var cb = 0; cb < container.children.length; cb++) {
+        var cBtn = container.children[cb];
+        if (isSelf(cBtn) || cBtn === extraBox || cBtn.classList.contains('extraMesButtonsHint') || cBtn.classList.contains('extraMesButtons')) {
+          continue;
+        }
+        allButtons.push({ el: cBtn, nativeCol: 1 });
+      }
+
+      for (var bi = 0; bi < allButtons.length; bi++) {
+        var item = allButtons[bi];
+        var btnEl = item.el;
+        var sel = getMesButtonSelector(btnEl);
+        if (!sel) continue;
+        var key = 'mesButtons|' + sel;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+
+        var lbl = getMesButtonLabel(btnEl, sel);
+        if (settings.nativeColumn[key] === undefined) {
+          settings.nativeColumn[key] = item.nativeCol;
+        }
+        var curCol = settings.column[key] !== undefined ? settings.column[key] : settings.nativeColumn[key];
+
+        records.push({
+          key: key,
+          selector: sel,
+          el: btnEl,
+          els: [btnEl],
+          unit: btnEl,
+          units: [btnEl],
+          groupId: group.id,
+          label: lbl,
+          column: curCol,
+          nativeColumn: settings.nativeColumn[key],
+        });
+      }
+    }
+    return records;
+  }
+
   function scanAll() {
     var all = {};
     for (var i = 0; i < GROUPS.length; i++) {
       var g = GROUPS[i];
-      all[g.id] = g.curated ? scanCurated(g) : scanGroup(g);
+      if (g.curated) all[g.id] = scanCurated(g);
+      else if (g.mode === 'mesButtons') all[g.id] = scanMesButtons(g);
+      else all[g.id] = scanGroup(g);
     }
     return all;
   }
@@ -991,7 +1127,116 @@
     }
   }
 
+  // 应用消息操作栏配置：双栏包含关系、显隐与排序，保证省略号始终处于不被收纳项左侧
+  function applyMesButtons(records) {
+    var group = getGroup('mesButtons');
+    var map = group ? ensureSlots(group, records) : (settings.order['mesButtons'] || {});
+    var containers = doc.querySelectorAll('#message_template .mes_buttons, #chat .mes_buttons, .mes_buttons');
+    if (!containers.length) return;
+    var seenContainers = new Set();
+    var moved = false;
+
+    for (var ci = 0; ci < containers.length; ci++) {
+      var container = containers[ci];
+      if (seenContainers.has(container) || isSelf(container)) continue;
+      seenContainers.add(container);
+
+      var hint = container.querySelector('.extraMesButtonsHint');
+      var extra = container.querySelector('.extraMesButtons');
+      if (!hint || !extra) continue;
+
+      // 1. 省略号与折叠容器永远赋予更小 order，确保始终处于不被收纳项左侧
+      hint.style.order = '-2';
+      extra.style.order = '-1';
+
+      // 确保 hint 和 extra 在 DOM 物理层级上也居于最前部
+      if (hint.parentNode === container && container.firstChild !== hint) {
+        suppressObserver = true;
+        container.insertBefore(hint, container.firstChild);
+        moved = true;
+      }
+      if (extra.parentNode === container && hint.nextSibling !== extra) {
+        suppressObserver = true;
+        container.insertBefore(extra, hint.nextSibling);
+        moved = true;
+      }
+
+      var visibleExtraChildrenCount = 0;
+
+      // 2. 遍历 records，按 column 和 order 调整每个按钮
+      for (var ri = 0; ri < records.length; ri++) {
+        var rec = records[ri];
+        var btn = container.querySelector(rec.selector);
+        if (!btn || btn === hint || btn === extra) continue;
+
+        var isHidden = !!settings.hidden[rec.key];
+        btn.classList.toggle('mc3-hidden', isHidden);
+
+        var slot = map[rec.key] !== undefined ? map[rec.key] : (ri + 1);
+        btn.style.order = String(slot);
+
+        var targetCol = settings.column[rec.key] !== undefined ? settings.column[rec.key] : rec.nativeColumn;
+        if (targetCol === 0) {
+          // 被省略号收纳 -> 置于 extra 内部
+          if (btn.parentNode !== extra) {
+            suppressObserver = true;
+            extra.appendChild(btn);
+            moved = true;
+          }
+          if (!isHidden && btn.style.display !== 'none') {
+            visibleExtraChildrenCount++;
+          }
+        } else {
+          // 不被省略号收纳 -> 置于 container 直接子级
+          if (btn.parentNode !== container) {
+            suppressObserver = true;
+            container.appendChild(btn);
+            moved = true;
+          }
+        }
+      }
+
+      // 3. 若 extra 内部没有任何可见子项，联动隐藏 hint；否则恢复显示
+      if (!extra.classList.contains('visible')) {
+        hint.classList.toggle('mc3-hidden', visibleExtraChildrenCount === 0);
+      }
+    }
+
+    if (moved) {
+      win.setTimeout(function () { suppressObserver = false; }, 0);
+    }
+  }
+
+  function clearMesButtons(records) {
+    var containers = doc.querySelectorAll('#message_template .mes_buttons, #chat .mes_buttons, .mes_buttons');
+    for (var ci = 0; ci < containers.length; ci++) {
+      var container = containers[ci];
+      var hint = container.querySelector('.extraMesButtonsHint');
+      var extra = container.querySelector('.extraMesButtons');
+      if (hint) { hint.style.order = ''; hint.classList.remove('mc3-hidden'); }
+      if (extra) { extra.style.order = ''; }
+
+      for (var ri = 0; ri < records.length; ri++) {
+        var rec = records[ri];
+        var btn = container.querySelector(rec.selector);
+        if (!btn) continue;
+        btn.classList.remove('mc3-hidden');
+        btn.style.order = '';
+        var nativeCol = settings.nativeColumn[rec.key] !== undefined ? settings.nativeColumn[rec.key] : rec.nativeColumn;
+        if (nativeCol === 0 && extra && btn.parentNode !== extra) {
+          extra.appendChild(btn);
+        } else if (nativeCol === 1 && btn.parentNode !== container) {
+          container.appendChild(btn);
+        }
+      }
+    }
+  }
+
   function applyGroup(group, records) {
+    if (group.id === 'mesButtons') {
+      applyMesButtons(records);
+      return;
+    }
     if (group.id === 'extensionsSettings') applyColumns(records); // 先定栏（唯一搬 DOM 处）
     if (!group.curated) applyOrder(group, records);                // curated 跨原生容器，仅做显隐
     applyHides(group, records);                                   // 再可见性
@@ -1000,6 +1245,10 @@
   }
 
   function clearGroup(group, records) {
+    if (group.id === 'mesButtons') {
+      clearMesButtons(records);
+      return;
+    }
     var seen = new Set();
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
@@ -1268,7 +1517,16 @@
     '.mc3-mid-truncate{display:flex !important;align-items:center;min-width:0;overflow:hidden;font-family:monospace;font-size:12px;}' +
     '.mc3-mid-start{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0;}' +
     '.mc3-mid-end{flex:0 0 auto;white-space:nowrap;}' +
-    '.mc3-match-badge{flex:0 0 auto;opacity:.5;font-size:11px;margin-left:6px;white-space:nowrap;}';
+    '.mc3-match-badge{flex:0 0 auto;opacity:.5;font-size:11px;margin-left:6px;white-space:nowrap;}' +
+    // 消息操作双栏样式
+    '.mc3-mes-columns{display:flex;gap:8px;padding:8px 6px;}' +
+    '.mc3-mes-column{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--black20a,rgba(255,255,255,.015));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:8px;overflow:hidden;}' +
+    '.mc3-mes-col-header{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--black30a,rgba(0,0,0,.2));border-bottom:1px solid var(--SmartThemeBorderColor,#444);font-size:12px;font-weight:600;}' +
+    '.mc3-mes-col-title{opacity:.9;}' +
+    '.mc3-mes-col-count{opacity:.5;font-size:11px;margin-left:auto;}' +
+    '.mc3-mes-list{min-height:56px;padding:4px 0;flex:1;transition:background .15s;}' +
+    '.mc3-mes-list.mc3-drop-target{background:rgba(58,170,102,.12);border-radius:4px;}' +
+    '@media screen and (max-width:480px){.mc3-mes-columns{flex-direction:column;}}';
 
   function injectPopupCSS() {
     if (doc.getElementById('mc3-popup-style')) return;
@@ -1424,6 +1682,74 @@
     return html;
   }
 
+  // 渲染消息操作单行条目
+  function renderMesRow(r) {
+    var hidden = !!settings.hidden[r.key];
+    var col = (settings.column[r.key] !== undefined ? settings.column[r.key] : r.nativeColumn);
+    var html = '<div class="mc3-row' + (hidden ? ' mc3-off' : '') + '" data-key="' + escHtml(r.key) + '" data-gid="mesButtons" data-col="' + col + '">';
+    html += '<span class="mc3-handle" title="拖动排序或跨栏拖动">⠿</span>';
+    html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
+    html += '<button class="mc3-toggle' + (hidden ? '' : ' on') + '" data-action="toggle-hide" data-key="' + escHtml(r.key) + '">' + (hidden ? '隐藏' : '显示') + '</button>';
+    html += '</div>';
+    return html;
+  }
+
+  // 渲染消息操作专属双栏卡片
+  function renderMesButtonsCard(group, recs, map) {
+    var isCollapsed = !!settings.groupCollapsed[group.id];
+    var cardDur = calcCollapseDuration(recs.length);
+
+    var col0Recs = [];
+    var col1Recs = [];
+    for (var i = 0; i < recs.length; i++) {
+      var r = recs[i];
+      var col = settings.column[r.key] !== undefined ? settings.column[r.key] : r.nativeColumn;
+      if (col === 0) col0Recs.push(r);
+      else col1Recs.push(r);
+    }
+    col0Recs.sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
+    col1Recs.sort(function (a, b) { return (map[a.key] || 0) - (map[b.key] || 0); });
+
+    var html = '<div class="mc3-card' + (isCollapsed ? ' mc3-collapsed' : '') + '" style="--mc3-dur:' + cardDur + 's;">';
+    // 卡片标题
+    html += '<div class="mc3-card-header">';
+    html += '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="' + group.id + '" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>';
+    html += '<span class="mc3-card-title" data-action="toggle-group" data-gid="' + group.id + '" title="折叠或展开父分组">' + escHtml(group.name) + '</span>';
+    html += '<small>(' + recs.length + ')</small>';
+    html += '</div>';
+
+    // 双栏列表区
+    html += '<div class="mc3-card-body"><div class="mc3-card-body-inner">';
+    html += '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
+
+    // 栏0：被省略号收纳
+    html += '<div class="mc3-mes-column" data-col="0">';
+    html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">被省略号收纳</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
+    html += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
+    if (col0Recs.length === 0) {
+      html += '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">拖动元素到此处收纳</div>';
+    } else {
+      for (var j0 = 0; j0 < col0Recs.length; j0++) html += renderMesRow(col0Recs[j0]);
+    }
+    html += '</div></div>';
+
+    // 栏1：不被省略号收纳
+    html += '<div class="mc3-mes-column" data-col="1">';
+    html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">不被省略号收纳 (外显)</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
+    html += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
+    if (col1Recs.length === 0) {
+      html += '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">拖动元素到此处外显</div>';
+    } else {
+      for (var j1 = 0; j1 < col1Recs.length; j1++) html += renderMesRow(col1Recs[j1]);
+    }
+    html += '</div></div>';
+
+    html += '</div>'; // .mc3-mes-columns
+    html += '</div></div>'; // .mc3-card-body-inner, .mc3-card-body
+    html += '</div>'; // .mc3-card
+    return html;
+  }
+
   // 有成员的子分组仍由首个成员的 order 定位；空子分组没有 key 锚点，
   // 因此按单独持久化的 popupPosition 插回顶层单元列表。
   function insertEmptySubgroupUnits(units, sgList, sgData) {
@@ -1522,6 +1848,12 @@
       var group = GROUPS[gi];
       var recs = (all[group.id] || []).slice();
       var map = settings.order[group.id] || {};
+
+      if (group.id === 'mesButtons') {
+        html += renderMesButtonsCard(group, recs, map);
+        continue;
+      }
+
       var supportsSg = SUBGROUP_GROUP_IDS.indexOf(group.id) !== -1;
       var sgList = supportsSg ? (settings.subgroups[group.id] || []) : [];
 
@@ -1877,6 +2209,7 @@
       var child = children[i];
       if (child === row) continue;
       if (!child.classList.contains('mc3-row') && !child.classList.contains('mc3-subgroup')) continue;
+      if (child.classList.contains('mc3-empty-tip')) continue;
       var rc = child.getBoundingClientRect();
       if (clientY < rc.top + rc.height / 2) { after = child; break; }
     }
@@ -1913,6 +2246,24 @@
     var allSubgroups = list.querySelectorAll('.mc3-subgroup');
 
     function move(ev) {
+      if (gid === 'mesButtons') {
+        var elAtPoint = doc.elementFromPoint(ev.clientX, ev.clientY);
+        var mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list') : null;
+        var allMesLists = doc.querySelectorAll('.mc3-mes-list');
+        for (var mi = 0; mi < allMesLists.length; mi++) allMesLists[mi].classList.remove('mc3-drop-target');
+
+        if (mesList) {
+          mesList.classList.add('mc3-drop-target');
+          if (dragEl.parentNode !== mesList) {
+            mesList.appendChild(dragEl);
+          }
+          findInsertAfter(mesList, dragEl, ev.clientY);
+        }
+        dragMeta._lastX = ev.clientX;
+        dragMeta._lastY = ev.clientY;
+        return;
+      }
+
       if (isSgHandle) {
         // 子分组拖拽：只在 list 层级移动，不进入其它子分组
         findInsertAfter(list, dragEl, ev.clientY);
@@ -1939,6 +2290,51 @@
     }
 
     function up(ev) {
+      if (gid === 'mesButtons') {
+        doc.removeEventListener('pointermove', move);
+        doc.removeEventListener('pointerup', up);
+        try { dragEl.releasePointerCapture(ev ? ev.pointerId : 0); } catch (_) {}
+
+        dragEl.classList.remove('mc3-drag');
+        var allMesLists = doc.querySelectorAll('.mc3-mes-list');
+        for (var mi = 0; mi < allMesLists.length; mi++) allMesLists[mi].classList.remove('mc3-drop-target');
+
+        var finalColList = dragEl.closest('.mc3-mes-list');
+        if (!finalColList) {
+          var elAtPoint = doc.elementFromPoint((ev && ev.clientX !== undefined) ? ev.clientX : (dragMeta._lastX || 0), (ev && ev.clientY !== undefined) ? ev.clientY : (dragMeta._lastY || 0));
+          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list') : null;
+        }
+
+        if (finalColList) {
+          var targetCol = Number(finalColList.getAttribute('data-col'));
+          settings.column[dragMeta.key] = targetCol;
+        }
+
+        var col0List = doc.querySelector('.mc3-mes-list[data-col="0"]');
+        var col1List = doc.querySelector('.mc3-mes-list[data-col="1"]');
+        var orderedKeys = [];
+        if (col0List) {
+          var rows0 = col0List.querySelectorAll('.mc3-row[data-key]');
+          for (var r0 = 0; r0 < rows0.length; r0++) {
+            var k0 = rows0[r0].getAttribute('data-key');
+            if (k0 && orderedKeys.indexOf(k0) === -1) orderedKeys.push(k0);
+          }
+        }
+        if (col1List) {
+          var rows1 = col1List.querySelectorAll('.mc3-row[data-key]');
+          for (var r1 = 0; r1 < rows1.length; r1++) {
+            var k1 = rows1[r1].getAttribute('data-key');
+            if (k1 && orderedKeys.indexOf(k1) === -1) orderedKeys.push(k1);
+          }
+        }
+
+        commitReorder('mesButtons', orderedKeys);
+        saveSettings();
+        applyAll();
+        renderPopup();
+        dragMeta = null;
+        return;
+      }
       doc.removeEventListener('pointermove', move);
       doc.removeEventListener('pointerup', up);
       try { dragEl.releasePointerCapture(ev ? ev.pointerId : 0); } catch (_) {}
@@ -2107,14 +2503,18 @@
       win.setTimeout(function () { if (!suppressObserver) applyAll(); }, d);
     });
     win.__mc3 = {
-      version: 'M13',
+      version: 'M14',
       settings: settings,
       groups: GROUPS,
       getGroup: getGroup,
       scanGroup: scanGroup,
+      scanMesButtons: scanMesButtons,
       scanCurated: scanCurated,
       scanAll: scanAll,
       applyAll: applyAll,
+      applyMesButtons: applyMesButtons,
+      clearMesButtons: clearMesButtons,
+      renderMesButtonsCard: renderMesButtonsCard,
       applyPseudoSubgroups: applyPseudoSubgroups,
       applyCustomSelectors: applyCustomSelectors,
       addCustomSelector: addCustomSelector,
