@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  // version 908.0.0
+  // version 909.0.2
 
   // iframe穿透
   var doc = window.frameElement ? window.parent.document : document;
@@ -33,7 +33,8 @@
       id: 'extensionsMenu', name: '魔棒',
       button: '#extensionsMenuButton',
       containers: ['#extensionsMenu'],
-      forceFlex: true,                 
+      forceFlex: true,
+      mode: 'listItems', itemMatch: '.list-group-item', label: 'span',
     },
     {
       id: 'extensionsSettings', name: '扩展菜单',
