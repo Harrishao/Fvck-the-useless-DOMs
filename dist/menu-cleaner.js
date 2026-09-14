@@ -1,52 +1,44 @@
 (function () {
   'use strict';
 
-
   // version 908.0.0
-  // 酒馆助手在 iframe 中执行脚本，需要操作父页面的 document
+
+  // iframe穿透
   var doc = window.frameElement ? window.parent.document : document;
   var win = window.frameElement ? window.parent : window;
 
 
 
-  // 独立 localStorage key，避免与主版本/旧版本互相污染
-  const STORAGE_KEY = 'menu_cleaner3_settings'; // 保留：迁移源 + ctx 不可用时降级兜底
-  const EXT_KEY = 'menu_cleaner3';              // 新：extension_settings 里的 key（与旧版残留 menu_cleaner 不冲突）
-  const OWN_PREFIX = 'mc3-';   // 本版自身注入元素 id 前缀（扫描时跳过）
+  // 这部分用于避免版本污染（以及一些历史残留问题？）
+  const STORAGE_KEY = 'menu_cleaner3_settings'; 
+  const EXT_KEY = 'menu_cleaner3';              
+  const OWN_PREFIX = 'mc3-';   // 用于区分此插件注入元素的前缀
 
   // id 是否「稳定、可用作 key」：排除空、本版自身、以及旧版方案2 残留的 menu-cleaner-auto-* 自增 id
   function isStableId(id) {
     return !!id && id.indexOf(OWN_PREFIX) !== 0 && id.indexOf('menu-cleaner-auto-') !== 0 && /^[A-Za-z][\w:-]*$/.test(id);
   }
 
-  // ── 纯发现配置（零硬编码 items / 零 ALWAYS_HIDDEN）──────────────────────────
-  // 每组只描述「在哪扫、怎么认条目、标签从哪取」，不预判任何元素的用途/可见性。
-  //   mode:
-  //     'children'  — 直接子元素即条目（可用 itemFilter 限定）
-  //     'listItems' — 后代 .list-group-item 即条目（穿透 wrapper）
-  //     'drawers'   — 子元素中带 header 者即条目（穿透 .extension_container）
-  //   label: 'text' | 'span' | 'attrTitle' | 'header'
+  // 扫描器
+  // 分组定义
   const GROUPS = [
     {
       id: 'options', name: '左下菜单',
       button: '#options_button',
       containers: ['#options .options-content'],
-      forceFlex: true,                 // 实测此容器 display:block，需 flex 覆盖才能用 order
-      // itemFilter 取结构化的 'a'（菜单项都是 <a>，自动排除 <hr> 分隔线），不再假设
-      // id 以 option_ 开头 —— 第三方注入项（如世界书 #wb-menu-btn-v6）不守该命名约定。
+      forceFlex: true,                 
       mode: 'children', itemFilter: 'a', label: 'text',
     },
     {
       id: 'extensionsMenu', name: '魔棒',
       button: '#extensionsMenuButton',
       containers: ['#extensionsMenu'],
-      forceFlex: true,                 // 实测 #extensionsMenu 也是 options-content(block)，需 flex 才能用 order
-      mode: 'listItems', itemMatch: '.list-group-item', label: 'span',
+      forceFlex: true,                 
     },
     {
       id: 'extensionsSettings', name: '扩展菜单',
       button: '#extensions-settings-button',
-      containers: ['#extensions_settings', '#extensions_settings2'],  // 双栏
+      containers: ['#extensions_settings', '#extensions_settings2'],  
       mode: 'drawers', header: '.inline-drawer-header', label: 'header',
     },
     {
@@ -63,14 +55,13 @@
     {
       id: 'presetSettings', name: '预设菜单',
       button: '#ai-config-button',
-      curated: true,                   // 预设条目是裸 div 跨两容器，需按 PRESET_GROUPS 人工打包（见 可展开列表.md）
-      observe: ['#left-nav-panel'],    // curated 无 containers，单独给 observer 监听目标
+      curated: true,                   
+      observe: ['#left-nav-panel'],    
     },
     {
       id: 'userSettings', name: '用户设置',
       button: '#user-settings-button',
-      curated: true,                   // 三栏且含嵌套容器，仅按配置打包显隐，不跨容器排序
-      observe: ['#user-settings-block'],
+      curated: true,                   
     },
     {
       id: 'mesButtons', name: '消息操作',
@@ -101,8 +92,7 @@
   // 支持子分组的分组
   const SUBGROUP_GROUP_IDS = ['options', 'extensionsMenu', 'extensionsSettings', 'qrPanel'];
 
-  // 预设面板：裸 div 无 id、跨 #range_block_openai/#openai_settings 两容器，必须人工打包成命名分组，
-  // 按组隐藏（可见性同时作用于组内每个元素）。标题含括号部分，依 可展开列表.md。
+  // 预设面板，分组打包，不支持排序
   function presetRange(prefix, a, b, suffix) { var out = []; for (var n = a; n <= b; n++) out.push(prefix + n + suffix); return out; }
   const PRESET_GROUPS = [
     { label: '上下文长度及备选回复', selectors: presetRange('#range_block_openai > div:nth-child(', 1, 4, ')') },
@@ -117,9 +107,7 @@
     { label: '预设条目(你不会连这个都要隐藏吧？)', selectors: ['#openai_settings > div.range-block.m-b-1'] },
   ];
 
-  // 用户设置面板：保持原生三栏与嵌套结构，仅用标题原位伪抽屉控制内容。
-  // selectors 供管理面板的整组显隐使用；drawerTargets 仅收起标题下方内容。
-  // 使用 name 属性与稳定 id 进行语义化匹配，避免对 DOM 顺位(:nth-child)或栏位结构的脆弱依赖。
+  // 用户设置面板
   const USER_SETTINGS_GROUPS = [
     {
       label: 'UI主题', selectors: ['#UI-Theme-Block'],
@@ -165,7 +153,7 @@
     userSettings: USER_SETTINGS_GROUPS,
   };
 
-  // 「无论如何都不需要」的元素：默认隐藏、不在 UI 提供滑块（依 可展开列表.md）。
+  // 默认隐藏的元素
   const ALWAYS_HIDDEN = [
     '#rm_api_block > div.flex-container.flexFlowColumn > #openai_api > div.flex-container.flex > #test_api_button',
     '#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p',
@@ -200,9 +188,7 @@
   };
   let settings = {};
 
-  // 实测：window.extension_settings 全局不可用，必须走 SillyTavern.getContext()。
-  // init 时 extension_settings 天然就绪（酒馆助手脚本仓库本身就在 extension_settings.tavern_helper 里，
-  // iframe 创建必然在其加载之后），无需等 APP_READY。
+
   function getCtx() {
     try { return win.SillyTavern && win.SillyTavern.getContext ? win.SillyTavern.getContext() : null; }
     catch (e) { return null; }
@@ -270,12 +256,12 @@
       try { ctx.extensionSettings[EXT_KEY] = settings; ctx.saveSettingsDebounced(); return; }
       catch (e) { console.warn('[菜单精简器] 保存到 extension_settings 失败，降级 localStorage', e); }
     }
-    // 降级：ctx 不可用时退回 localStorage
+    // 本地存储不可用时尝试寻找浏览器缓存
     try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
     catch (e) { console.warn('[菜单精简器] 保存设置失败', e); }
   }
 
-  // ── 子分组工具 ─────────────────────────────────────────────────────────────
+  // 子分组
   function genSubgroupId() { return 'sg_' + Math.random().toString(36).slice(2, 10); }
 
   function getSubgroupForKey(groupId, key) {
@@ -316,7 +302,6 @@
   }
 
   function addKeyToSubgroup(groupId, sgId, key) {
-    // 先从其他子分组中移除
     removeKeyFromAnySubgroup(groupId, key);
     var sg = getSubgroupById(groupId, sgId);
     if (sg && sg.memberKeys.indexOf(key) === -1) {
@@ -347,7 +332,7 @@
     return map;
   }
 
-  // ── 自定义 Selector工具 ─────────────────────────────────────────────────────────
+  // 供用户自行输入selector
   function genCustomSelectorId() { return 'cs_' + Math.random().toString(36).slice(2, 10); }
 
   function isValidCssSelector(selector) {
@@ -407,7 +392,7 @@
     applyAll();
   }
 
-  // 渲染头尾保留、中部省略的 Selector 标签 HTML
+  // 取头尾丢中间的html标签
   function renderSelectorLabelHtml(selectorText, count) {
     var text = selectorText || '';
     var countBadge = count !== undefined ? '<span class="mc3-match-badge"></span>' : '';
@@ -425,8 +410,7 @@
   // ── 工具 ───────────────────────────────────────────────────────────────────
   function normLabel(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
 
-  // 元素是否带自身的直接文本节点（用于在 wrapper 内识别「带标签的按钮」，
-  // 排除纯图标 <i>/结构 div。如 #ttsExtensionMenuItem 文本直挂、无 span）。
+  // 用于识别带标签的按钮
   function hasDirectText(el) {
     for (var i = 0; i < el.childNodes.length; i++) {
       var n = el.childNodes[i];
@@ -438,17 +422,14 @@
   // 跳过本版自绘元素，但「入口」(mc3-launcher-*) 例外 —— 它们作为普通条目参与扫描/排序/隐藏（#1）
   function isSelf(el) { return el.id && el.id.indexOf(OWN_PREFIX) === 0 && el.id.indexOf('mc3-launcher') !== 0; }
 
-  // 元素在某容器内的「顶层单元」= 该容器的直接子节点祖先（扩展面板里通常是 .extension_container，
-  // 第三方则是抽屉本身）。带稳定 id 时用作 column-无关 的 key 锚点；也是 M4 跨栏搬运的对象。
+
   function unitOf(el, container) {
     var u = el;
     while (u && u.parentNode !== container) u = u.parentNode;
     return u || el;
   }
 
-  // 元素「本身」是否被显式隐藏（不依赖菜单是否展开：computed display 是元素自身的，
-  // 不受祖先 display:none 影响）。用于在重复副本中挑出可见的那一个 —— 直接修 #5。
-  // 注意：若元素已被 mc3 打上 .mc3-hidden，需排除 .mc3-hidden 的影响以判断其原生可见性。
+
   function isOwnVisible(el) {
     if (!el) return false;
     if (el.classList.contains('displayNone') || el.hidden || el.style.display === 'none') return false;
@@ -461,7 +442,7 @@
     return win.getComputedStyle(el).display !== 'none';
   }
 
-  // 标签提取（自旧版移植，多级 fallback 已成熟）
+  // 标签提取
   function extractHeaderLabel(header) {
     if (!header) return '';
     for (var ci = 0; ci < header.children.length; ci++) {
@@ -494,17 +475,17 @@
   function labelOf(el, group) {
     switch (group.label) {
       case 'text': {
-        // 直接文本节点优先，避免把内部图标/计数吞进来
+        // 过滤多余内容，实际上不太好用但我不打算动了
         var t = '';
         for (var i = 0; i < el.childNodes.length; i++) if (el.childNodes[i].nodeType === 3) t += el.childNodes[i].textContent;
         t = normLabel(t);
         return t || normLabel(el.textContent);
       }
       case 'span': {
-        // 取第一个「非空」span/.qr--button-label：有些按钮把图标也包进 <span>，优先提取文字
+        
         var sps = el.querySelectorAll('span, .qr--button-label, [data-i18n]');
         for (var si = 0; si < sps.length; si++) { var st = normLabel(sps[si].textContent); if (st) return st; }
-        // 无非空 span：退回元素自身的直接文本节点，再退回整体文本/title
+        
         var dt = '';
         for (var di = 0; di < el.childNodes.length; di++) if (el.childNodes[di].nodeType === 3) dt += el.childNodes[di].textContent;
         return normLabel(dt) || normLabel(el.textContent) || normLabel(el.getAttribute('title'));
@@ -521,7 +502,7 @@
     }
   }
 
-  // ── 候选收集（按 mode 各异，只产出 {el, label}，去重/定 key 由 scanGroup 统一处理）──
+  // 收集候选元素
   function collectCandidates(group, container) {
     var out = [];
     var children = container.children;
@@ -537,19 +518,13 @@
     }
 
     if (group.mode === 'listItems') {
-      // 魔棒按钮的两种形态：
-      //   ① #extensionsMenu 的直接 .list-group-item 子（无 wrapper，如本版入口 #mc3-launcher-wand）
-      //   ② 被 ST 包进一层 *_wand_container(.extension_container, display:contents) —— 每个扩展的挂载点。
-      // **同一挂载点内可并列多个按钮**（如 #sd_wand_container 有生成图片+停止生成），且不保证都带
-      // .list-group-item 类：「隐藏助手」#hide-helper-wand-button 就是裸 div+<i>+<span>，与同容器的
-      // #manageAttachments(LGI) 并列。旧逻辑「querySelectorAll(LGI) 一把抓 + 含 LGI 的 wrapper 整个跳过」
-      // 会漏掉这类非 LGI 兄弟（待办 #1）。改为逐直接子：是挂载点则下潜一层逐按钮收，否则 c 本身即按钮。
+      // 这部分用于适配不同插件在魔棒菜单中挂载按钮的方式
       for (var w = 0; w < children.length; w++) {
         var c = children[w];
         if (isSelf(c)) continue;
         var isWrapper = c.classList.contains('extension_container') && !c.matches(group.itemMatch);
         if (!isWrapper) { out.push({ el: c, label: labelOf(c, group) }); continue; }
-        // 挂载点：下潜一层，每个「带标签」的直接子即一个按钮（图标/文字在更深层，不会被误收）
+
         for (var x = 0; x < c.children.length; x++) {
           var gc = c.children[x];
           if (isSelf(gc)) continue;
@@ -588,7 +563,7 @@
     for (var k = 0; k < children.length; k++) {
       var ch = children[k];
       if (isSelf(ch)) continue;
-      // .extension_container 是 wrapper（如 #qr_container），穿透扫其直接子抽屉
+      // 用于适应.extension_container 是 wrapper的情况，穿透扫其直接子抽屉
       if (ch.classList.contains('extension_container') && !ch.classList.contains('inline-drawer')) {
         for (var x = 0; x < ch.children.length; x++) {
           var gchild = ch.children[x];
@@ -604,12 +579,11 @@
     return out;
   }
 
-  // ── 统一扫描：产出归一 record，并据此派生稳定 key ────────────────────────────
-  // record: { key, el, groupId, container, label, column? }
+  // 扫描器总结阶段，用于记录，去重与避免歧义
   function scanGroup(group) {
     var records = [];
-    var byKey = Object.create(null);        // key -> record（用于重复 id 去重）
-    var derivedCount = Object.create(null); // base -> 已出现次数（派生 key 消歧）
+    var byKey = Object.create(null);        
+    var derivedCount = Object.create(null); 
     var seenEls = new Set();
 
     var multi = group.containers.length > 1;
@@ -627,13 +601,12 @@
         if (seenEls.has(el)) continue;
         seenEls.add(el);
 
-        // 顶层单元 = 该列容器的直接子（扩展面板里是 .extension_container；其它组通常即元素本身）。
-        // order/hide 写在单元上（它才是 flex 容器的直接子）；也是 M4 跨栏搬运的对象。
+
         var unit = unitOf(el, container);
 
         var key;
         if (isStableId(el.id)) {
-          // T1/T2：元素自带稳定 id。重复 id（#option_close_chat ×2）共享同一 key，保留可见副本并收集全部副本。
+
           key = '#' + el.id;
           if (byKey[key]) {
             byKey[key].els.push(el);
@@ -642,8 +615,6 @@
             continue;
           }
         } else {
-          // T3：派生 key。锚点取「顶层单元」的稳定 id（column-无关，跨栏搬运后不变），
-          //     无稳定单元 id 时退回 group.id。同名再加序号消歧。reload 可复现，无自增计数器。
           var anchor = (unit && isStableId(unit.id)) ? '#' + unit.id : group.id;
           var base = group.id + '|' + anchor + '|' + label;
           var cnt = derivedCount[base] || 0; derivedCount[base] = cnt + 1;
@@ -659,7 +630,7 @@
     return records;
   }
 
-  // curated 面板扫描：每条配置 → 一条 packed record（els 多元素，按组隐藏）。
+  // curated 面板扫描
   function scanCurated(group) {
     var records = [];
     var definitions = CURATED_GROUPS[group.id] || [];
@@ -725,7 +696,7 @@
     return selector ? selector.replace(/^[.#]/, '') : '未知按钮';
   }
 
-  // 消息操作专属扫描：收集 .mes_buttons 模板及各楼层中的所有功能按钮，捕获 nativeColumn
+  // "消息操作"扫描器，用于处理楼层中小铅笔及省略号区域
   function scanMesButtons(group) {
     var containers = doc.querySelectorAll('#message_template .mes_buttons, #chat .mes_buttons');
     if (!containers.length) containers = doc.querySelectorAll('.mes_buttons');
@@ -737,7 +708,7 @@
       var extraBox = container.querySelector('.extraMesButtons');
       var allButtons = [];
 
-      // 1. 被收纳按钮（在 .extraMesButtons 内部）
+      // 被收纳
       if (extraBox) {
         for (var eb = 0; eb < extraBox.children.length; eb++) {
           var eBtn = extraBox.children[eb];
@@ -746,7 +717,7 @@
         }
       }
 
-      // 2. 外显按钮（在 .mes_buttons 直接子级）
+      // 外显
       for (var cb = 0; cb < container.children.length; cb++) {
         var cBtn = container.children[cb];
         if (isSelf(cBtn) || cBtn === extraBox || cBtn.classList.contains('extraMesButtonsHint') || cBtn.classList.contains('extraMesButtons')) {
@@ -798,8 +769,7 @@
     return all;
   }
 
-  // ── 应用层：原地排序(M2) + 可见性(M3) + 单双栏(M4) + 幂等observer(M5) + 伪抽屉 ──────────
-  // 全程不动源 DOM（除 M4 跨栏搬「顶层单元」这一处，用户显式触发 + observer 抑制）。
+  // 重排序
 
   var suppressObserver = false;   // 程序性 DOM 搬运期间抑制 observer，防回环
   var applyTimer = null;
@@ -841,7 +811,7 @@
     (doc.head || doc.documentElement).appendChild(st);
   }
 
-  // M2：确保每个 key 有槽位；初次按扫描序(=原生序)分配 → 未排序前零视觉变化；新元素追加末尾。
+  // 依据key分配槽位，新元素追加至末尾
   function ensureSlots(group, records) {
     var map = settings.order[group.id] || (settings.order[group.id] = {});
     var nat = settings.nativeOrder[group.id] || (settings.nativeOrder[group.id] = {});
@@ -856,10 +826,11 @@
     return map;
   }
 
-  // M2：order 两手都设 —— 既写「顶层单元」(普通容器整块移动，取最小槽位)，也写 rec.el。
-  // 因为部分第三方扩展(柏宝箱/SP数据库/提示词查看器)把自己的 wand 容器设成 display:contents，
+  // 对这部分的一些解释：
+  // 因为部分第三方扩展把自己的 wand 容器设成 display:contents，
   // 此时真正参与 flex 的是里面的 .list-group-item(=rec.el)，order 必须落在 el 上才生效；
-  // 同一 contents 容器内多条目还能各自独立排序。普通容器里 el 的 order 无副作用(块上下文不响应)。
+  // 所以插件同时写顶层单元与 rec.el。
+  // ...应该没有副作用？
   function supportsPseudoSubgroups(group) {
     return group.id === 'options' || group.id === 'extensionsMenu' || group.id === 'extensionsSettings' || group.id === 'qrPanel';
   }
@@ -883,8 +854,7 @@
     unitSlot.forEach(function (slot, unit) { if (unit) unit.style.order = String(slot); });
   }
 
-  // M3：可见性。用 .mc3-hidden 类（不碰 inline display，避免覆盖原生/他插件的隐藏）。
-  // 隐藏作用在「元素本身」（精确，兼容多抽屉容器）；某容器成员全隐藏时连容器一并收起。
+  // 此部分用于隐藏元素
   function isRecordEffectivelyHidden(group, record) {
     if (settings.hidden[record.key]) return true;
     if (!supportsPseudoSubgroups(group)) return false;
@@ -913,8 +883,7 @@
     });
   }
 
-  // M4：单双栏（仅 extensionsSettings）。搬整个「顶层单元」（.extension_container/第三方抽屉），
-  // 不搬内部内容 → 插件后续 append 仍命中容器内部（修柏宝箱 #3）。首次捕获 nativeColumn 快照。
+  // 扩展面板单双栏
   function applyColumns(records) {
     var col0 = doc.querySelector('#extensions_settings');
     var col1 = doc.querySelector('#extensions_settings2');
@@ -953,7 +922,7 @@
     if (moved) win.setTimeout(function () { suppressObserver = false; }, 0);
   }
 
-  // 切换单双栏：→单栏时把全部 extensionsSettings 归属左栏（符合「右栏留空」规格）
+  // 转换至单栏时把全部 extensionsSettings 归属左栏
   function setColumnMode(mode) {
     if (mode === 'single') {
       var recs = scanGroup(getGroup('extensionsSettings'));
@@ -1053,7 +1022,8 @@
     }
   }
 
-  // 用户设置的原位伪抽屉：不移动原生 DOM，只在指定 h4 前注入三角并切换内容类。
+  // 用伪抽屉实现子分组，实际还是隐藏元素的小把戏
+  // 优势是可以维护原本魔棒和左下菜单的扁平结构
   function applyUserSettingsDrawers() {
     if (!settings.enabled || settings.enableUserFold === false) {
       clearUserSettingsDrawers();
@@ -1268,7 +1238,7 @@
     if (group.id === 'userSettings') clearUserSettingsDrawers();
   }
 
-  // 「无论如何不需要」的元素：默认隐藏、不入扫描/不进 UI（依 可展开列表.md）。
+  // 无用元素默认隐藏
   function applyAlwaysHidden(on) {
     for (var i = 0; i < ALWAYS_HIDDEN.length; i++) {
       var els = doc.querySelectorAll(ALWAYS_HIDDEN[i]);
@@ -1276,7 +1246,7 @@
     }
   }
 
-  // 隐藏左下菜单和魔棒菜单中的原生 <hr> 分隔线：排序/隐藏条目后原生分隔线失去语义，全部收起。
+  // 移除原生分隔线
   function applySeparatorHides(on) {
     var sels = ['#options .options-content > hr', '#extensionsMenu > hr'];
     for (var i = 0; i < sels.length; i++) {
@@ -1303,8 +1273,7 @@
     }
   }
 
-  // QR 面板向下折叠收起控制：在 #qr--bar 内存在按钮内容时原位注入折叠手柄，
-  // 允许用户向上/向下展开折叠，并持久化 settings.qrPanelCollapsed。
+  // 这部分是qr面板折叠
   function applyQrPanelFold() {
     var bar = doc.querySelector('#qr--bar');
     if (!bar) return;
@@ -1413,11 +1382,10 @@
         if (el && !seen.has(el)) { seen.add(el); obs.observe(el, { childList: true, subtree: true }); watched.push(el); }
       }
     }
-    // 启动期临时加挂 characterData 监听：部分扩展（保活/输入助手等 Vue 组件）先插入「空标签」外壳
-    // —— childList 触发一次 applyAll，但此刻 <b> 标签为空 → 条目被 scanGroup 的 if(!label) 跳过 ——
-    // 稍后才用 characterData 补填 <b> 文本。主 observer 只监听 childList 对此盲，导致该条目永久漏隐藏/
-    // 漏排序，直到用户手动重开插件（0623 根因，已 Playwright 合成复现）。仅在启动窗口监听 characterData，
-    // 规避稳态下面板内 live 文本（计数器/状态）频繁触发扫描（实测稳态 idle 的 characterData 为 0）。
+
+    // 这部分用于适应一些vue异步加载的组件
+    // 部分插件先注入空标签外壳，后续加载时才真正填入内容，原扫描器在扫到空标签时会跳过
+    // 具体分析和解决方案见工作日志0623
     var cdObs = new win.MutationObserver(function () { if (!suppressObserver) scheduleApply(); });
     for (var w = 0; w < watched.length; w++) cdObs.observe(watched[w], { characterData: true, subtree: true });
     win.setTimeout(function () { cdObs.disconnect(); }, 20000);
@@ -1428,7 +1396,7 @@
     } catch (e) {}
   }
 
-  // ── M6：管理 UI（popup）──────────────────────────────────────────────────────
+  // 插件操作面板
   function escHtml(s) { return (s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
   // 依据条目数非线性计算展开/折叠过渡时长（<=4 项兜底 0.22s，>4 项对数递增，上限 0.55s）
@@ -1593,6 +1561,7 @@
     settings.order[groupId] = newMap;
   }
 
+  // 重置所有设置为默认值
   function resetAll() {
     settings.enabled = true;
     settings.hidden = {};
@@ -1601,7 +1570,6 @@
     settings.columnMode = 'dual';
     settings.enableQrFold = true;
     settings.enableUserFold = true;
-    // 清空全部子分组（不保留——恢复原始就是回到最初状态）
     settings.subgroups = {};
     for (var g = 0; g < SUBGROUP_GROUP_IDS.length; g++) {
       settings.subgroups[SUBGROUP_GROUP_IDS[g]] = [];
@@ -1643,7 +1611,7 @@
     html += '<button type="button" class="mc3-subgroup-collapse" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组"><span class="mc3-chevron">▾</span></button>';
     html += '<span class="mc3-subgroup-name" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组">' + escHtml(sg.name) + '</span>';
     html += '<button class="mc3-icon-btn" data-action="start-rename-sg" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="重命名">✎</button>';
-    // 右侧组，toggle 顺序与条目行一致：分栏 → 显隐
+    // 右侧组
     if (group.id === 'extensionsSettings') {
       var sgCol = sg.column !== undefined ? sg.column : 0;
       html += '<button class="mc3-toggle" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="' + sgCol + '">' + (sgCol === 1 ? '右' : '左') + '</button>';
@@ -1660,7 +1628,7 @@
     var col = (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
     var html = '<div class="mc3-row' + (hidden ? ' mc3-off' : '') + '" data-key="' + escHtml(r.key) + '" data-gid="' + group.id + '">';
 
-    // 拖动手柄（preset curated 不可拖）
+    // 拖动手柄
     if (r.curated) {
       html += '<span style="visibility:hidden;width:16px;flex-shrink:0"></span>';
     } else {
@@ -1669,7 +1637,7 @@
 
     html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
 
-    // 分栏切换 —— 仅扩展面板非子分组内条目（子分组内条目由子分组的栏位统一控制）
+    // 扩展面板分栏切换
     if (r.column !== undefined && group.id === 'extensionsSettings' && !inSubgroup) {
       var colLabel = col === 1 ? '右' : '左';
       html += '<button class="mc3-toggle" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '">' + colLabel + '</button>';
@@ -1722,6 +1690,7 @@
     html += '<div class="mc3-card-body"><div class="mc3-card-body-inner">';
     html += '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
 
+    // 这部分是消息操作
     // 栏0：被省略号收纳
     html += '<div class="mc3-mes-column" data-col="0">';
     html += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">收纳至...内</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
@@ -2131,7 +2100,6 @@
     else if (a === 'start-rename-sg') {
       var rnGid = t.getAttribute('data-gid');
       var rnSgId = t.getAttribute('data-sgid');
-      // 找到对应的 .mc3-subgroup-name span 并替换为输入框
       var nameSpan = doc.querySelector('.mc3-subgroup-name[data-sgid="' + rnSgId + '"][data-gid="' + rnGid + '"]');
       if (!nameSpan) return;
       var sg = getSubgroupById(rnGid, rnSgId);
@@ -2178,11 +2146,7 @@
     }
   }
 
-  // ── Pointer 拖拽重排（鼠标 + 触摸 + 笔统一）─────────────────────────────────
-  // 支持：
-  //   - 普通条目在列表内排序（子分组内条目打包移动）
-  //   - 条目拖入子分组区域 → 吸入子分组
-  //   - 条目拖出子分组 → 移出子分组
+
 
   var dragMeta = null; // { row, list, gid, key, startSgId }
 
@@ -2265,7 +2229,7 @@
       }
 
       if (isSgHandle) {
-        // 子分组拖拽：只在 list 层级移动，不进入其它子分组
+        // 子分组拖拽
         findInsertAfter(list, dragEl, ev.clientY);
       } else {
         var dropTarget = findDropTarget(ev);
@@ -2407,7 +2371,7 @@
         '<button class="mc3-x" data-action="close">✕</button>' +
       '</div>' +
       '<div id="mc3-body"></div></div>';
-    (doc.documentElement || doc.body).appendChild(ov);   // 挂到 html，规避主题祖先 transform/filter 致 fixed 偏移（#3）
+    (doc.documentElement || doc.body).appendChild(ov);   // 挂到 html，规避主题祖先 transform/filter 致 fixed 偏移
     ov.addEventListener('click', function (e) { if (e.target === ov) closePopup(); });
     var popup = ov.querySelector('#mc3-popup');
     popup.addEventListener('click', onPopupClick);
@@ -2430,7 +2394,7 @@
   function openPopup() { buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
   function closePopup() { var o = doc.getElementById('mc3-overlay'); if (o) o.style.display = 'none'; }
 
-  // 魔棒入口：list-group-item（与魔棒其它项一致），点击打开操作面板
+  // 插件在魔棒的入口
   function makeWandLauncher() {
     var el = doc.createElement('div');
     el.id = 'mc3-launcher-wand';
@@ -2441,7 +2405,7 @@
     return el;
   }
 
-  // 扩展面板入口：做成与其它扩展一致的 inline-drawer（点击展开），内含「启用」复选框 + 「打开操作面板」按钮（#2）
+  // 插件在扩展面板的入口
   function makePanelLauncher() {
     var d = doc.createElement('div');
     d.id = 'mc3-launcher-panel';
@@ -2457,8 +2421,6 @@
       '</div>';
     var content = d.querySelector('.inline-drawer-content');
     var icon = d.querySelector('.inline-drawer-icon');
-    // header 用原生 `inline-drawer-toggle inline-drawer-header` 类获得与其它扩展完全一致的样式；
-    // 自行处理展开并 stopImmediatePropagation 阻断 ST 的委托 toggle，避免双重切换。
     d.querySelector('.inline-drawer-header').addEventListener('click', function (e) {
       e.stopImmediatePropagation();
       var openNow = content.style.display !== 'none';
@@ -2471,8 +2433,6 @@
   }
 
   var slashRegistered = false;
-  // 两个入口都作为「普通条目」存在：可见性走 settings.hidden(小眼睛)、顺序走 order map(拖动手柄)（#1）。
-  // 这里只负责「存在性」幂等补回 + 同步启用复选框，不再单独控制开闭。
   function setupLaunchers() {
     var wand = doc.getElementById('extensionsMenu');
     if (wand && !doc.getElementById('mc3-launcher-wand')) wand.appendChild(makeWandLauncher());
@@ -2490,15 +2450,13 @@
     }
   }
 
-  // ── 引导 ────────────────────────────────────────────────────────────────────
+  // 插件启动部分
   function init() {
     loadSettings();
     var records = applyAll();
     setupObserver();
     setupLaunchers();
-    // 启动补扫：异步/Vue 扩展的条目可能在初次 applyAll 之后才挂载或补标签（慢设备尤甚）。
-    // 在启动后几个递增时点重跑 applyAll，覆盖各种晚到时序，等价于用户「关掉再开启插件」的手动补救；
-    // 仅启动时一次性，稳态零开销。与 setupObserver 的 characterData 启动监听互为冗余兜底。
+  // 下面的数字是延迟扫描的时间
     [600, 1800, 4000, 8000].forEach(function (d) {
       win.setTimeout(function () { if (!suppressObserver) applyAll(); }, d);
     });
