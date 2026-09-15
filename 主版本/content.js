@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  // version 909.0.2
+  // version 915.0.0
 
   // iframe穿透
   var doc = window.frameElement ? window.parent.document : document;
@@ -1135,34 +1135,84 @@
       var visibleExtraChildrenCount = 0;
 
       // 2. 遍历 records，按 column 和 order 调整每个按钮
+      // 此部分用来防御其他插件重复注入元素
       for (var ri = 0; ri < records.length; ri++) {
         var rec = records[ri];
-        var btn = container.querySelector(rec.selector);
-        if (!btn || btn === hint || btn === extra) continue;
+        var matchedBtns = [];
+        var allFound = container.querySelectorAll(rec.selector);
+        for (var fi = 0; fi < allFound.length; fi++) {
+          var fb = allFound[fi];
+          if (fb !== hint && fb !== extra && !isSelf(fb)) {
+            matchedBtns.push(fb);
+          }
+        }
+        if (!matchedBtns.length) continue;
 
         var isHidden = !!settings.hidden[rec.key];
-        btn.classList.toggle('mc3-hidden', isHidden);
-
         var slot = map[rec.key] !== undefined ? map[rec.key] : (ri + 1);
-        btn.style.order = String(slot);
-
         var targetCol = settings.column[rec.key] !== undefined ? settings.column[rec.key] : rec.nativeColumn;
+
+        // 此部分用来处理被重新注入后出现多个按钮的情况
         if (targetCol === 0) {
-          // 被省略号收纳 -> 置于 extra 内部
-          if (btn.parentNode !== extra) {
+          var inExtraBtn = null;
+          for (var bi = 0; bi < matchedBtns.length; bi++) {
+            if (matchedBtns[bi].parentNode === extra) {
+              inExtraBtn = matchedBtns[bi];
+              break;
+            }
+          }
+          if (!inExtraBtn) inExtraBtn = matchedBtns[0];
+
+          if (inExtraBtn.parentNode !== extra) {
             suppressObserver = true;
-            extra.appendChild(btn);
+            extra.appendChild(inExtraBtn);
             moved = true;
           }
-          if (!isHidden && btn.style.display !== 'none') {
+          inExtraBtn.classList.toggle('mc3-hidden', isHidden);
+          inExtraBtn.style.order = String(slot);
+          if (!isHidden && inExtraBtn.style.display !== 'none') {
             visibleExtraChildrenCount++;
           }
+
+          // 当元素复位时取消原本元素隐藏，并清理多余副本，以达成伪装移动的效果
+          for (var mi = 0; mi < matchedBtns.length; mi++) {
+            var b = matchedBtns[mi];
+            if (b !== inExtraBtn) {
+              suppressObserver = true;
+              b.remove();
+              moved = true;
+            }
+          }
         } else {
-          // 不被省略号收纳 -> 置于 container 直接子级
-          if (btn.parentNode !== container) {
+          var outerBtn = null;
+          for (var bo = 0; bo < matchedBtns.length; bo++) {
+            if (matchedBtns[bo].parentNode === container) {
+              outerBtn = matchedBtns[bo];
+              break;
+            }
+          }
+          if (!outerBtn) outerBtn = matchedBtns[0];
+
+          if (outerBtn.parentNode !== container) {
             suppressObserver = true;
-            container.appendChild(btn);
+            container.appendChild(outerBtn);
             moved = true;
+          }
+          outerBtn.classList.toggle('mc3-hidden', isHidden);
+          outerBtn.style.order = String(slot);
+
+          // 这部分是防御重复注入的核心逻辑
+          // 在元素被重新注入后，隐藏被重注入的元素，避免再次触发observer
+          for (var mo = 0; mo < matchedBtns.length; mo++) {
+            var ob = matchedBtns[mo];
+            if (ob === outerBtn) continue;
+            if (ob.parentNode === extra) {
+              ob.classList.add('mc3-hidden');
+            } else {
+              suppressObserver = true;
+              ob.remove();
+              moved = true;
+            }
           }
         }
       }
@@ -1189,15 +1239,48 @@
 
       for (var ri = 0; ri < records.length; ri++) {
         var rec = records[ri];
-        var btn = container.querySelector(rec.selector);
-        if (!btn) continue;
-        btn.classList.remove('mc3-hidden');
-        btn.style.order = '';
+        var matchedBtns = [];
+        var allFound = container.querySelectorAll(rec.selector);
+        for (var fi = 0; fi < allFound.length; fi++) {
+          var fb = allFound[fi];
+          if (fb !== hint && fb !== extra && !isSelf(fb)) {
+            matchedBtns.push(fb);
+          }
+        }
+        if (!matchedBtns.length) continue;
+
         var nativeCol = settings.nativeColumn[rec.key] !== undefined ? settings.nativeColumn[rec.key] : rec.nativeColumn;
-        if (nativeCol === 0 && extra && btn.parentNode !== extra) {
-          extra.appendChild(btn);
-        } else if (nativeCol === 1 && btn.parentNode !== container) {
-          container.appendChild(btn);
+        var mainBtn = null;
+        if (nativeCol === 0) {
+          for (var bi = 0; bi < matchedBtns.length; bi++) {
+            if (matchedBtns[bi].parentNode === extra) {
+              mainBtn = matchedBtns[bi];
+              break;
+            }
+          }
+        } else {
+          for (var bo = 0; bo < matchedBtns.length; bo++) {
+            if (matchedBtns[bo].parentNode === container) {
+              mainBtn = matchedBtns[bo];
+              break;
+            }
+          }
+        }
+        if (!mainBtn) mainBtn = matchedBtns[0];
+
+        mainBtn.classList.remove('mc3-hidden');
+        mainBtn.style.order = '';
+        if (nativeCol === 0 && extra && mainBtn.parentNode !== extra) {
+          extra.appendChild(mainBtn);
+        } else if (nativeCol === 1 && mainBtn.parentNode !== container) {
+          container.appendChild(mainBtn);
+        }
+
+        // 清理其余多余副本
+        for (var mi = 0; mi < matchedBtns.length; mi++) {
+          if (matchedBtns[mi] !== mainBtn) {
+            matchedBtns[mi].remove();
+          }
         }
       }
     }
@@ -1377,7 +1460,7 @@
       }
     });
     for (var g = 0; g < GROUPS.length; g++) {
-      var conts = GROUPS[g].containers || GROUPS[g].observe || [];
+      var conts = (GROUPS[g].containers || []).concat(GROUPS[g].observe || []);
       for (var c = 0; c < conts.length; c++) {
         var el = doc.querySelector(conts[c]);
         if (el && !seen.has(el)) { seen.add(el); obs.observe(el, { childList: true, subtree: true }); watched.push(el); }
