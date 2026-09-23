@@ -1,4 +1,4 @@
-// version 920.0.0
+// version 923.0.0
 
 (function () {
   'use strict';
@@ -174,6 +174,50 @@
     },
   ];
 
+  function getUserSettingsGroups() {
+    if (settings && settings.isolateCustomCss) {
+      return [
+        {
+          label: 'UI主题', selectors: ['#UI-Theme-Block'],
+          drawerHeader: '#UI-presets-block > h4',
+          drawerTargets: ['#UI-Theme-Block > :not(#UI-presets-block)', '#UI-presets-block > :not(h4)'],
+        },
+        {
+          label: '自定义CSS', selectors: ['#CustomCSS-block'],
+          drawerHeader: '#CustomCSS-block > h4',
+          drawerTargets: ['#CustomCSS-block > :not(h4)'],
+        },
+        {
+          label: '角色处理', selectors: ['div[name="CharacterHandlingToggles"]'],
+          drawerHeader: 'div[name="CharacterHandlingToggles"] > h4',
+          drawerTargets: ['div[name="CharacterHandlingToggles"] > :not(h4)'],
+        },
+        {
+          label: '杂项', selectors: ['div[name="MiscellaneousToggles"]'],
+          drawerHeader: 'div[name="MiscellaneousToggles"] > h4',
+          drawerTargets: ['div[name="MiscellaneousToggles"] > :not(h4)'],
+        },
+        {
+          label: '聊天/消息处理', selectors: [
+            'div[name="ChatMessageHandlingToggles"]',
+            'div[name="AutoCompleteToggle"]',
+          ],
+          drawerHeader: 'div[name="ChatMessageHandlingToggles"] > h4',
+          drawerTargets: [
+            'div[name="ChatMessageHandlingToggles"] > :not(h4)',
+            'div[name="AutoCompleteToggle"]',
+          ],
+        },
+        {
+          label: 'ST Script设置', selectors: ['div[name="STscriptToggles"]'],
+          drawerHeader: 'div[name="STscriptToggles"] > h4',
+          drawerTargets: ['div[name="STscriptToggles"] > :not(h4)'],
+        },
+      ];
+    }
+    return USER_SETTINGS_GROUPS;
+  }
+
   const CURATED_GROUPS = {
     presetSettings: PRESET_GROUPS,
     userSettings: USER_SETTINGS_GROUPS,
@@ -207,6 +251,7 @@
     qrPanelCollapsed: false, // QR 面板折叠状态
     enableQrFold: true,      // 启用 QR 面板折叠
     enableUserFold: true,    // 启用用户条目折叠
+    isolateCustomCss: false, // 独立"自定义CSS"块
     activeTab: 'sort',       // 激活页签 'sort' | 'settings'
   };
 
@@ -235,7 +280,7 @@
         if (s.groupCollapsed[g.id] === undefined) s.groupCollapsed[g.id] = true;
       }
       if (s.groupCollapsed['customSelectors'] === undefined) s.groupCollapsed['customSelectors'] = true;
-      for (const def of USER_SETTINGS_GROUPS) {
+      for (const def of getUserSettingsGroups()) {
         const key = getUserDrawerKey(def);
         if (s.userDrawerCollapsed[key] === undefined) s.userDrawerCollapsed[key] = true;
       }
@@ -636,7 +681,7 @@
   // curated 面板扫描（预设/用户设置，按组打包隐藏，不排序）
   function scanCurated(group) {
     const records = [];
-    const definitions = CURATED_GROUPS[group.id] || [];
+    const definitions = group.id === 'userSettings' ? getUserSettingsGroups() : (CURATED_GROUPS[group.id] || []);
     for (const pg of definitions) {
       if (pg.noCuratedRecord || !pg.selectors) continue;
       const els = [];
@@ -1005,14 +1050,36 @@
     }
   }
 
+  // 自定义CSS块原位重排：根据 settings.isolateCustomCss 决定在 DOM 中置于角色处理之前还是杂项之后
+  function applyCustomCssPosition() {
+    const cssBlock = doc.querySelector('#CustomCSS-block');
+    if (!cssBlock) return;
+    if (settings.enabled && settings.isolateCustomCss) {
+      const charBlock = doc.querySelector('div[name="CharacterHandlingToggles"]');
+      if (charBlock && charBlock.parentNode && cssBlock.nextElementSibling !== charBlock) {
+        suppressObserver = true;
+        charBlock.parentNode.insertBefore(cssBlock, charBlock);
+        win.setTimeout(() => { suppressObserver = false; }, 0);
+      }
+    } else {
+      const miscBlock = doc.querySelector('div[name="MiscellaneousToggles"]');
+      if (miscBlock && miscBlock.parentNode && cssBlock.previousElementSibling !== miscBlock) {
+        suppressObserver = true;
+        miscBlock.parentNode.insertBefore(cssBlock, miscBlock.nextSibling);
+        win.setTimeout(() => { suppressObserver = false; }, 0);
+      }
+    }
+  }
+
   // 用户设置原位伪抽屉：点击 h4 标题折叠/展开其内容目标。
   function applyUserSettingsDrawers() {
+    applyCustomCssPosition();
     if (!settings.enabled || settings.enableUserFold === false) {
       clearUserSettingsDrawers();
       return;
     }
     if (!settings.userDrawerCollapsed) settings.userDrawerCollapsed = {};
-    for (const definition of USER_SETTINGS_GROUPS) {
+    for (const definition of getUserSettingsGroups()) {
       const key = getUserDrawerKey(definition);
       if (settings.userDrawerCollapsed[key] === undefined) settings.userDrawerCollapsed[key] = true;
       const collapsed = !!settings.userDrawerCollapsed[key];
@@ -1059,7 +1126,8 @@
   }
 
   function clearUserSettingsDrawers() {
-    for (const definition of USER_SETTINGS_GROUPS) {
+    applyCustomCssPosition();
+    for (const definition of getUserSettingsGroups()) {
       const header = doc.querySelector(definition.drawerHeader);
       if (header) {
         if (header.__mc3UserDrawerHandler) header.removeEventListener('click', header.__mc3UserDrawerHandler);
@@ -1472,9 +1540,9 @@
     '.mc3-chevron{display:inline-block;transition:transform var(--mc3-dur,.25s) cubic-bezier(.4,0,.2,1);transform:rotate(0deg);line-height:1;font-size:28px;}' +
     // 卡片样式
     '.mc3-card{background:var(--black20a,rgba(255,255,255,.02));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:10px;margin:8px 4px;overflow:hidden;}' +
-    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);transition:border-bottom-color var(--mc3-dur,.25s) ease;}' +
+    '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);transition:border-bottom-color var(--mc3-dur,.25s) ease;cursor:pointer;user-select:none;}' +
     '.mc3-card.mc3-collapsed .mc3-card-header{border-bottom-color:transparent;}' +
-    '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;}' +
+    '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;cursor:pointer;}' +
     '.mc3-card-collapse,.mc3-subgroup-collapse{cursor:pointer;background:none;border:0;color:inherit;padding:0;line-height:1;opacity:.7;flex-shrink:0;width:18px;height:18px;text-align:center;display:inline-flex;align-items:center;justify-content:center;}' +
     '.mc3-card-collapse:hover,.mc3-subgroup-collapse:hover{opacity:1;}' +
     '.mc3-card-title{opacity:.9;cursor:pointer;}' +
@@ -1501,7 +1569,7 @@
     '.mc3-toggle.on{background:var(--SmartThemeQuoteColor,#3a6);border-color:transparent;color:#fff;}' +
     // 子分组
     '.mc3-subgroup{margin:2px 6px;border:1px dashed var(--SmartThemeBorderColor,#444);border-radius:8px;overflow:hidden;}' +
-    '.mc3-subgroup-header{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--black20a,rgba(255,255,255,.02));cursor:default;}' +
+    '.mc3-subgroup-header{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--black20a,rgba(255,255,255,.02));cursor:pointer;user-select:none;}' +
     '.mc3-subgroup-header .mc3-sg-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
     '.mc3-subgroup-header .mc3-sg-handle:hover{opacity:.9;}' +
     '.mc3-subgroup-name{font-weight:bold;font-size:12px;opacity:.85;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}' +
@@ -1545,9 +1613,9 @@
   // 共享卡片壳：折叠标题 + body 容器。headerExtra 放在标题右侧（如「+」新建子分组）。
   function renderCard(gid, titleText, count, collapsed, dur, bodyHtml, headerExtra) {
     return '<div class="mc3-card' + (collapsed ? ' mc3-collapsed' : '') + '" style="--mc3-dur:' + dur + 's;">' +
-      '<div class="mc3-card-header">' +
-        '<button type="button" class="mc3-card-collapse" data-action="toggle-group" data-gid="' + gid + '" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>' +
-        '<span class="mc3-card-title" data-action="toggle-group" data-gid="' + gid + '" title="折叠或展开父分组">' + escHtml(titleText) + '</span>' +
+      '<div class="mc3-card-header" data-action="toggle-group" data-gid="' + gid + '" title="折叠或展开父分组">' +
+        '<button type="button" class="mc3-card-collapse" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>' +
+        '<span class="mc3-card-title">' + escHtml(titleText) + '</span>' +
         '<small>(' + count + ')</small>' +
         (headerExtra || '') +
       '</div>' +
@@ -1559,14 +1627,15 @@
   function renderSubgroupHeader(sg, group, recs) {
     const allHidden = recs.length > 0 && recs.every((r) => !!settings.hidden[r.key]);
     const hideLabel = allHidden ? '隐藏' : '显示';
-    let html = '<div class="mc3-subgroup-header">';
+    let html = '<div class="mc3-subgroup-header" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组">';
     html += '<span class="mc3-handle mc3-sg-handle" title="拖动子分组排序">⠿</span>';
-    html += '<button type="button" class="mc3-subgroup-collapse" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组"><span class="mc3-chevron">▾</span></button>';
-    html += '<span class="mc3-subgroup-name" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组">' + escHtml(sg.name) + '</span>';
+    html += '<button type="button" class="mc3-subgroup-collapse" title="折叠或展开子分组"><span class="mc3-chevron">▾</span></button>';
+    html += '<span class="mc3-subgroup-name">' + escHtml(sg.name) + '</span>';
     html += '<button class="mc3-icon-btn" data-action="start-rename-sg" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="重命名">✎</button>';
     if (group.id === 'extensionsSettings') {
       const sgCol = sg.column !== undefined ? sg.column : 0;
-      html += '<button class="mc3-toggle" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="' + sgCol + '">' + (sgCol === 1 ? '右' : '左') + '</button>';
+      const colTitle = sgCol === 1 ? '点击移至左栏' : '点击移至右栏';
+      html += '<button class="mc3-toggle' + (sgCol === 1 ? ' on' : '') + '" data-action="toggle-sg-col" data-sgid="' + sg.id + '" data-gid="' + group.id + '" data-col="' + sgCol + '" title="' + colTitle + '">' + (sgCol === 1 ? '右' : '左') + '</button>';
     }
     html += '<button class="mc3-toggle' + (allHidden ? '' : ' on') + '" data-action="toggle-sg-hide" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + hideLabel + '</button>';
     html += '<button class="mc3-icon-btn" data-action="delete-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="删除分组">✕</button>';
@@ -1587,7 +1656,8 @@
     html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
     if (r.column !== undefined && group.id === 'extensionsSettings' && !inSubgroup) {
       const colLabel = col === 1 ? '右' : '左';
-      html += '<button class="mc3-toggle" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '">' + colLabel + '</button>';
+      const colTitle = col === 1 ? '点击移至左栏' : '点击移至右栏';
+      html += '<button class="mc3-toggle' + (col === 1 ? ' on' : '') + '" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '" title="' + colTitle + '">' + colLabel + '</button>';
     }
     html += '<button class="mc3-toggle' + (hidden ? '' : ' on') + '" data-action="toggle-hide" data-key="' + escHtml(r.key) + '">' + (hidden ? '隐藏' : '显示') + '</button>';
     html += '</div>';
@@ -1601,9 +1671,111 @@
     let html = '<div class="mc3-row' + (hidden ? ' mc3-off' : '') + '" data-key="' + escHtml(r.key) + '" data-gid="mesButtons" data-col="' + col + '">';
     html += '<span class="mc3-handle" title="拖动排序或跨栏拖动">⠿</span>';
     html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
+    const colLabel = col === 1 ? '外显' : '收纳';
+    const colTitle = col === 1 ? '点击收纳至...内' : '点击移至始终外显';
+    html += '<button class="mc3-toggle' + (col === 1 ? ' on' : '') + '" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '" title="' + colTitle + '">' + colLabel + '</button>';
     html += '<button class="mc3-toggle' + (hidden ? '' : ' on') + '" data-action="toggle-hide" data-key="' + escHtml(r.key) + '">' + (hidden ? '隐藏' : '显示') + '</button>';
     html += '</div>';
     return html;
+  }
+
+  // 渲染扩展菜单专属双栏卡片
+  function renderExtensionsSettingsCard(group, recs, map) {
+    const isCollapsed = !!settings.groupCollapsed[group.id];
+    const cardDur = calcCollapseDuration(recs.length);
+    const sgList = Subgroups.list(group.id);
+
+    const keyToSg = {};
+    const sgData = {}; // sgId -> { subgroup, records[], minSlot }
+    for (const sg of sgList) {
+      sgData[sg.id] = { subgroup: sg, records: [], minSlot: Infinity };
+      for (const mk of sg.memberKeys) keyToSg[mk] = sg.id;
+    }
+
+    recs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
+
+    const col0Units = [];
+    const col1Units = [];
+    let col0Count = 0;
+    let col1Count = 0;
+
+    for (const r of recs) {
+      const sgId = keyToSg[r.key];
+      if (sgId && sgData[sgId]) {
+        sgData[sgId].records.push(r);
+        const slot = map[r.key] || 0;
+        if (slot < sgData[sgId].minSlot) sgData[sgId].minSlot = slot;
+      } else {
+        const col = settings.column[r.key] !== undefined ? settings.column[r.key] : (r.column !== undefined ? r.column : 0);
+        const unit = { type: 'item', record: r, slot: map[r.key] || 0 };
+        if (col === 1) { col1Units.push(unit); col1Count++; }
+        else { col0Units.push(unit); col0Count++; }
+      }
+    }
+
+    for (const sid in sgData) {
+      const data = sgData[sid];
+      const sgCol = data.subgroup.column !== undefined ? data.subgroup.column : 0;
+      if (data.records.length > 0) {
+        const unit = { type: 'subgroup', data: data, slot: data.minSlot };
+        if (sgCol === 1) { col1Units.push(unit); col1Count += data.records.length; }
+        else { col0Units.push(unit); col0Count += data.records.length; }
+      }
+    }
+
+    col0Units.sort((a, b) => a.slot - b.slot);
+    col1Units.sort((a, b) => a.slot - b.slot);
+
+    // 插回空子分组
+    const col0SgList = sgList.filter((s) => (s.column !== 1));
+    const col1SgList = sgList.filter((s) => (s.column === 1));
+    insertEmptySubgroupUnits(col0Units, col0SgList, sgData);
+    insertEmptySubgroupUnits(col1Units, col1SgList, sgData);
+
+    const renderUnit = (unit) => {
+      if (unit.type === 'item') {
+        return renderItemRow(unit.record, group, false);
+      } else {
+        const sg = unit.data.subgroup;
+        const sgRecs = unit.data.records;
+        sgRecs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
+        const isSgCollapsed = !!sg.collapsed;
+        const sgDur = calcCollapseDuration(sgRecs.length);
+
+        let html = '<div class="mc3-subgroup' + (isSgCollapsed ? ' mc3-collapsed' : '') + '" data-sgid="' + sg.id + '" data-gid="' + group.id + '" style="--mc3-dur:' + sgDur + 's;">';
+        html += renderSubgroupHeader(sg, group, sgRecs);
+        html += '<div class="mc3-subgroup-body"><div class="mc3-subgroup-body-inner">';
+        html += '<div class="mc3-subgroup-items" data-sgid="' + sg.id + '" data-gid="' + group.id + '">';
+        if (sgRecs.length === 0) {
+          html += '<div class="mc3-row" style="opacity:.25;font-style:italic;justify-content:center;padding:10px;font-size:12px">拖动条目到此处加入分组</div>';
+        } else {
+          for (const sr of sgRecs) html += renderItemRow(sr, group, true);
+        }
+        html += '</div></div></div></div>';
+        return html;
+      }
+    };
+
+    const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
+
+    let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
+    // 栏0：左栏
+    cols += '<div class="mc3-mes-column" data-col="0">';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">左栏</span><span class="mc3-mes-col-count">(' + col0Count + ')</span></div>';
+    cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
+    cols += col0Units.length === 0 ? emptyTip('拖动条目到此处 (左栏)') : col0Units.map(renderUnit).join('');
+    cols += '</div></div>';
+    // 栏1：右栏
+    cols += '<div class="mc3-mes-column" data-col="1">';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">右栏</span><span class="mc3-mes-col-count">(' + col1Count + ')</span></div>';
+    cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
+    cols += col1Units.length === 0 ? emptyTip('拖动条目到此处 (右栏)') : col1Units.map(renderUnit).join('');
+    cols += '</div></div>';
+    cols += '</div>';
+
+    const headerExtra = '<button class="mc3-icon-btn" data-action="add-subgroup" data-gid="' + group.id + '" title="新建子分组" style="font-size:18px;font-weight:bold">+</button>';
+
+    return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols, headerExtra);
   }
 
   // 渲染消息操作专属双栏卡片
@@ -1657,8 +1829,12 @@
       '<input type="checkbox" id="mc3-set-qrfold" class="mc3-checkbox" data-action="set-qrfold"' + (settings.enableQrFold !== false ? ' checked' : '') + '>' +
       '</div>';
     html += '<div class="mc3-setting-row">' +
-      '<label class="mc3-setting-label" for="mc3-set-userfold"><span>启用用户条目折叠</span></label>' +
+      '<label class="mc3-setting-label" for="mc3-set-userfold"><span>启用用户设置条目折叠</span></label>' +
       '<input type="checkbox" id="mc3-set-userfold" class="mc3-checkbox" data-action="set-userfold"' + (settings.enableUserFold !== false ? ' checked' : '') + '>' +
+      '</div>';
+    html += '<div class="mc3-setting-row">' +
+      '<label class="mc3-setting-label" for="mc3-set-customcss"><span>独立"自定义CSS"块</span></label>' +
+      '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
       '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">恢复配置初始状态</span>' +
@@ -1677,6 +1853,7 @@
       const map = settings.order[group.id] || {};
 
       if (group.customApply) { html += renderMesButtonsCard(group, recs, map); continue; }
+      if (group.id === 'extensionsSettings') { html += renderExtensionsSettingsCard(group, recs, map); continue; }
 
       const supportsSg = supportsPseudoSubgroups(group);
       const sgList = supportsSg ? Subgroups.list(group.id) : [];
@@ -1840,9 +2017,12 @@
 
     'set-userfold': (t) => { settings.enableUserFold = t.checked; saveSettings(); applyAll(); renderPopup(); },
 
+    'set-customcss': (t) => { settings.isolateCustomCss = t.checked; saveSettings(); applyAll(); renderPopup(); },
+
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
 
-    'toggle-group': (t) => {
+    'toggle-group': (t, e) => {
+      if (e && e.target && e.target.closest('.mc3-icon-btn, .mc3-toggle, input')) return;
       const groupId = t.getAttribute('data-gid');
       const card = t.closest('.mc3-card');
       const willCollapse = card ? !card.classList.contains('mc3-collapsed') : !settings.groupCollapsed[groupId];
@@ -1863,7 +2043,9 @@
 
     'toggle-col': (t) => {
       const k = t.getAttribute('data-key');
-      settings.column[k] = Number(t.getAttribute('data-col')) === 1 ? 0 : 1;
+      const newCol = Number(t.getAttribute('data-col')) === 1 ? 0 : 1;
+      settings.column[k] = newCol;
+      if (newCol === 1 && settings.columnMode === 'single') settings.columnMode = 'dual';
       saveSettings(); applyAll(); renderPopup();
     },
 
@@ -1879,7 +2061,8 @@
       applyAll(); renderPopup();
     },
 
-    'toggle-subgroup': (t) => {
+    'toggle-subgroup': (t, e) => {
+      if (e && e.target && e.target.closest('.mc3-handle, .mc3-icon-btn, .mc3-toggle, input')) return;
       const gid = t.getAttribute('data-gid');
       const sgId = t.getAttribute('data-sgid');
       const sg = Subgroups.getById(gid, sgId);
@@ -1906,7 +2089,11 @@
 
     'toggle-sg-col': (t) => {
       const sg = Subgroups.getById(t.getAttribute('data-gid'), t.getAttribute('data-sgid'));
-      if (sg) { sg.column = sg.column === 1 ? 0 : 1; saveSettings(); applyAll(); renderPopup(); }
+      if (sg) {
+        sg.column = sg.column === 1 ? 0 : 1;
+        if (sg.column === 1 && settings.columnMode === 'single') settings.columnMode = 'dual';
+        saveSettings(); applyAll(); renderPopup();
+      }
     },
 
     'start-rename-sg': (t) => {
@@ -2009,12 +2196,43 @@
     const move = (ev) => {
       if (gid === 'mesButtons') {
         const elAtPoint = doc.elementFromPoint(ev.clientX, ev.clientY);
-        const mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list') : null;
-        for (const ml of doc.querySelectorAll('.mc3-mes-list')) ml.classList.remove('mc3-drop-target');
+        const mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="mesButtons"]') : null;
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="mesButtons"]')) ml.classList.remove('mc3-drop-target');
         if (mesList) {
           mesList.classList.add('mc3-drop-target');
           if (dragEl.parentNode !== mesList) mesList.appendChild(dragEl);
           findInsertAfter(mesList, dragEl, ev.clientY);
+        }
+        dragMeta._lastX = ev.clientX; dragMeta._lastY = ev.clientY;
+        return;
+      }
+
+      if (gid === 'extensionsSettings') {
+        const elAtPoint = doc.elementFromPoint(ev.clientX, ev.clientY);
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="extensionsSettings"]')) ml.classList.remove('mc3-drop-target');
+        for (const s of doc.querySelectorAll('.mc3-subgroup[data-gid="extensionsSettings"]')) s.classList.remove('mc3-drop-target');
+
+        if (isSgHandle) {
+          const extList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="extensionsSettings"]') : null;
+          if (extList) {
+            extList.classList.add('mc3-drop-target');
+            if (dragEl.parentNode !== extList) extList.appendChild(dragEl);
+            findInsertAfter(extList, dragEl, ev.clientY);
+          }
+        } else {
+          const dropTarget = findDropTarget(ev);
+          if (dropTarget) {
+            const parentSg = dropTarget.closest('.mc3-subgroup');
+            if (parentSg) parentSg.classList.add('mc3-drop-target');
+            findInsertAfter(dropTarget, dragEl, ev.clientY);
+          } else {
+            const extList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="extensionsSettings"]') : null;
+            if (extList) {
+              extList.classList.add('mc3-drop-target');
+              if (dragEl.parentNode !== extList) extList.appendChild(dragEl);
+              findInsertAfter(extList, dragEl, ev.clientY);
+            }
+          }
         }
         dragMeta._lastX = ev.clientX; dragMeta._lastY = ev.clientY;
         return;
@@ -2047,16 +2265,16 @@
       const lastY = (ev && ev.clientY !== undefined) ? ev.clientY : (dragMeta._lastY || 0);
 
       if (gid === 'mesButtons') {
-        for (const ml of doc.querySelectorAll('.mc3-mes-list')) ml.classList.remove('mc3-drop-target');
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="mesButtons"]')) ml.classList.remove('mc3-drop-target');
         let finalColList = dragEl.closest('.mc3-mes-list');
         if (!finalColList) {
           const elAtPoint = doc.elementFromPoint(lastX, lastY);
-          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list') : null;
+          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="mesButtons"]') : null;
         }
         if (finalColList) settings.column[dragMeta.key] = Number(finalColList.getAttribute('data-col'));
 
         const orderedKeys = [];
-        for (const colSel of ['.mc3-mes-list[data-col="0"]', '.mc3-mes-list[data-col="1"]']) {
+        for (const colSel of ['.mc3-mes-list[data-gid="mesButtons"][data-col="0"]', '.mc3-mes-list[data-gid="mesButtons"][data-col="1"]']) {
           const colList = doc.querySelector(colSel);
           if (!colList) continue;
           for (const row of colList.querySelectorAll('.mc3-row[data-key]')) {
@@ -2065,6 +2283,95 @@
           }
         }
         commitReorder('mesButtons', orderedKeys);
+        saveSettings(); applyAll(); renderPopup();
+        dragMeta = null;
+        return;
+      }
+
+      if (gid === 'extensionsSettings') {
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="extensionsSettings"], .mc3-subgroup[data-gid="extensionsSettings"]')) {
+          ml.classList.remove('mc3-drop-target');
+        }
+
+        if (isSgHandle) {
+          let finalColList = dragEl.closest('.mc3-mes-list[data-col]');
+          if (!finalColList) {
+            const elAtPoint = doc.elementFromPoint(lastX, lastY);
+            finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-col]') : null;
+          }
+          if (finalColList) {
+            const colNum = Number(finalColList.getAttribute('data-col'));
+            const sgId = dragEl.getAttribute('data-sgid');
+            const sg = Subgroups.getById('extensionsSettings', sgId);
+            if (sg) {
+              sg.column = colNum;
+              if (colNum === 1 && settings.columnMode === 'single') settings.columnMode = 'dual';
+            }
+          }
+        } else {
+          const finalTarget = findDropTarget({ clientX: lastX, clientY: lastY }) || dragEl.closest('.mc3-subgroup-items');
+          const targetSgId = finalTarget ? finalTarget.getAttribute('data-sgid') : null;
+          if (targetSgId && targetSgId !== dragMeta.startSgId) {
+            Subgroups.addKey(gid, targetSgId, dragMeta.key);
+            const targetSg = Subgroups.getById(gid, targetSgId);
+            if (targetSg && targetSg.column !== undefined) {
+              settings.column[dragMeta.key] = targetSg.column;
+              if (targetSg.column === 1 && settings.columnMode === 'single') settings.columnMode = 'dual';
+            }
+          } else if (!targetSgId && dragMeta.startSgId) {
+            Subgroups.removeKey(gid, dragMeta.key);
+            let finalColList = dragEl.closest('.mc3-mes-list[data-col]');
+            if (!finalColList) {
+              const elAtPoint = doc.elementFromPoint(lastX, lastY);
+              finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-col]') : null;
+            }
+            if (finalColList) {
+              const colNum = Number(finalColList.getAttribute('data-col'));
+              settings.column[dragMeta.key] = colNum;
+              if (colNum === 1 && settings.columnMode === 'single') settings.columnMode = 'dual';
+            }
+          } else if (!targetSgId && !dragMeta.startSgId) {
+            let finalColList = dragEl.closest('.mc3-mes-list[data-col]');
+            if (!finalColList) {
+              const elAtPoint = doc.elementFromPoint(lastX, lastY);
+              finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-col]') : null;
+            }
+            if (finalColList) {
+              const colNum = Number(finalColList.getAttribute('data-col'));
+              settings.column[dragMeta.key] = colNum;
+              if (colNum === 1 && settings.columnMode === 'single') settings.columnMode = 'dual';
+            }
+          }
+        }
+
+        const orderedKeys = [];
+        const collectKeys = (el) => {
+          if (el.classList.contains('mc3-row')) {
+            const rk = el.getAttribute('data-key');
+            if (rk && orderedKeys.indexOf(rk) === -1) orderedKeys.push(rk);
+          } else if (el.classList.contains('mc3-subgroup')) {
+            const sg = Subgroups.getById('extensionsSettings', el.getAttribute('data-sgid'));
+            if (sg && sg.collapsed) {
+              const oldMap = settings.order['extensionsSettings'] || {};
+              const members = sg.memberKeys.slice().sort((a, b) => (oldMap[a] || 0) - (oldMap[b] || 0));
+              for (const m of members) if (orderedKeys.indexOf(m) === -1) orderedKeys.push(m);
+            } else {
+              for (const child of el.children) collectKeys(child);
+            }
+          } else {
+            for (const child of el.children) collectKeys(child);
+          }
+        };
+
+        for (const colSel of ['.mc3-mes-list[data-gid="extensionsSettings"][data-col="0"]', '.mc3-mes-list[data-gid="extensionsSettings"][data-col="1"]']) {
+          const colList = doc.querySelector(colSel);
+          if (colList) {
+            persistSubgroupPositions(colList, 'extensionsSettings');
+            for (const child of colList.children) collectKeys(child);
+          }
+        }
+
+        commitReorder('extensionsSettings', orderedKeys);
         saveSettings(); applyAll(); renderPopup();
         dragMeta = null;
         return;
@@ -2182,7 +2489,7 @@
       win.setTimeout(() => { if (!suppressObserver) applyAll(); }, d);
     });
     win.__mc3 = {
-      version: 'M15',
+      version: 'M16',
       settings,
       groups: GROUPS,
       getGroup,
