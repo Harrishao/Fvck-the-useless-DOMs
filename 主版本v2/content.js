@@ -1833,7 +1833,7 @@
       '<input type="checkbox" id="mc3-set-userfold" class="mc3-checkbox" data-action="set-userfold"' + (settings.enableUserFold !== false ? ' checked' : '') + '>' +
       '</div>';
     html += '<div class="mc3-setting-row">' +
-      '<label class="mc3-setting-label" for="mc3-set-customcss"><span>独立"自定义CSS"块</span></label>' +
+      '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将自定义CSS块从杂项中独立出来</span></label>' +
       '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
       '</div>';
     html += '<div class="mc3-setting-row">' +
