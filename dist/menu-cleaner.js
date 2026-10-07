@@ -1,4 +1,4 @@
-// version 923.0.0
+// version 924.0.0
 
 (function () {
   'use strict';
@@ -551,9 +551,19 @@
   // 是否为「display:contents 包裹层」：本身不是目标条目，但其直接子里挂着真正的条目。
   // 保留: 第三方扩展把 wand/extension 容器设为 display:contents，需穿透一层（0622）。
   function isContentsWrapper(el, group) {
-    if (!el.classList.contains('extension_container')) return false;
-    if (group.mode === 'listItems') return !el.matches(group.itemMatch);
-    if (group.mode === 'drawers') return !el.classList.contains('inline-drawer');
+    if (!el || !(el instanceof win.HTMLElement || (el.classList && el.matches))) return false;
+    if (el.classList.contains('extension_container')) {
+      if (group.mode === 'listItems') return !el.matches(group.itemMatch);
+      if (group.mode === 'drawers') return !el.classList.contains('inline-drawer');
+      return false;
+    }
+    // 兼容可能未带 extension_container 类的第三方包裹层（如自定义挂载点或快捷方式容器）
+    if (group.mode === 'listItems' && !el.matches(group.itemMatch) && el.querySelector(group.itemMatch)) {
+      return true;
+    }
+    if (group.mode === 'drawers' && !el.classList.contains('inline-drawer') && el.querySelector(group.header)) {
+      return true;
+    }
     return false;
   }
 
@@ -579,15 +589,16 @@
     }
 
     if (group.mode === 'listItems') {
-      // 适配不同插件在魔棒菜单中挂载按钮的方式（LGI / 非 LGI 并列，穿透 display:contents 包裹层）
-      for (const c of children) {
-        if (isSelf(c)) continue;
-        if (!isContentsWrapper(c, group)) { out.push({ el: c, label: labelOf(c, group) }); continue; }
-        for (const gc of c.children) {
-          if (isSelf(gc)) continue;
-          if (looksLikeButton(gc, group.itemMatch)) out.push({ el: gc, label: labelOf(gc, group) });
+      // 适配不同插件在魔棒菜单中挂载按钮的方式（LGI / 非 LGI 并列，穿透 display:contents 包裹层与快捷方式容器）
+      const scanItemNode = (node) => {
+        if (!node || isSelf(node)) return;
+        if (isContentsWrapper(node, group)) {
+          for (const sub of node.children) scanItemNode(sub);
+        } else if (looksLikeButton(node, group.itemMatch)) {
+          out.push({ el: node, label: labelOf(node, group) });
         }
-      }
+      };
+      for (const c of children) scanItemNode(c);
       return out;
     }
 
@@ -839,6 +850,7 @@
       if (!g.forceFlex) continue;
       for (const c of g.containers) rules.push(c + '{display:flex;flex-direction:column;}');
     }
+    rules.push('#extensionsMenu > .extension_container{display:contents !important;}');
     const st = doc.createElement('style');
     st.id = 'mc3-style';
     st.textContent = rules.join('\n');
@@ -1348,6 +1360,7 @@
   }
 
   function applyAll() {
+    ensureContainersObserved();
     injectStyle();
     setupLaunchers(); // 幂等：先补回入口，使其作为普通条目被随后的 scanAll 扫描/排序/隐藏
     applyAlwaysHidden(settings.enabled);
@@ -1365,39 +1378,85 @@
 
   // ─── §7  OBSERVER ────────────────────────────────────────────────────────────
 
+  let mainObs = null;
+  const observedContainers = new Set();
+  let cdObs = null;
+  let cdActive = true;
+
+  function ensureContainersObserved() {
+    if (!mainObs) return;
+    for (const g of GROUPS) {
+      const conts = (g.containers || []).concat(g.observe || []);
+      for (const sel of conts) {
+        const el = doc.querySelector(sel);
+        if (el && !observedContainers.has(el)) {
+          observedContainers.add(el);
+          mainObs.observe(el, { childList: true, subtree: true });
+          if (cdActive && cdObs) cdObs.observe(el, { characterData: true, subtree: true });
+        }
+      }
+    }
+  }
+
   // 幂等 observer：容器子树有增删就防抖重应用，取代旧版多重兜底重扫描。
   function scheduleApply() {
     if (suppressObserver) return;
+    ensureContainersObserved();
     if (applyTimer) win.clearTimeout(applyTimer);
-    applyTimer = win.setTimeout(() => { applyTimer = null; if (!suppressObserver) applyAll(); }, 300);
+    applyTimer = win.setTimeout(() => {
+      applyTimer = null;
+      if (!suppressObserver) applyAll();
+    }, 300);
   }
 
   function setupObserver() {
-    const seen = new Set();
-    const watched = [];
-    const obs = new win.MutationObserver((muts) => {
+    mainObs = new win.MutationObserver((muts) => {
       if (suppressObserver) return;
       for (const m of muts) {
         if (m.addedNodes.length || m.removedNodes.length) { scheduleApply(); return; }
       }
     });
-    for (const g of GROUPS) {
-      const conts = (g.containers || []).concat(g.observe || []);
-      for (const sel of conts) {
-        const el = doc.querySelector(sel);
-        if (el && !seen.has(el)) { seen.add(el); obs.observe(el, { childList: true, subtree: true }); watched.push(el); }
-      }
-    }
 
     // 保留: 启动 20s 内临时加挂 characterData 监听，覆盖 Vue 异步组件先插空标签后补文本的时序（0623/M8）。
     // 到点断开避免稳态开销——勿改为常驻。
-    const cdObs = new win.MutationObserver(() => { if (!suppressObserver) scheduleApply(); });
-    for (const el of watched) cdObs.observe(el, { characterData: true, subtree: true });
-    win.setTimeout(() => { cdObs.disconnect(); }, 20000);
+    cdObs = new win.MutationObserver(() => { if (!suppressObserver) scheduleApply(); });
+    win.setTimeout(() => {
+      cdActive = false;
+      if (cdObs) { cdObs.disconnect(); cdObs = null; }
+    }, 20000);
+
+    ensureContainersObserved();
+
+    // 浅层监听 doc.body，捕获延迟追加的原生容器（如 #extensionsMenu / 魔棒菜单）
+    const bodyObs = new win.MutationObserver((muts) => {
+      if (suppressObserver) return;
+      for (const m of muts) {
+        if (m.addedNodes.length || m.removedNodes.length) {
+          ensureContainersObserved();
+          scheduleApply();
+          return;
+        }
+      }
+    });
+    if (doc.body) {
+      bodyObs.observe(doc.body, { childList: true });
+    } else if (doc.documentElement) {
+      bodyObs.observe(doc.documentElement, { childList: true });
+    }
+
+    // 捕获打开菜单按钮点击：确保即使在特殊时序下展开菜单，也能瞬时挂载监听并重应用
+    doc.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('#extensionsMenuButton, #options_button, #extensions-settings-button')) {
+        ensureContainersObserved();
+        scheduleApply();
+      }
+    }, { capture: true, passive: true });
 
     try {
-      if (win.eventSource && win.event_types && win.event_types.CHAT_CHANGED) {
-        win.eventSource.on(win.event_types.CHAT_CHANGED, scheduleApply);
+      if (win.eventSource && win.event_types) {
+        if (win.event_types.CHAT_CHANGED) win.eventSource.on(win.event_types.CHAT_CHANGED, scheduleApply);
+        if (win.event_types.APP_READY) win.eventSource.on(win.event_types.APP_READY, () => { ensureContainersObserved(); scheduleApply(); });
+        if (win.event_types.EXTENSIONS_FIRST_LOAD) win.eventSource.on(win.event_types.EXTENSIONS_FIRST_LOAD, () => { ensureContainersObserved(); scheduleApply(); });
       }
     } catch (e) {}
   }
@@ -1630,7 +1689,7 @@
     let html = '<div class="mc3-subgroup-header" data-action="toggle-subgroup" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="折叠或展开子分组">';
     html += '<span class="mc3-handle mc3-sg-handle" title="拖动子分组排序">⠿</span>';
     html += '<button type="button" class="mc3-subgroup-collapse" title="折叠或展开子分组"><span class="mc3-chevron">▾</span></button>';
-    html += '<span class="mc3-subgroup-name">' + escHtml(sg.name) + '</span>';
+    html += '<span class="mc3-subgroup-name" data-sgid="' + sg.id + '" data-gid="' + group.id + '">' + escHtml(sg.name) + '</span>';
     html += '<button class="mc3-icon-btn" data-action="start-rename-sg" data-sgid="' + sg.id + '" data-gid="' + group.id + '" title="重命名">✎</button>';
     if (group.id === 'extensionsSettings') {
       const sgCol = sg.column !== undefined ? sg.column : 0;
@@ -2099,7 +2158,9 @@
     'start-rename-sg': (t) => {
       const gid = t.getAttribute('data-gid');
       const sgId = t.getAttribute('data-sgid');
-      const nameSpan = doc.querySelector('.mc3-subgroup-name[data-sgid="' + sgId + '"][data-gid="' + gid + '"]');
+      const header = t.closest('.mc3-subgroup-header');
+      const nameSpan = (header && header.querySelector('.mc3-subgroup-name')) ||
+        doc.querySelector('.mc3-subgroup-name[data-sgid="' + sgId + '"][data-gid="' + gid + '"]');
       const sg = Subgroups.getById(gid, sgId);
       if (!nameSpan || !sg) return;
       const input = doc.createElement('input');
@@ -2109,14 +2170,19 @@
       nameSpan.replaceWith(input);
       input.focus();
       input.select();
+      input.addEventListener('click', (ev) => ev.stopPropagation());
+      input.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      let done = false;
       const finishRename = () => {
+        if (done) return;
+        done = true;
         Subgroups.rename(gid, sgId, input.value.trim() || '新建分组');
         applyAll(); renderPopup();
       };
       input.addEventListener('blur', finishRename);
       input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') input.blur();
-        if (ev.key === 'Escape') renderPopup();
+        if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); done = true; renderPopup(); }
       });
     },
 
@@ -2481,20 +2547,26 @@
 
   function init() {
     Store.load();
-    const records = applyAll();
     setupObserver();
+    const records = applyAll();
     setupLaunchers();
     // 保留: 递进补跑 applyAll()，等价手动「关掉再开启插件」，兜底晚到时序（0623/M8）
-    [600, 1800, 4000, 8000].forEach((d) => {
-      win.setTimeout(() => { if (!suppressObserver) applyAll(); }, d);
+    [600, 1800, 4000, 8000, 12000, 16000].forEach((d) => {
+      win.setTimeout(() => {
+        if (!suppressObserver) {
+          ensureContainersObserved();
+          applyAll();
+        }
+      }, d);
     });
     win.__mc3 = {
-      version: 'M16',
+      version: 'M17',
       settings,
       groups: GROUPS,
       getGroup,
       scanGroup, scanMesButtons, scanCurated, scanAll,
       applyAll, applyMesButtons, clearMesButtons,
+      ensureContainersObserved,
       renderMesButtonsCard, applyPseudoSubgroups, applyCustomSelectors,
       addCustomSelector: (sel, label) => CustomSelectors.add(sel, label),
       deleteCustomSelector: (id) => CustomSelectors.remove(id),
