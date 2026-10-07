@@ -1,16 +1,16 @@
-// version 924.0.0
+// version 1003.0.0
 
 (function () {
   'use strict';
 
  
 
-  // iframe 穿透：脚本在子 iframe 内执行时操作父页面 DOM。
+  // iframe 穿透，适配酒馆助手
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
 
-  const STORAGE_KEY = 'menu_cleaner3_settings'; // 旧 localStorage 迁移源
-  const EXT_KEY = 'menu_cleaner3';              // extension_settings 主存储键
+  const STORAGE_KEY = 'menu_cleaner3_settings'; 
+  const EXT_KEY = 'menu_cleaner3';              
   const OWN_PREFIX = 'mc3-';                    // 本插件注入元素 id 前缀
 
   // id 是否「稳定、可用作 key」：排除空、本版自身、旧版方案2 残留的 menu-cleaner-auto-* 自增 id。
@@ -28,8 +28,6 @@
 
   // ─── §1  REGISTRY ────────────────────────────────────────────────────────────
 
-  // 分组定义。能力标志（curated/supportsColumns/supportsPseudoSubgroups/customApply）
-  // 由 applyGroup 声明式派发，取代散落各处的 id 字面量判断。
   const GROUPS = [
     {
       id: 'options', name: '左下菜单',
@@ -87,16 +85,16 @@
     },
   ];
 
-  // 支持子分组的分组（唯一事实来源，supportsPseudoSubgroups() 查此表）
+  // 支持子分组的分组
   const SUBGROUP_GROUP_IDS = ['options', 'extensionsMenu', 'extensionsSettings', 'qrPanel'];
 
-  // 消息操作容器选择器（扫描/应用/清理三处共用）
+  // 楼层消息右上角
   const MES_CONTAINER_SEL = '#message_template .mes_buttons, #chat .mes_buttons, .mes_buttons';
 
-  // 原生分隔线（启用时隐藏）
+  // 原生分隔线
   const SEPARATOR_SELECTORS = ['#options .options-content > hr', '#extensionsMenu > hr'];
 
-  // 内置消息按钮友好标签映射
+  // 内置消息按钮友好标签映射（真的需要这部分吗？我认为扫描器本身已经能正确提取元素的title，有点想删掉这部分）
   const MES_BUTTON_DEFAULT_LABELS = {
     '.mes_edit': '编辑',
     '.mes_bookmark': '书签/检查点',
@@ -114,7 +112,7 @@
     '.mes_create_branch': '创建分支',
   };
 
-  // 预设面板 curated 分组（标题含括号，依 可展开列表.md，按组隐藏不排序）
+  // 预设面板，打包隐藏
   function presetRange(prefix, a, b, suffix) {
     const out = [];
     for (let n = a; n <= b; n++) out.push(prefix + n + suffix);
@@ -133,7 +131,7 @@
     { label: '预设条目(你不会连这个都要隐藏吧？)', selectors: ['#openai_settings > div.range-block.m-b-1'] },
   ];
 
-  // 用户设置伪抽屉（保留: 0908 语义 name 选择器，勿退回 :nth-child —— 兼容「布局优化」类插件重排 DOM）
+  // 用户设置伪抽屉，现在用精确语义进行匹配而不是nth-child
   const USER_SETTINGS_GROUPS = [
     {
       label: 'UI主题', selectors: ['#UI-Theme-Block'],
@@ -152,7 +150,7 @@
     },
     {
       label: '自定义CSS',
-      noCuratedRecord: true, // 独立伪抽屉，不产 curated record（0908：解耦「杂项」折叠态）
+      noCuratedRecord: true, // 把自定义CSS块独立出来，不随杂项显隐
       drawerHeader: '#CustomCSS-block > h4',
       drawerTargets: ['#CustomCSS-block > :not(h4)'],
     },
@@ -223,7 +221,7 @@
     userSettings: USER_SETTINGS_GROUPS,
   };
 
-  // 无论如何都不需要的元素：默认隐藏且不提供 UI 滑块（依 可展开列表.md）
+  // 默认隐藏的垃圾元素
   const ALWAYS_HIDDEN = [
     '#rm_api_block > div.flex-container.flexFlowColumn > #openai_api > div.flex-container.flex > #test_api_button',
     '#rm_extensions_block > div > div.alignitemsflexstart.flex-container.wide100p',
@@ -266,8 +264,7 @@
     // 深拷贝一份全新默认值
     freshDefaults() { return JSON.parse(JSON.stringify(defaultSettings)); },
 
-    // 规范化：补齐缺省字段 + 各分组折叠/子分组默认态。
-    // 保留: 刻意「不」清理当前不在场的 key —— 晚加载元素靠留存的 order/column/hidden 归位。
+    // 一些规范：刻意「不」清理当前不在场的 key —— 晚加载元素靠留存的 order/column/hidden 归位。
     normalize(s) {
       const d = defaultSettings;
       for (const k in d) {
@@ -275,7 +272,7 @@
           ? JSON.parse(JSON.stringify(d[k])) : d[k];
       }
       if (!Array.isArray(s.customSelectors)) s.customSelectors = [];
-      // 新旧用户都以「未声明即收起」处理；之后每次切换均随 settings 持久化。
+      // 默认收起，随后对展开/收起状态持久化
       for (const g of GROUPS) {
         if (s.groupCollapsed[g.id] === undefined) s.groupCollapsed[g.id] = true;
       }
@@ -297,7 +294,7 @@
       if (ext && typeof ext === 'object') {
         settings = Object.assign({}, defaultSettings, ext);
       } else {
-        // 新存储为空 → 检查 localStorage 迁移源
+        // 这部分用来从浏览器缓存中迁移数据至配置文件，但由于插件持久化存储已经推送很久，所以可以考虑移除
         try {
           const raw = win.localStorage.getItem(STORAGE_KEY);
           if (raw) {
@@ -320,6 +317,7 @@
       return settings;
     },
 
+    // 持久化失败时用浏览器缓存兜底
     save() {
       const ctx = Store.getCtx();
       if (ctx && ctx.extensionSettings && ctx.saveSettingsDebounced) {
@@ -498,7 +496,7 @@
         return t || normLabel(el.textContent);
       }
       case 'span': {
-        // 保留: 取首个「非空」span，修 #favorites_button 空图标 span 致标签空被丢弃（0623）
+        // 保留: 取首个「非空」span，防止空图标 span 致标签空被丢弃（0623）
         const sps = el.querySelectorAll('span, .qr--button-label, [data-i18n]');
         for (const sp of sps) { const st = normLabel(sp.textContent); if (st) return st; }
         let dt = '';
@@ -523,6 +521,7 @@
     catch (e) { return false; }
   }
 
+  // CSS动画相关参数计算
   // 依条目数非线性计算展开/折叠过渡时长（<=4 项兜底 0.22s，>4 项对数递增，上限 0.50s）
   function calcCollapseDuration(itemCount) {
     const count = Number(itemCount) || 0;
@@ -531,7 +530,7 @@
     return Math.min(0.50, Math.round(dur * 1000) / 1000);
   }
 
-  // 长选择器中段省略：显示头尾特征、省略中部层级
+  // selector过长时取头尾舍中间
   function renderSelectorLabelHtml(selectorText, count) {
     const text = selectorText || '';
     const countBadge = count !== undefined ? '<span class="mc3-match-badge"></span>' : '';
@@ -710,7 +709,7 @@
   // 消息操作按钮语义选择器提取。保留: 优先 #id；本版加固为复合 class（拼所有非忽略 class）降低碰撞。
   function getMesButtonSelector(el) {
     if (isStableId(el.id)) return '#' + el.id;
-    const ignoredClasses = ['mes_button', 'interactable', 'menu_button', 'displayNone', 'mc3-hidden', 'visible', 'fa-solid', 'fa-regular'];
+    const ignoredClasses = ['mes_button', 'interactable', 'menu_button', 'mes_btn', 'displayNone', 'mc3-hidden', 'visible', 'fa-solid', 'fa-regular'];
     const cl = [];
     const len = el.classList ? el.classList.length : 0;
     for (let i = 0; i < len; i++) {
@@ -857,7 +856,7 @@
     (doc.head || doc.documentElement).appendChild(st);
   }
 
-  // 修复 mesButtons 幽灵按钮 bug（0915 未解决问题）：结构化 CSS 抑制。
+  // 修复 mesButtons 幽灵按钮 bug：
   // 不变量：任何 targetCol===1（外显）记录的按钮，永远不得在 .extraMesButtons 抽屉内渲染。
   // 后代作用域 `.extraMesButtons SELECTOR` 仅命中抽屉内副本；外显直接子级不受影响。
   // 第三方重注入进抽屉的副本一被解析即隐藏——不依赖 JS、不受防抖影响、我们不写节点属性 → 无 observer 乒乓。
@@ -934,7 +933,7 @@
     });
   }
 
-  // 扩展面板单双栏。保留: 搬整个 .extension_container（连 id，不搬内容 → 切页签不丢内容，柏宝箱 #3）。
+  // 扩展面板单双栏。保留: 搬整个 .extension_container，原本是走歪路做自绘面板时的修复方案，现在不知道还有没有用，总之先留着
   function applyColumns(records) {
     const col0 = doc.querySelector('#extensions_settings');
     const col1 = doc.querySelector('#extensions_settings2');
@@ -990,13 +989,13 @@
     }
   }
 
-  // 用伪抽屉实现子分组：保持原生扁平 DOM，只插入可清理的标题按钮并用 order 放到首个成员之前。
+  // 即用显示状态伪装抽屉的收起/展开，保持原生扁平 DOM
   // 扩展面板的标题与成员共同跟随子分组栏位；不包裹也不改动成员的原生抽屉结构。
   function applyPseudoSubgroups(group, records) {
     if (!supportsPseudoSubgroups(group)) return;
     const defaultContainer = doc.querySelector(group.containers[0]);
     if (!defaultContainer) return;
-    // 清旧分隔线（历史遗留）
+    // 清理原生分隔线
     for (const containerSel of group.containers) {
       const c = doc.querySelector(containerSel);
       if (c) for (const s of c.querySelectorAll('.mc3-subgroup-sep')) s.remove();
@@ -1063,6 +1062,7 @@
   }
 
   // 自定义CSS块原位重排：根据 settings.isolateCustomCss 决定在 DOM 中置于角色处理之前还是杂项之后
+  // 这是干嘛的？为什么要有这一块？
   function applyCustomCssPosition() {
     const cssBlock = doc.querySelector('#CustomCSS-block');
     if (!cssBlock) return;
@@ -1156,13 +1156,25 @@
   }
 
   // 在 container 内收集匹配 rec.selector 的按钮（排除 hint/extra/self）—— apply/clear 共用
+  // function collectMesMatches(container, rec, hint, extra) {
+  //   const matched = [];
+  //   for (const fb of container.querySelectorAll(rec.selector)) {
+  //     if (fb !== hint && fb !== extra && !isSelf(fb)) matched.push(fb);
+  //   }
+  //   return matched;
+  // }
+
+  // 这部分和上面注释掉的内容不同的点在于，限制精简器本身只操作mes_button和深一层的extraMesButtons的内容，避免误杀由其他插件引入，且点了会有弹窗的元素
+  // 如果效果不对再换回上面的
   function collectMesMatches(container, rec, hint, extra) {
-    const matched = [];
-    for (const fb of container.querySelectorAll(rec.selector)) {
-      if (fb !== hint && fb !== extra && !isSelf(fb)) matched.push(fb);
-    }
-    return matched;
+  const matched = [];
+  for (const fb of container.querySelectorAll(rec.selector)) {
+    if (fb === hint || fb === extra || isSelf(fb)) continue;
+    if (fb.parentNode !== container && fb.parentNode !== extra) continue;
+    matched.push(fb);
   }
+  return matched;
+}
 
   // 应用消息操作栏配置：双栏包含关系、显隐与排序，保证省略号始终处于外显项左侧。
   // restore=true 时为「清理」模式：回归原生栏位、取消隐藏与 order。
@@ -1211,7 +1223,7 @@
           : (settings.column[rec.key] !== undefined ? settings.column[rec.key] : rec.nativeColumn);
 
         if (targetCol === 0) {
-          // 收纳：置于 extra 内。保留一份主副本，其余多余副本 remove（自愈：被重注入会再次被捕获）。
+          // 收纳：置于 extra 内。保留一份主副本，其余多余副本 remove（对重复注入元素的防御）。
           // extra 可能在清理模式下缺失（无收纳区）→ 与 v1 一致：仅在 extra 存在时搬入。
           let mainBtn = (extra && matchedBtns.find((b) => b.parentNode === extra)) || matchedBtns[0];
           if (extra && mainBtn.parentNode !== extra) { suppressObserver = true; extra.appendChild(mainBtn); moved = true; }
@@ -1417,7 +1429,7 @@
       }
     });
 
-    // 保留: 启动 20s 内临时加挂 characterData 监听，覆盖 Vue 异步组件先插空标签后补文本的时序（0623/M8）。
+    // 保留: 启动 20s 内临时加挂 characterData 监听，覆盖 Vue 异步组件先插空标签后补文本的时序（0623）。
     // 到点断开避免稳态开销——勿改为常驻。
     cdObs = new win.MutationObserver(() => { if (!suppressObserver) scheduleApply(); });
     win.setTimeout(() => {
