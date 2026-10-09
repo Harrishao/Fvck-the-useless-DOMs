@@ -1,4 +1,4 @@
-// version 1003.0.0
+// version 1009.0.2
 
 (function () {
   'use strict';
@@ -234,6 +234,17 @@
 
   // ─── §2  SETTINGS STORE ──────────────────────────────────────────────────────
 
+  function clampRgb(v, fallback) {
+    const n = parseInt(v, 10);
+    if (isNaN(n)) return fallback !== undefined ? fallback : 0;
+    return Math.min(255, Math.max(0, n));
+  }
+
+  function rgbToHex(r, g, b) {
+    const toHex = (c) => ('0' + Math.min(255, Math.max(0, parseInt(c, 10) || 0)).toString(16)).slice(-2).toUpperCase();
+    return '#' + toHex(r) + toHex(g) + toHex(b);
+  }
+
   const defaultSettings = {
     enabled: true,
     hidden: {},          // { key: true }                   — 可见性，无任何预设
@@ -250,6 +261,8 @@
     enableQrFold: true,      // 启用 QR 面板折叠
     enableUserFold: true,    // 启用用户条目折叠
     isolateCustomCss: false, // 独立"自定义CSS"块
+    customFontColorEnabled: false, // 是否指定字体颜色（默认关闭，关闭时继承酒馆字体属性）
+    customFontColor: null,   // 自定义 RGB 颜色 { r, g, b }；null 表示未指定，首次开启自动抓取
     activeTab: 'sort',       // 激活页签 'sort' | 'settings'
   };
 
@@ -272,6 +285,16 @@
           ? JSON.parse(JSON.stringify(d[k])) : d[k];
       }
       if (!Array.isArray(s.customSelectors)) s.customSelectors = [];
+      if (typeof s.customFontColorEnabled !== 'boolean') s.customFontColorEnabled = false;
+      if (s.customFontColor && typeof s.customFontColor === 'object') {
+        s.customFontColor = {
+          r: clampRgb(s.customFontColor.r, 238),
+          g: clampRgb(s.customFontColor.g, 238),
+          b: clampRgb(s.customFontColor.b, 238),
+        };
+      } else {
+        s.customFontColor = null;
+      }
       // 默认收起，随后对展开/收起状态持久化
       for (const g of GROUPS) {
         if (s.groupCollapsed[g.id] === undefined) s.groupCollapsed[g.id] = true;
@@ -1586,7 +1609,7 @@
 
   const POPUP_CSS =
     '#mc3-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;width:100dvw;height:100dvh;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);}' +
-    '#mc3-popup{display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
+    '#mc3-popup{display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--mc3-font-color,var(--SmartThemeBodyColor,#eee));border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
     '#mc3-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);font-weight:bold;}' +
     '#mc3-head .mc3-head-title{display:flex;align-items:center;gap:12px;}' +
     '#mc3-head .mc3-x{cursor:pointer;background:none;border:none;color:inherit;font-size:18px;}' +
@@ -1607,6 +1630,25 @@
     '.mc3-segment-btn.active{background:var(--SmartThemeQuoteColor,#3a6);color:#fff;opacity:1;font-weight:bold;}' +
     '.mc3-danger-btn{cursor:pointer;background:rgba(220,53,69,.15);color:#ff6b6b;border:1px solid rgba(220,53,69,.4);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:bold;transition:all .15s;}' +
     '.mc3-danger-btn:hover{background:rgba(220,53,69,.3);border-color:#dc3545;color:#fff;}' +
+    // RGB 拾色器样式
+    '.mc3-color-picker-box{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding:12px;background:var(--black30a,rgba(0,0,0,.25));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:8px;box-sizing:border-box;}' +
+    '.mc3-rgb-row{display:flex;align-items:center;gap:10px;}' +
+    '.mc3-rgb-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;font-size:11px;font-weight:bold;color:#fff;flex-shrink:0;user-select:none;}' +
+    '.mc3-rgb-badge.r{background:#e74c3c;}' +
+    '.mc3-rgb-badge.g{background:#2ecc71;}' +
+    '.mc3-rgb-badge.b{background:#3498db;}' +
+    '.mc3-rgb-slider{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:4px;outline:none;cursor:pointer;margin:0;border:1px solid rgba(255,255,255,.15);}' +
+    '.mc3-rgb-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.3);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.5);}' +
+    '.mc3-rgb-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.3);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.5);}' +
+    '.mc3-rgb-val{width:32px;text-align:right;font-size:12px;font-family:monospace;font-weight:600;opacity:.85;flex-shrink:0;}' +
+    '.mc3-color-preview-row{display:flex;align-items:center;justify-content:space-between;padding-top:6px;border-top:1px solid var(--SmartThemeBorderColor,#444);gap:8px;}' +
+    '.mc3-color-preview-left{display:flex;align-items:center;gap:8px;min-width:0;flex:1;}' +
+    '.mc3-color-swatch{width:22px;height:22px;border-radius:4px;border:1px solid rgba(255,255,255,.25);box-shadow:0 1px 3px rgba(0,0,0,.3);flex-shrink:0;}' +
+    '.mc3-color-preview-text{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+    '.mc3-color-preview-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}' +
+    '.mc3-color-code{font-family:monospace;font-size:11px;opacity:.7;}' +
+    '.mc3-reset-color-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:4px;padding:2px 8px;font-size:11px;opacity:.8;transition:all .15s;}' +
+    '.mc3-reset-color-btn:hover{opacity:1;background:var(--black50a,rgba(128,128,128,.3));}' +
     // 折叠箭头与动画
     '.mc3-chevron{display:inline-block;transition:transform var(--mc3-dur,.25s) cubic-bezier(.4,0,.2,1);transform:rotate(0deg);line-height:1;font-size:28px;}' +
     // 卡片样式
@@ -1677,6 +1719,48 @@
     if (doc.getElementById('mc3-popup-style')) return;
     const st = doc.createElement('style'); st.id = 'mc3-popup-style'; st.textContent = POPUP_CSS;
     (doc.head || doc.documentElement).appendChild(st);
+  }
+
+  function detectInitialRgb(popup) {
+    try {
+      if (popup && popup.style) {
+        const prev = popup.style.getPropertyValue('--mc3-font-color');
+        popup.style.removeProperty('--mc3-font-color');
+        const col = win.getComputedStyle(popup).color;
+        if (prev) popup.style.setProperty('--mc3-font-color', prev);
+        const m = col && col.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+        if (m) {
+          return {
+            r: clampRgb(m[1], 238),
+            g: clampRgb(m[2], 238),
+            b: clampRgb(m[3], 238),
+          };
+        }
+      }
+      if (doc.body && win.getComputedStyle) {
+        const col = win.getComputedStyle(doc.body).color;
+        const m = col && col.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+        if (m) {
+          return {
+            r: clampRgb(m[1], 238),
+            g: clampRgb(m[2], 238),
+            b: clampRgb(m[3], 238),
+          };
+        }
+      }
+    } catch (_) {}
+    return { r: 238, g: 238, b: 238 };
+  }
+
+  function applyFontColor() {
+    const popup = doc.getElementById('mc3-popup');
+    if (!popup) return;
+    if (settings.customFontColorEnabled && settings.customFontColor) {
+      const { r, g, b } = settings.customFontColor;
+      popup.style.setProperty('--mc3-font-color', 'rgb(' + r + ',' + g + ',' + b + ')');
+    } else {
+      popup.style.removeProperty('--mc3-font-color');
+    }
   }
 
   // ─── §10  UI — RENDER ────────────────────────────────────────────────────────
@@ -1907,6 +1991,37 @@
       '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将自定义CSS块从杂项中独立出来</span></label>' +
       '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
       '</div>';
+    html += '<div class="mc3-setting-row" style="flex-direction:column;align-items:stretch;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;width:100%;">' +
+        '<label class="mc3-setting-label" for="mc3-set-custom-color"><span>指定字体颜色</span></label>' +
+        '<input type="checkbox" id="mc3-set-custom-color" class="mc3-checkbox" data-action="set-custom-color"' + (settings.customFontColorEnabled ? ' checked' : '') + '>' +
+      '</div>';
+    if (settings.customFontColorEnabled) {
+      const c = settings.customFontColor || { r: 238, g: 238, b: 238 };
+      const r = c.r, g = c.g, b = c.b;
+      const hex = rgbToHex(r, g, b);
+      const gradR = 'linear-gradient(to right, rgb(0,' + g + ',' + b + '), rgb(255,' + g + ',' + b + '))';
+      const gradG = 'linear-gradient(to right, rgb(' + r + ',0,' + b + '), rgb(' + r + ',255,' + b + '))';
+      const gradB = 'linear-gradient(to right, rgb(' + r + ',' + g + ',0), rgb(' + r + ',' + g + ',255))';
+      html += '<div class="mc3-color-picker-box">' +
+        '<div class="mc3-rgb-row">' +
+          '<span class="mc3-rgb-badge r">R</span>' +
+          '<input type="range" class="mc3-rgb-slider" data-channel="r" min="0" max="255" value="' + r + '" style="background:' + gradR + ';">' +
+          '<span class="mc3-rgb-val" id="mc3-rgb-val-r">' + r + '</span>' +
+        '</div>' +
+        '<div class="mc3-rgb-row">' +
+          '<span class="mc3-rgb-badge g">G</span>' +
+          '<input type="range" class="mc3-rgb-slider" data-channel="g" min="0" max="255" value="' + g + '" style="background:' + gradG + ';">' +
+          '<span class="mc3-rgb-val" id="mc3-rgb-val-g">' + g + '</span>' +
+        '</div>' +
+        '<div class="mc3-rgb-row">' +
+          '<span class="mc3-rgb-badge b">B</span>' +
+          '<input type="range" class="mc3-rgb-slider" data-channel="b" min="0" max="255" value="' + b + '" style="background:' + gradB + ';">' +
+          '<span class="mc3-rgb-val" id="mc3-rgb-val-b">' + b + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+    html += '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">恢复配置初始状态</span>' +
       '<button class="mc3-danger-btn" data-action="clear-data">清除插件数据</button>' +
@@ -2027,6 +2142,7 @@
 
   function renderPopup() {
     const body = doc.getElementById('mc3-body'); if (!body) return;
+    applyFontColor();
     const activeTab = settings.activeTab || 'sort';
     for (const tab of doc.querySelectorAll('#mc3-head .mc3-tab')) {
       tab.classList.toggle('active', tab.getAttribute('data-tab') === activeTab);
@@ -2062,6 +2178,39 @@
         if (!res.success) { alert(res.error); e.target.focus(); } else { renderPopup(); }
       }
     });
+    popup.addEventListener('input', (e) => {
+      const slider = e.target.closest('.mc3-rgb-slider');
+      if (!slider) return;
+      const channel = slider.getAttribute('data-channel');
+      const val = clampRgb(slider.value, 0);
+      if (!settings.customFontColor) settings.customFontColor = { r: 238, g: 238, b: 238 };
+      settings.customFontColor[channel] = val;
+      const { r, g, b } = settings.customFontColor;
+
+      const valEl = doc.getElementById('mc3-rgb-val-' + channel);
+      if (valEl) valEl.textContent = String(val);
+
+      applyFontColor();
+
+      const swatch = doc.getElementById('mc3-color-swatch');
+      if (swatch) swatch.style.backgroundColor = 'rgb(' + r + ',' + g + ',' + b + ')';
+      const previewText = doc.getElementById('mc3-color-preview-text');
+      if (previewText) previewText.style.color = 'rgb(' + r + ',' + g + ',' + b + ')';
+      const codeEl = doc.getElementById('mc3-color-code');
+      if (codeEl) codeEl.textContent = rgbToHex(r, g, b);
+
+      const rSlider = popup.querySelector('.mc3-rgb-slider[data-channel="r"]');
+      if (rSlider) rSlider.style.background = 'linear-gradient(to right, rgb(0,' + g + ',' + b + '), rgb(255,' + g + ',' + b + '))';
+      const gSlider = popup.querySelector('.mc3-rgb-slider[data-channel="g"]');
+      if (gSlider) gSlider.style.background = 'linear-gradient(to right, rgb(' + r + ',0,' + b + '), rgb(' + r + ',255,' + b + '))';
+      const bSlider = popup.querySelector('.mc3-rgb-slider[data-channel="b"]');
+      if (bSlider) bSlider.style.background = 'linear-gradient(to right, rgb(' + r + ',' + g + ',0), rgb(' + r + ',' + g + ',255))';
+    });
+    popup.addEventListener('change', (e) => {
+      if (e.target && e.target.classList.contains('mc3-rgb-slider')) {
+        saveSettings();
+      }
+    });
   }
 
   function openPopup() { buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
@@ -2089,6 +2238,25 @@
     'set-userfold': (t) => { settings.enableUserFold = t.checked; saveSettings(); applyAll(); renderPopup(); },
 
     'set-customcss': (t) => { settings.isolateCustomCss = t.checked; saveSettings(); applyAll(); renderPopup(); },
+
+    'set-custom-color': (t) => {
+      settings.customFontColorEnabled = !!t.checked;
+      if (settings.customFontColorEnabled) {
+        if (!settings.customFontColor) {
+          settings.customFontColor = detectInitialRgb(doc.getElementById('mc3-popup'));
+        }
+      }
+      saveSettings();
+      applyFontColor();
+      renderPopup();
+    },
+
+    'reset-custom-color': () => {
+      settings.customFontColor = detectInitialRgb(doc.getElementById('mc3-popup'));
+      saveSettings();
+      applyFontColor();
+      renderPopup();
+    },
 
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
 
@@ -2562,7 +2730,7 @@
     setupObserver();
     const records = applyAll();
     setupLaunchers();
-    // 保留: 递进补跑 applyAll()，等价手动「关掉再开启插件」，兜底晚到时序（0623/M8）
+    // 保留: 递进补跑 applyAll()，兜底晚到时序（0623/M8）
     [600, 1800, 4000, 8000, 12000, 16000].forEach((d) => {
       win.setTimeout(() => {
         if (!suppressObserver) {
@@ -2583,7 +2751,7 @@
       addCustomSelector: (sel, label) => CustomSelectors.add(sel, label),
       deleteCustomSelector: (id) => CustomSelectors.remove(id),
       setColumnMode,
-      openPopup, closePopup, resetAll,
+      openPopup, closePopup, resetAll, applyFontColor,
       save: saveSettings,
       addSubgroup: (gid) => Subgroups.add(gid),
       deleteSubgroup: (gid, sgId) => Subgroups.remove(gid, sgId),
