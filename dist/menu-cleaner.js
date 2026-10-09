@@ -1,4 +1,4 @@
-// version 1003.0.0
+// version 1009.0.2
 
 (function () {
   'use strict';
@@ -1649,6 +1649,9 @@
     '.mc3-color-code{font-family:monospace;font-size:11px;opacity:.7;}' +
     '.mc3-reset-color-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:4px;padding:2px 8px;font-size:11px;opacity:.8;transition:all .15s;}' +
     '.mc3-reset-color-btn:hover{opacity:1;background:var(--black50a,rgba(128,128,128,.3));}' +
+    // 色彩流动小字样式（单向平滑无缝循环）
+    '@keyframes mc3-flow-anim{0%{background-position:100% 0;}100%{background-position:0% 0;}}' +
+    '.mc3-flow-text{font-size:11px;font-weight:normal;line-height:1.2;background:linear-gradient(90deg,#ff6b6b,#feca57,#48dbfb,#ff9ff3,#54a0ff,#1dd1a1,#ff6b6b,#feca57,#48dbfb,#ff9ff3,#54a0ff,#1dd1a1,#ff6b6b);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:mc3-flow-anim 3.5s linear infinite;display:block;user-select:none;}' +
     // 折叠箭头与动画
     '.mc3-chevron{display:inline-block;transition:transform var(--mc3-dur,.25s) cubic-bezier(.4,0,.2,1);transform:rotate(0deg);line-height:1;font-size:28px;}' +
     // 卡片样式
@@ -1993,7 +1996,10 @@
       '</div>';
     html += '<div class="mc3-setting-row" style="flex-direction:column;align-items:stretch;">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;width:100%;">' +
-        '<label class="mc3-setting-label" for="mc3-set-custom-color"><span>指定字体颜色</span></label>' +
+        '<label class="mc3-setting-label" for="mc3-set-custom-color" style="flex-direction:column;align-items:flex-start;gap:3px;cursor:pointer;">' +
+          '<span>指定字体颜色</span>' +
+          '<span class="mc3-flow-text">美化导致看不清字开这个</span>' +
+        '</label>' +
         '<input type="checkbox" id="mc3-set-custom-color" class="mc3-checkbox" data-action="set-custom-color"' + (settings.customFontColorEnabled ? ' checked' : '') + '>' +
       '</div>';
     if (settings.customFontColorEnabled) {
@@ -2018,16 +2024,6 @@
           '<span class="mc3-rgb-badge b">B</span>' +
           '<input type="range" class="mc3-rgb-slider" data-channel="b" min="0" max="255" value="' + b + '" style="background:' + gradB + ';">' +
           '<span class="mc3-rgb-val" id="mc3-rgb-val-b">' + b + '</span>' +
-        '</div>' +
-        '<div class="mc3-color-preview-row">' +
-          '<div class="mc3-color-preview-left">' +
-            '<div class="mc3-color-swatch" id="mc3-color-swatch" style="background-color:rgb(' + r + ',' + g + ',' + b + ');"></div>' +
-            '<span class="mc3-color-preview-text" id="mc3-color-preview-text" style="color:rgb(' + r + ',' + g + ',' + b + ');">示例文本 Preview</span>' +
-          '</div>' +
-          '<div class="mc3-color-preview-right">' +
-            '<span class="mc3-color-code" id="mc3-color-code">' + hex + '</span>' +
-            '<button type="button" class="mc3-reset-color-btn" data-action="reset-custom-color" title="重新从酒馆抓取字体颜色">重置</button>' +
-          '</div>' +
         '</div>' +
       '</div>';
     }
@@ -2740,7 +2736,7 @@
     setupObserver();
     const records = applyAll();
     setupLaunchers();
-    // 保留: 递进补跑 applyAll()，等价手动「关掉再开启插件」，兜底晚到时序（0623/M8）
+    // 保留: 递进补跑 applyAll()，兜底晚到时序（0623/M8）
     [600, 1800, 4000, 8000, 12000, 16000].forEach((d) => {
       win.setTimeout(() => {
         if (!suppressObserver) {
