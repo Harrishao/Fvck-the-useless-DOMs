@@ -587,6 +587,11 @@
 
   // ─── §5  SCANNER ─────────────────────────────────────────────────────────────
 
+  // 扩展面板条目识别快照缓存（key -> { key, label, unitId, el, containerSel }）
+  // 适配 TauriTavern 2.3.0 SubtreeGate 脱水容灾：即使抽屉收起后容器内子节点被移入 DocumentFragment，
+  // 也能借由快照恢复条目，保证 applyColumns/applyOrder/applyHides 能够操作其宿主容器。
+  const extensionRecordsCache = new Map();
+
   // 是否为「display:contents 包裹层」：本身不是目标条目，但其直接子里挂着真正的条目。
   // 保留: 第三方扩展把 wand/extension 容器设为 display:contents，需穿透一层（0622）。
   function isContentsWrapper(el, group) {
@@ -664,6 +669,15 @@
     for (const ch of children) {
       if (isSelf(ch)) continue;
       if (isContentsWrapper(ch, group)) {
+        if (ch.children.length === 0 && ch.id) {
+          // 容灾脱水态：从快照缓存中恢复
+          for (const cached of extensionRecordsCache.values()) {
+            if (cached.unitId === ch.id) {
+              out.push({ el: cached.el || ch, label: cached.label, fallbackUnit: ch, isDehydrated: true, key: cached.key });
+            }
+          }
+          continue;
+        }
         for (const gchild of ch.children) {
           if (isSelf(gchild)) continue;
           if (!gchild.querySelector(group.header) && !gchild.matches(group.header)) continue;
@@ -699,33 +713,46 @@
         const el = cand.el;
         const label = normLabel(cand.label);
         if (!label) continue;
-        if (seenEls.has(el)) continue;
-        seenEls.add(el);
+        if (!cand.isDehydrated) {
+          if (seenEls.has(el)) continue;
+          seenEls.add(el);
+        }
 
-        const unit = unitOf(el, container);
+        const unit = cand.fallbackUnit || unitOf(el, container);
 
-        let key;
-        if (isStableId(el.id)) {
-          key = '#' + el.id;
-          if (byKey[key]) {
-            // 保留: T2 重复 id 收集全副本入 els/units，解析取可见副本（#option_close_chat #5，0831）
-            byKey[key].els.push(el);
-            if (byKey[key].units && unit) byKey[key].units.push(unit);
-            if (!isOwnVisible(byKey[key].el) && isOwnVisible(el)) { byKey[key].el = el; byKey[key].unit = unit; }
-            continue;
+        let key = cand.key;
+        if (!key) {
+          if (isStableId(el.id)) {
+            key = '#' + el.id;
+            if (byKey[key]) {
+              // 保留: T2 重复 id 收集全副本入 els/units，解析取可见副本（#option_close_chat #5，0831）
+              byKey[key].els.push(el);
+              if (byKey[key].units && unit) byKey[key].units.push(unit);
+              if (!isOwnVisible(byKey[key].el) && isOwnVisible(el)) { byKey[key].el = el; byKey[key].unit = unit; }
+              continue;
+            }
+          } else {
+            // T3: 无 id → groupId|稳定容器锚点|label 确定性派生（column 无关，reload 可复现）
+            const anchor = (unit && isStableId(unit.id)) ? '#' + unit.id : group.id;
+            const base = group.id + '|' + anchor + '|' + label;
+            const cnt = derivedCount[base] || 0; derivedCount[base] = cnt + 1;
+            key = cnt === 0 ? base : base + '|' + cnt;
           }
-        } else {
-          // T3: 无 id → groupId|稳定容器锚点|label 确定性派生（column 无关，reload 可复现）
-          const anchor = (unit && isStableId(unit.id)) ? '#' + unit.id : group.id;
-          const base = group.id + '|' + anchor + '|' + label;
-          const cnt = derivedCount[base] || 0; derivedCount[base] = cnt + 1;
-          key = cnt === 0 ? base : base + '|' + cnt;
+        } else if (byKey[key]) {
+          byKey[key].els.push(el);
+          if (byKey[key].units && unit) byKey[key].units.push(unit);
+          continue;
         }
 
         const rec = { key, el, els: [el], unit, units: unit ? [unit] : [], groupId: group.id, container: containerSel, label };
         if (column !== undefined) rec.column = column;
+        if (cand.isDehydrated) rec.isDehydrated = true;
         records.push(rec);
         byKey[key] = rec;
+
+        if (group.id === 'extensionsSettings' && unit && unit.id) {
+          extensionRecordsCache.set(key, { key, label, unitId: unit.id, el, containerSel });
+        }
       }
     }
     return records;
@@ -2784,6 +2811,7 @@
       renameSubgroup: (gid, sgId, name) => Subgroups.rename(gid, sgId, name),
       getSubgroupForKey: (gid, key) => Subgroups.getForKey(gid, key),
       records,
+      extensionRecordsCache,
     };
     console.log('[菜单精简器] 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
   }
