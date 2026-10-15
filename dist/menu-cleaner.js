@@ -49,6 +49,7 @@
       id: 'extensionsSettings', name: '扩展菜单',
       button: '#extensions-settings-button',
       containers: ['#extensions_settings', '#extensions_settings2'],
+      observe: ['#rm_extensions_block'],
       mode: 'drawers', header: '.inline-drawer-header', label: 'header',
       supportsColumns: true,
       supportsPseudoSubgroups: true,
@@ -568,7 +569,29 @@
            countBadge;
   }
 
+  // 适配 TauriTavern 2.3.0 SubtreeGate：抽屉收起时其子节点会被脱水暂存到 DocumentFragment。
+  // 在扫描或展开管理界面前，确保其子树按需水合，避免候选条目扫描遗漏。
+  function ensureExtensionsHydrated() {
+    try {
+      const mgr = win.__TAURITAVERN_PANEL_RUNTIME__;
+      if (mgr && typeof mgr.setVisible === 'function' && typeof mgr.reconcile === 'function') {
+        const slotId = 'tt:gate:rm_extensions_block:extension_containers';
+        mgr.setVisible(slotId, true);
+        mgr.reconcile();
+        return true;
+      }
+    } catch (e) {
+      console.warn('[菜单精简器] 水合扩展子树失败喵：', e);
+    }
+    return false;
+  }
+
   // ─── §5  SCANNER ─────────────────────────────────────────────────────────────
+
+  // 扩展面板条目识别快照缓存（key -> { key, label, unitId, el, containerSel }）
+  // 适配 TauriTavern 2.3.0 SubtreeGate 脱水容灾：即使抽屉收起后容器内子节点被移入 DocumentFragment，
+  // 也能借由快照恢复条目，保证 applyColumns/applyOrder/applyHides 能够操作其宿主容器。
+  const extensionRecordsCache = new Map();
 
   // 是否为「display:contents 包裹层」：本身不是目标条目，但其直接子里挂着真正的条目。
   // 保留: 第三方扩展把 wand/extension 容器设为 display:contents，需穿透一层（0622）。
@@ -647,6 +670,15 @@
     for (const ch of children) {
       if (isSelf(ch)) continue;
       if (isContentsWrapper(ch, group)) {
+        if (ch.children.length === 0 && ch.id) {
+          // 容灾脱水态：从快照缓存中恢复
+          for (const cached of extensionRecordsCache.values()) {
+            if (cached.unitId === ch.id) {
+              out.push({ el: cached.el || ch, label: cached.label, fallbackUnit: ch, isDehydrated: true, key: cached.key });
+            }
+          }
+          continue;
+        }
         for (const gchild of ch.children) {
           if (isSelf(gchild)) continue;
           if (!gchild.querySelector(group.header) && !gchild.matches(group.header)) continue;
@@ -662,6 +694,9 @@
 
   // 扫描器总结阶段：记录、去重、消歧。产出统一 record { key, el, els, unit, units, groupId, label, column? }。
   function scanGroup(group) {
+    if (group.id === 'extensionsSettings') {
+      ensureExtensionsHydrated();
+    }
     const records = [];
     const byKey = Object.create(null);
     const derivedCount = Object.create(null);
@@ -679,33 +714,46 @@
         const el = cand.el;
         const label = normLabel(cand.label);
         if (!label) continue;
-        if (seenEls.has(el)) continue;
-        seenEls.add(el);
+        if (!cand.isDehydrated) {
+          if (seenEls.has(el)) continue;
+          seenEls.add(el);
+        }
 
-        const unit = unitOf(el, container);
+        const unit = cand.fallbackUnit || unitOf(el, container);
 
-        let key;
-        if (isStableId(el.id)) {
-          key = '#' + el.id;
-          if (byKey[key]) {
-            // 保留: T2 重复 id 收集全副本入 els/units，解析取可见副本（#option_close_chat #5，0831）
-            byKey[key].els.push(el);
-            if (byKey[key].units && unit) byKey[key].units.push(unit);
-            if (!isOwnVisible(byKey[key].el) && isOwnVisible(el)) { byKey[key].el = el; byKey[key].unit = unit; }
-            continue;
+        let key = cand.key;
+        if (!key) {
+          if (isStableId(el.id)) {
+            key = '#' + el.id;
+            if (byKey[key]) {
+              // 保留: T2 重复 id 收集全副本入 els/units，解析取可见副本（#option_close_chat #5，0831）
+              byKey[key].els.push(el);
+              if (byKey[key].units && unit) byKey[key].units.push(unit);
+              if (!isOwnVisible(byKey[key].el) && isOwnVisible(el)) { byKey[key].el = el; byKey[key].unit = unit; }
+              continue;
+            }
+          } else {
+            // T3: 无 id → groupId|稳定容器锚点|label 确定性派生（column 无关，reload 可复现）
+            const anchor = (unit && isStableId(unit.id)) ? '#' + unit.id : group.id;
+            const base = group.id + '|' + anchor + '|' + label;
+            const cnt = derivedCount[base] || 0; derivedCount[base] = cnt + 1;
+            key = cnt === 0 ? base : base + '|' + cnt;
           }
-        } else {
-          // T3: 无 id → groupId|稳定容器锚点|label 确定性派生（column 无关，reload 可复现）
-          const anchor = (unit && isStableId(unit.id)) ? '#' + unit.id : group.id;
-          const base = group.id + '|' + anchor + '|' + label;
-          const cnt = derivedCount[base] || 0; derivedCount[base] = cnt + 1;
-          key = cnt === 0 ? base : base + '|' + cnt;
+        } else if (byKey[key]) {
+          byKey[key].els.push(el);
+          if (byKey[key].units && unit) byKey[key].units.push(unit);
+          continue;
         }
 
         const rec = { key, el, els: [el], unit, units: unit ? [unit] : [], groupId: group.id, container: containerSel, label };
         if (column !== undefined) rec.column = column;
+        if (cand.isDehydrated) rec.isDehydrated = true;
         records.push(rec);
         byKey[key] = rec;
+
+        if (group.id === 'extensionsSettings' && unit && unit.id) {
+          extensionRecordsCache.set(key, { key, label, unitId: unit.id, el, containerSel });
+        }
       }
     }
     return records;
@@ -1479,6 +1527,18 @@
       bodyObs.observe(doc.documentElement, { childList: true });
     }
 
+    // 监听扩展面板抽屉展开：宿主 SubtreeGate 在展开时水合子树，立即触发重排重应用
+    const extBlock = doc.getElementById('rm_extensions_block');
+    if (extBlock) {
+      const drawerObs = new win.MutationObserver(() => {
+        if (extBlock.classList.contains('openDrawer')) {
+          ensureContainersObserved();
+          scheduleApply();
+        }
+      });
+      drawerObs.observe(extBlock, { attributes: true, attributeFilter: ['class'] });
+    }
+
     // 捕获打开菜单按钮点击：确保即使在特殊时序下展开菜单，也能瞬时挂载监听并重应用
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest && e.target.closest('#extensionsMenuButton, #options_button, #extensions-settings-button')) {
@@ -1490,8 +1550,22 @@
     try {
       if (win.eventSource && win.event_types) {
         if (win.event_types.CHAT_CHANGED) win.eventSource.on(win.event_types.CHAT_CHANGED, scheduleApply);
-        if (win.event_types.APP_READY) win.eventSource.on(win.event_types.APP_READY, () => { ensureContainersObserved(); scheduleApply(); });
-        if (win.event_types.EXTENSIONS_FIRST_LOAD) win.eventSource.on(win.event_types.EXTENSIONS_FIRST_LOAD, () => { ensureContainersObserved(); scheduleApply(); });
+        if (win.event_types.APP_READY) win.eventSource.on(win.event_types.APP_READY, () => {
+          const eb = doc.getElementById('rm_extensions_block');
+          if (eb && eb.classList.contains('openDrawer')) {
+            ensureExtensionsHydrated();
+          }
+          ensureContainersObserved();
+          scheduleApply();
+        });
+        if (win.event_types.EXTENSIONS_FIRST_LOAD) win.eventSource.on(win.event_types.EXTENSIONS_FIRST_LOAD, () => {
+          const eb = doc.getElementById('rm_extensions_block');
+          if (eb && eb.classList.contains('openDrawer')) {
+            ensureExtensionsHydrated();
+          }
+          ensureContainersObserved();
+          scheduleApply();
+        });
       }
     } catch (e) {}
   }
@@ -1998,7 +2072,7 @@
       '<div style="display:flex;align-items:center;justify-content:space-between;width:100%;">' +
         '<label class="mc3-setting-label" for="mc3-set-custom-color" style="flex-direction:column;align-items:flex-start;gap:3px;cursor:pointer;">' +
           '<span>指定字体颜色</span>' +
-          '<span class="mc3-flow-text">美化导致看不清字开这个</span>' +
+          '<span class="mc3-flow-text">美化导致看不清字开这个喵</span>' +
         '</label>' +
         '<input type="checkbox" id="mc3-set-custom-color" class="mc3-checkbox" data-action="set-custom-color"' + (settings.customFontColorEnabled ? ' checked' : '') + '>' +
       '</div>';
@@ -2219,7 +2293,7 @@
     });
   }
 
-  function openPopup() { buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
+  function openPopup() { ensureExtensionsHydrated(); buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
   function closePopup() { const o = doc.getElementById('mc3-overlay'); if (o) o.style.display = 'none'; }
 
   // ─── §11  UI — INTERACT ──────────────────────────────────────────────────────
@@ -2764,6 +2838,7 @@
       renameSubgroup: (gid, sgId, name) => Subgroups.rename(gid, sgId, name),
       getSubgroupForKey: (gid, key) => Subgroups.getForKey(gid, key),
       records,
+      extensionRecordsCache,
     };
     console.log('[菜单精简器] 初始化完成：管理 UI 就绪（魔棒"菜单精简器"或 /menucleaner 打开）');
   }
