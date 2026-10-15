@@ -568,6 +568,23 @@
            countBadge;
   }
 
+  // 适配 TauriTavern 2.3.0 SubtreeGate：抽屉收起时其子节点会被脱水暂存到 DocumentFragment。
+  // 在扫描或展开管理界面前，确保其子树按需水合，避免候选条目扫描遗漏。
+  function ensureExtensionsHydrated() {
+    try {
+      const mgr = win.__TAURITAVERN_PANEL_RUNTIME__;
+      if (mgr && typeof mgr.setVisible === 'function' && typeof mgr.reconcile === 'function') {
+        const slotId = 'tt:gate:rm_extensions_block:extension_containers';
+        mgr.setVisible(slotId, true);
+        mgr.reconcile();
+        return true;
+      }
+    } catch (e) {
+      console.warn('[菜单精简器] 水合扩展子树失败喵：', e);
+    }
+    return false;
+  }
+
   // ─── §5  SCANNER ─────────────────────────────────────────────────────────────
 
   // 是否为「display:contents 包裹层」：本身不是目标条目，但其直接子里挂着真正的条目。
@@ -662,6 +679,9 @@
 
   // 扫描器总结阶段：记录、去重、消歧。产出统一 record { key, el, els, unit, units, groupId, label, column? }。
   function scanGroup(group) {
+    if (group.id === 'extensionsSettings') {
+      ensureExtensionsHydrated();
+    }
     const records = [];
     const byKey = Object.create(null);
     const derivedCount = Object.create(null);
@@ -2219,7 +2239,7 @@
     });
   }
 
-  function openPopup() { buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
+  function openPopup() { ensureExtensionsHydrated(); buildPopup(); renderPopup(); doc.getElementById('mc3-overlay').style.display = 'flex'; }
   function closePopup() { const o = doc.getElementById('mc3-overlay'); if (o) o.style.display = 'none'; }
 
   // ─── §11  UI — INTERACT ──────────────────────────────────────────────────────
