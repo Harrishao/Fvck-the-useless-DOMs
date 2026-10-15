@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import vm from 'node:vm';
 
 const contentPath = path.resolve('主版本v2/content.js');
 const code = fs.readFileSync(contentPath, 'utf8');

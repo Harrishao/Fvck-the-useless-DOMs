@@ -1,6 +1,10 @@
+# Dependencies
+node_modules/
+
 # Playwright MCP 测试产物
 .playwright-mcp/
-tests/
+!tests/*.js
+!tests/*.mjs
 
 # Claude Code 内部文件
 .claude/
