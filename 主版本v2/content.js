@@ -49,6 +49,7 @@
       id: 'extensionsSettings', name: '扩展菜单',
       button: '#extensions-settings-button',
       containers: ['#extensions_settings', '#extensions_settings2'],
+      observe: ['#rm_extensions_block'],
       mode: 'drawers', header: '.inline-drawer-header', label: 'header',
       supportsColumns: true,
       supportsPseudoSubgroups: true,
@@ -1526,6 +1527,18 @@
       bodyObs.observe(doc.documentElement, { childList: true });
     }
 
+    // 监听扩展面板抽屉展开：宿主 SubtreeGate 在展开时水合子树，立即触发重排重应用
+    const extBlock = doc.getElementById('rm_extensions_block');
+    if (extBlock) {
+      const drawerObs = new win.MutationObserver(() => {
+        if (extBlock.classList.contains('openDrawer')) {
+          ensureContainersObserved();
+          scheduleApply();
+        }
+      });
+      drawerObs.observe(extBlock, { attributes: true, attributeFilter: ['class'] });
+    }
+
     // 捕获打开菜单按钮点击：确保即使在特殊时序下展开菜单，也能瞬时挂载监听并重应用
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest && e.target.closest('#extensionsMenuButton, #options_button, #extensions-settings-button')) {
@@ -1537,8 +1550,22 @@
     try {
       if (win.eventSource && win.event_types) {
         if (win.event_types.CHAT_CHANGED) win.eventSource.on(win.event_types.CHAT_CHANGED, scheduleApply);
-        if (win.event_types.APP_READY) win.eventSource.on(win.event_types.APP_READY, () => { ensureContainersObserved(); scheduleApply(); });
-        if (win.event_types.EXTENSIONS_FIRST_LOAD) win.eventSource.on(win.event_types.EXTENSIONS_FIRST_LOAD, () => { ensureContainersObserved(); scheduleApply(); });
+        if (win.event_types.APP_READY) win.eventSource.on(win.event_types.APP_READY, () => {
+          const eb = doc.getElementById('rm_extensions_block');
+          if (eb && eb.classList.contains('openDrawer')) {
+            ensureExtensionsHydrated();
+          }
+          ensureContainersObserved();
+          scheduleApply();
+        });
+        if (win.event_types.EXTENSIONS_FIRST_LOAD) win.eventSource.on(win.event_types.EXTENSIONS_FIRST_LOAD, () => {
+          const eb = doc.getElementById('rm_extensions_block');
+          if (eb && eb.classList.contains('openDrawer')) {
+            ensureExtensionsHydrated();
+          }
+          ensureContainersObserved();
+          scheduleApply();
+        });
       }
     } catch (e) {}
   }
