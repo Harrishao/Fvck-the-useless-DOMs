@@ -84,6 +84,14 @@
       observe: ['#chat', '#message_template'],
       mode: 'mesButtons', customApply: true,
     },
+    {
+      id: 'sendForm', name: '输入框区域',
+      containers: ['#leftSendForm', '#rightSendForm'],
+      observe: ['#send_form', '#nonQRFormItems'],
+      mode: 'children',
+      supportsColumns: true,
+      label: 'attrTitle',
+    },
   ];
 
   // 支持子分组的分组
@@ -111,6 +119,19 @@
     '.mes_embed': '嵌入文件/图片',
     '.mes_create_bookmark': '创建检查点',
     '.mes_create_branch': '创建分支',
+  };
+
+  // 输入框区域按钮友好标签映射
+  const SEND_FORM_DEFAULT_LABELS = {
+    '#options_button': '左下选项菜单',
+    '#extensionsMenuButton': '扩展魔棒',
+    '#send_but': '发送消息',
+    '#mes_impersonate': '让AI为您撰写消息',
+    '#mes_continue': '继续上一条消息',
+    '#mes_stop': '中止请求',
+    '#stscript_continue': '继续执行脚本',
+    '#stscript_pause': '暂停执行脚本',
+    '#stscript_stop': '中止执行脚本',
   };
 
   // 预设面板，打包隐藏
@@ -512,6 +533,9 @@
 
   // 按分组策略取候选元素标签
   function labelOf(el, group) {
+    if (group.id === 'sendForm' && el.id && SEND_FORM_DEFAULT_LABELS['#' + el.id]) {
+      return SEND_FORM_DEFAULT_LABELS['#' + el.id];
+    }
     switch (group.label) {
       case 'text': {
         let t = '';
@@ -529,9 +553,17 @@
       }
       case 'attrTitle': {
         const withTitle = el.matches('[title]') ? el : el.querySelector('[title]');
-        if (withTitle) return normLabel(withTitle.getAttribute('title'));
-        const i18n = el.querySelector('[data-i18n]');
-        return normLabel(i18n ? i18n.textContent : '');
+        if (withTitle && withTitle.getAttribute('title')) return normLabel(withTitle.getAttribute('title'));
+        const i18n = el.matches('[data-i18n]') ? el : el.querySelector('[data-i18n]');
+        if (i18n) {
+          const attr = i18n.getAttribute('data-i18n') || '';
+          const m = attr.match(/\[title\]([^;]+)/);
+          if (m && m[1]) return normLabel(m[1]);
+          if (i18n.textContent) return normLabel(i18n.textContent);
+        }
+        let dt = '';
+        for (const n of el.childNodes) if (n.nodeType === 3) dt += n.textContent;
+        return normLabel(dt) || normLabel(el.textContent) || (el.id ? normLabel(el.id) : '');
       }
       case 'header':
       default:
