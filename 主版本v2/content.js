@@ -1036,18 +1036,23 @@
     });
   }
 
-  // 扩展面板单双栏。保留: 搬整个 .extension_container，原本是走歪路做自绘面板时的修复方案，现在不知道还有没有用，总之先留着
-  function applyColumns(records) {
-    const col0 = doc.querySelector('#extensions_settings');
-    const col1 = doc.querySelector('#extensions_settings2');
+  // 通用多栏搬运。支持 extensionsSettings 与 sendForm
+  function applyColumns(group, records) {
+    if (!group || !group.containers || group.containers.length < 2) return;
+    const col0 = doc.querySelector(group.containers[0]);
+    const col1 = doc.querySelector(group.containers[1]);
     if (!col0 || !col1) return;
-    const single = settings.columnMode === 'single';
 
-    // 子分组分栏约束：extensionsSettings 子分组内条目遵循子分组的 column
+    const isExt = group.id === 'extensionsSettings';
+    const single = isExt && settings.columnMode === 'single';
+
+    // 仅 extensionsSettings 遵循子分组分栏约束
     const keyToSgCol = {};
-    for (const sg of Subgroups.list('extensionsSettings')) {
-      const sgCol = sg.column !== undefined ? sg.column : 0;
-      for (const mk of sg.memberKeys) keyToSgCol[mk] = sgCol;
+    if (isExt) {
+      for (const sg of Subgroups.list('extensionsSettings')) {
+        const sgCol = sg.column !== undefined ? sg.column : 0;
+        for (const mk of sg.memberKeys) keyToSgCol[mk] = sgCol;
+      }
     }
 
     let moved = false;
@@ -1061,12 +1066,14 @@
         target = single ? 0 : (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
       }
       const tc = target === 1 ? col1 : col0;
-      const unitsToMove = (r.units && r.units.length) ? r.units : (r.unit ? [r.unit] : []);
+      const unitsToMove = (r.units && r.units.length) ? r.units : (r.unit ? [r.unit] : (r.el ? [r.el] : []));
       for (const un of unitsToMove) {
         if (un && un.parentNode !== tc) { suppressObserver = true; tc.appendChild(un); moved = true; }
       }
     }
-    col1.style.display = single ? 'none' : ''; // 单栏时右栏收起，左栏占满
+    if (isExt) {
+      col1.style.display = single ? 'none' : ''; // 单栏时右栏收起，左栏占满
+    }
     if (moved) win.setTimeout(() => { suppressObserver = false; }, 0);
   }
 
@@ -1451,7 +1458,7 @@
   // 单组应用/清理派发（依 GROUPS 能力标志，取代散落的 id 字面量分支）
   function applyGroup(group, records) {
     if (group.customApply) { applyMesButtons(records); return; }
-    if (group.supportsColumns) applyColumns(records); // 先定栏（唯一搬 DOM 处）
+    if (group.supportsColumns) applyColumns(group, records); // 先定栏（唯一搬 DOM 处）
     if (!group.curated) applyOrder(group, records);   // curated 跨原生容器，仅做显隐
     applyHides(group, records);                       // 再可见性
     applyPseudoSubgroups(group, records);             // 最后同步原地伪抽屉标题

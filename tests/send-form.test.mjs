@@ -24,3 +24,14 @@ test('包含 SEND_FORM_DEFAULT_LABELS 友好标签映射表', () => {
   assert.match(source, /'#mes_continue':\s*'继续上一条消息'/);
   assert.match(source, /'#mes_stop':\s*'中止请求'/);
 });
+
+test('applyColumns 接收 (group, records) 并支持动态多栏容器', () => {
+  assert.match(source, /function applyColumns\(\s*group\s*,\s*records\s*\)/);
+  assert.match(source, /group\.containers/);
+  assert.match(source, /doc\.querySelector\(\s*group\.containers\[0\]\s*\)/);
+  assert.match(source, /doc\.querySelector\(\s*group\.containers\[1\]\s*\)/);
+});
+
+test('applyGroup 正确传入 group 至 applyColumns', () => {
+  assert.match(source, /if\s*\(\s*group\.supportsColumns\s*\)\s*applyColumns\(\s*group\s*,\s*records\s*\)/);
+});
