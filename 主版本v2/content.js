@@ -1925,7 +1925,7 @@
       html += '<span class="mc3-handle" title="拖动排序">⠿</span>';
     }
     html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
-    if (r.column !== undefined && group.id === 'extensionsSettings' && !inSubgroup) {
+    if (r.column !== undefined && (group.id === 'extensionsSettings' || group.id === 'sendForm') && !inSubgroup) {
       const colLabel = col === 1 ? '右' : '左';
       const colTitle = col === 1 ? '点击移至左栏' : '点击移至右栏';
       html += '<button class="mc3-toggle' + (col === 1 ? ' on' : '') + '" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '" title="' + colTitle + '">' + colLabel + '</button>';
@@ -2049,6 +2049,40 @@
     return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols, headerExtra);
   }
 
+  // 渲染输入框区域专属双栏卡片
+  function renderSendFormCard(group, recs, map) {
+    const isCollapsed = !!settings.groupCollapsed[group.id];
+    const cardDur = calcCollapseDuration(recs.length);
+
+    const col0Recs = [];
+    const col1Recs = [];
+    for (const r of recs) {
+      const col = settings.column[r.key] !== undefined ? settings.column[r.key] : (r.column !== undefined ? r.column : 0);
+      if (col === 0) col0Recs.push(r); else col1Recs.push(r);
+    }
+    col0Recs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
+    col1Recs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
+
+    const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
+    let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
+    // 栏0：左栏 (#leftSendForm)
+    cols += '<div class="mc3-mes-column" data-col="0">';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">左侧按钮 (#leftSendForm)</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
+    cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
+    cols += col0Recs.length === 0 ? emptyTip('拖动条目到此处 (左侧)') : col0Recs.map((r) => renderItemRow(r, group, false)).join('');
+    cols += '</div></div>';
+    // 栏1：右栏 (#rightSendForm)
+    cols += '<div class="mc3-mes-column" data-col="1">';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">右侧按钮 (#rightSendForm)</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
+    cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
+    cols += col1Recs.length === 0 ? emptyTip('拖动条目到此处 (右侧)') : col1Recs.map((r) => renderItemRow(r, group, false)).join('');
+    cols += '</div></div>';
+    cols += '</div>';
+
+    const headerExtra = '<button class="mc3-icon-btn" data-action="reset-sendform" title="恢复输入框区域原生排布" style="font-size:12px;padding:2px 8px;margin-right:4px;">恢复默认</button>';
+    return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols, headerExtra);
+  }
+
   // 渲染消息操作专属双栏卡片
   function renderMesButtonsCard(group, recs, map) {
     const isCollapsed = !!settings.groupCollapsed[group.id];
@@ -2159,6 +2193,7 @@
 
       if (group.customApply) { html += renderMesButtonsCard(group, recs, map); continue; }
       if (group.id === 'extensionsSettings') { html += renderExtensionsSettingsCard(group, recs, map); continue; }
+      if (group.id === 'sendForm') { html += renderSendFormCard(group, recs, map); continue; }
 
       const supportsSg = supportsPseudoSubgroups(group);
       const sgList = supportsSg ? Subgroups.list(group.id) : [];
@@ -2379,6 +2414,21 @@
 
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
 
+    'reset-sendform': () => {
+      const g = getGroup('sendForm');
+      const recs = g ? scanGroup(g) : [];
+      for (const r of recs) {
+        if (settings.nativeColumn[r.key] !== undefined) {
+          settings.column[r.key] = settings.nativeColumn[r.key];
+        }
+        delete settings.hidden[r.key];
+      }
+      delete settings.order['sendForm'];
+      saveSettings();
+      applyAll();
+      renderPopup();
+    },
+
     'toggle-group': (t, e) => {
       if (e && e.target && e.target.closest('.mc3-icon-btn, .mc3-toggle, input')) return;
       const groupId = t.getAttribute('data-gid');
@@ -2559,10 +2609,10 @@
     const allSubgroups = list.querySelectorAll('.mc3-subgroup');
 
     const move = (ev) => {
-      if (gid === 'mesButtons') {
+      if (gid === 'mesButtons' || gid === 'sendForm') {
         const elAtPoint = doc.elementFromPoint(ev.clientX, ev.clientY);
-        const mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="mesButtons"]') : null;
-        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="mesButtons"]')) ml.classList.remove('mc3-drop-target');
+        const mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="' + gid + '"]') : null;
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="' + gid + '"]')) ml.classList.remove('mc3-drop-target');
         if (mesList) {
           mesList.classList.add('mc3-drop-target');
           if (dragEl.parentNode !== mesList) mesList.appendChild(dragEl);
@@ -2629,17 +2679,17 @@
       const lastX = (ev && ev.clientX !== undefined) ? ev.clientX : (dragMeta._lastX || 0);
       const lastY = (ev && ev.clientY !== undefined) ? ev.clientY : (dragMeta._lastY || 0);
 
-      if (gid === 'mesButtons') {
-        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="mesButtons"]')) ml.classList.remove('mc3-drop-target');
+      if (gid === 'mesButtons' || gid === 'sendForm') {
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="' + gid + '"]')) ml.classList.remove('mc3-drop-target');
         let finalColList = dragEl.closest('.mc3-mes-list');
         if (!finalColList) {
           const elAtPoint = doc.elementFromPoint(lastX, lastY);
-          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="mesButtons"]') : null;
+          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="' + gid + '"]') : null;
         }
         if (finalColList) settings.column[dragMeta.key] = Number(finalColList.getAttribute('data-col'));
 
         const orderedKeys = [];
-        for (const colSel of ['.mc3-mes-list[data-gid="mesButtons"][data-col="0"]', '.mc3-mes-list[data-gid="mesButtons"][data-col="1"]']) {
+        for (const colSel of ['.mc3-mes-list[data-gid="' + gid + '"][data-col="0"]', '.mc3-mes-list[data-gid="' + gid + '"][data-col="1"]']) {
           const colList = doc.querySelector(colSel);
           if (!colList) continue;
           for (const row of colList.querySelectorAll('.mc3-row[data-key]')) {
@@ -2647,7 +2697,7 @@
             if (k && orderedKeys.indexOf(k) === -1) orderedKeys.push(k);
           }
         }
-        commitReorder('mesButtons', orderedKeys);
+        commitReorder(gid, orderedKeys);
         saveSettings(); applyAll(); renderPopup();
         dragMeta = null;
         return;
