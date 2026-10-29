@@ -1,19 +1,14 @@
-// version 1016.0.0
+// version 1029.0.0
 
 (function () {
   'use strict';
 
- 
-
-  // iframe 穿透，适配酒馆助手
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
-
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
   const EXT_KEY = 'menu_cleaner3';              
-  const OWN_PREFIX = 'mc3-';                    // 本插件注入元素 id 前缀
+  const OWN_PREFIX = 'mc3-';
 
-  // id 是否「稳定、可用作 key」：排除空、本版自身、旧版方案2 残留的 menu-cleaner-auto-* 自增 id。
   function isStableId(id) {
     return !!id
       && id.indexOf(OWN_PREFIX) !== 0
@@ -21,7 +16,6 @@
       && /^[A-Za-z][\w:-]*$/.test(id);
   }
 
-  // 跳过本版自绘元素，但「入口」(mc3-launcher-*) 例外 —— 它们作为普通条目参与扫描/排序/隐藏。
   function isSelf(el) {
     return el.id && el.id.indexOf(OWN_PREFIX) === 0 && el.id.indexOf('mc3-launcher') !== 0;
   }
@@ -113,7 +107,7 @@
     '.mes_create_branch': '创建分支',
   };
 
-  // 预设面板，打包隐藏
+  // 预设面板打包隐藏
   function presetRange(prefix, a, b, suffix) {
     const out = [];
     for (let n = a; n <= b; n++) out.push(prefix + n + suffix);
@@ -132,7 +126,7 @@
     { label: '预设条目(你不会连这个都要隐藏吧？)', selectors: ['#openai_settings > div.range-block.m-b-1'] },
   ];
 
-  // 用户设置伪抽屉，现在用精确语义进行匹配而不是nth-child
+  // 用户设置
   const USER_SETTINGS_GROUPS = [
     {
       label: 'UI主题', selectors: ['#UI-Theme-Block'],
@@ -151,7 +145,10 @@
     },
     {
       label: '自定义CSS',
-      noCuratedRecord: true, // 把自定义CSS块独立出来，不随杂项显隐
+
+      // 把自定义CSS块独立出来，不随杂项显隐的开关
+      noCuratedRecord: true, 
+
       drawerHeader: '#CustomCSS-block > h4',
       drawerTargets: ['#CustomCSS-block > :not(h4)'],
     },
@@ -275,10 +272,10 @@
       catch (e) { return null; }
     },
 
-    // 深拷贝一份全新默认值
     freshDefaults() { return JSON.parse(JSON.stringify(defaultSettings)); },
 
-    // 一些规范：刻意「不」清理当前不在场的 key —— 晚加载元素靠留存的 order/column/hidden 归位。
+    // 对非全局加载的元素的处理
+    // 插件不清理列表中的空id，以便非全局加载的元素被注入时能根据id匹配归位
     normalize(s) {
       const d = defaultSettings;
       for (const k in d) {
@@ -296,7 +293,6 @@
       } else {
         s.customFontColor = null;
       }
-      // 默认收起，随后对展开/收起状态持久化
       for (const g of GROUPS) {
         if (s.groupCollapsed[g.id] === undefined) s.groupCollapsed[g.id] = true;
       }
@@ -305,7 +301,6 @@
         const key = getUserDrawerKey(def);
         if (s.userDrawerCollapsed[key] === undefined) s.userDrawerCollapsed[key] = true;
       }
-      // 确保所有有子分组能力的 groupId 在 subgroups 里有初始空数组
       for (const gid of SUBGROUP_GROUP_IDS) {
         if (!s.subgroups[gid]) s.subgroups[gid] = [];
       }
@@ -341,7 +336,6 @@
       return settings;
     },
 
-    // 持久化失败时用浏览器缓存兜底
     save() {
       const ctx = Store.getCtx();
       if (ctx && ctx.extensionSettings && ctx.saveSettingsDebounced) {
@@ -407,7 +401,6 @@
       if (changed) saveSettings();
     },
 
-    // groupId 下 key→sgId 快速查找表
     keyToSgMap(groupId) {
       const map = {};
       for (const sg of Subgroups.list(groupId)) {
@@ -457,7 +450,6 @@
   const normLabel = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const escHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  // 识别带直接文本的按钮（无 span 文本的裸按钮）
   function hasDirectText(el) {
     for (const n of el.childNodes) {
       if (n.nodeType === 3 && n.textContent.trim()) return true;
@@ -465,14 +457,12 @@
     return false;
   }
 
-  // 元素相对 container 的顶层单元（普通容器整块移动的粒度）
   function unitOf(el, container) {
     let u = el;
     while (u && u.parentNode !== container) u = u.parentNode;
     return u || el;
   }
 
-  // 保留: 计算样式时临时摘掉自身 .mc3-hidden，消除「隐藏后重扫描→误判不可见」（0831）
   function isOwnVisible(el) {
     if (!el) return false;
     if (el.classList.contains('displayNone') || el.hidden || el.style.display === 'none') return false;
@@ -520,7 +510,6 @@
         return t || normLabel(el.textContent);
       }
       case 'span': {
-        // 保留: 取首个「非空」span，防止空图标 span 致标签空被丢弃（0623）
         const sps = el.querySelectorAll('span, .qr--button-label, [data-i18n]');
         for (const sp of sps) { const st = normLabel(sp.textContent); if (st) return st; }
         let dt = '';
@@ -546,7 +535,6 @@
   }
 
   // CSS动画相关参数计算
-  // 依条目数非线性计算展开/折叠过渡时长（<=4 项兜底 0.22s，>4 项对数递增，上限 0.50s）
   function calcCollapseDuration(itemCount) {
     const count = Number(itemCount) || 0;
     if (count <= 4) return 0.22;
@@ -569,8 +557,8 @@
            countBadge;
   }
 
-  // 适配 TauriTavern 2.3.0 SubtreeGate：抽屉收起时其子节点会被脱水暂存到 DocumentFragment。
-  // 在扫描或展开管理界面前，确保其子树按需水合，避免候选条目扫描遗漏。
+  // 这部分用来适配TT版本>=2.3.0时的改动
+  // 在高版本TT下酒馆自带元素只有在面板展开时才会水合，所以修复前插件扫不到
   function ensureExtensionsHydrated() {
     try {
       const mgr = win.__TAURITAVERN_PANEL_RUNTIME__;
@@ -588,13 +576,8 @@
 
   // ─── §5  SCANNER ─────────────────────────────────────────────────────────────
 
-  // 扩展面板条目识别快照缓存（key -> { key, label, unitId, el, containerSel }）
-  // 适配 TauriTavern 2.3.0 SubtreeGate 脱水容灾：即使抽屉收起后容器内子节点被移入 DocumentFragment，
-  // 也能借由快照恢复条目，保证 applyColumns/applyOrder/applyHides 能够操作其宿主容器。
   const extensionRecordsCache = new Map();
 
-  // 是否为「display:contents 包裹层」：本身不是目标条目，但其直接子里挂着真正的条目。
-  // 保留: 第三方扩展把 wand/extension 容器设为 display:contents，需穿透一层（0622）。
   function isContentsWrapper(el, group) {
     if (!el || !(el instanceof win.HTMLElement || (el.classList && el.matches))) return false;
     if (el.classList.contains('extension_container')) {
@@ -602,7 +585,6 @@
       if (group.mode === 'drawers') return !el.classList.contains('inline-drawer');
       return false;
     }
-    // 兼容可能未带 extension_container 类的第三方包裹层（如自定义挂载点或快捷方式容器）
     if (group.mode === 'listItems' && !el.matches(group.itemMatch) && el.querySelector(group.itemMatch)) {
       return true;
     }
@@ -612,14 +594,11 @@
     return false;
   }
 
-  // 「看起来像一个带标签的按钮/条目」
-  // labelQuery 默认仅 'span'（与 v1 listItems 一致）；qrItems 传更宽的查询以覆盖 QR 按钮标签变体。
   function looksLikeButton(el, matchSel, labelQuery) {
     if (matchSel && el.matches(matchSel)) return true;
     return !!el.querySelector(labelQuery || 'span') || hasDirectText(el);
   }
 
-  // 收集候选元素（按 mode 派发）
   function collectCandidates(group, container) {
     const out = [];
     const children = container.children;
@@ -634,7 +613,6 @@
     }
 
     if (group.mode === 'listItems') {
-      // 适配不同插件在魔棒菜单中挂载按钮的方式（LGI / 非 LGI 并列，穿透 display:contents 包裹层与快捷方式容器）
       const scanItemNode = (node) => {
         if (!node || isSelf(node)) return;
         if (isContentsWrapper(node, group)) {
@@ -666,12 +644,10 @@
       return out;
     }
 
-    // mode === 'drawers'
     for (const ch of children) {
       if (isSelf(ch)) continue;
       if (isContentsWrapper(ch, group)) {
         if (ch.children.length === 0 && ch.id) {
-          // 容灾脱水态：从快照缓存中恢复
           for (const cached of extensionRecordsCache.values()) {
             if (cached.unitId === ch.id) {
               out.push({ el: cached.el || ch, label: cached.label, fallbackUnit: ch, isDehydrated: true, key: cached.key });
@@ -692,7 +668,6 @@
     return out;
   }
 
-  // 扫描器总结阶段：记录、去重、消歧。产出统一 record { key, el, els, unit, units, groupId, label, column? }。
   function scanGroup(group) {
     if (group.id === 'extensionsSettings') {
       ensureExtensionsHydrated();
@@ -726,14 +701,12 @@
           if (isStableId(el.id)) {
             key = '#' + el.id;
             if (byKey[key]) {
-              // 保留: T2 重复 id 收集全副本入 els/units，解析取可见副本（#option_close_chat #5，0831）
               byKey[key].els.push(el);
               if (byKey[key].units && unit) byKey[key].units.push(unit);
               if (!isOwnVisible(byKey[key].el) && isOwnVisible(el)) { byKey[key].el = el; byKey[key].unit = unit; }
               continue;
             }
           } else {
-            // T3: 无 id → groupId|稳定容器锚点|label 确定性派生（column 无关，reload 可复现）
             const anchor = (unit && isStableId(unit.id)) ? '#' + unit.id : group.id;
             const base = group.id + '|' + anchor + '|' + label;
             const cnt = derivedCount[base] || 0; derivedCount[base] = cnt + 1;
@@ -759,7 +732,6 @@
     return records;
   }
 
-  // curated 面板扫描（预设/用户设置，按组打包隐藏，不排序）
   function scanCurated(group) {
     const records = [];
     const definitions = group.id === 'userSettings' ? getUserSettingsGroups() : (CURATED_GROUPS[group.id] || []);
@@ -777,7 +749,6 @@
     return records;
   }
 
-  // 消息操作按钮语义选择器提取。保留: 优先 #id；本版加固为复合 class（拼所有非忽略 class）降低碰撞。
   function getMesButtonSelector(el) {
     if (isStableId(el.id)) return '#' + el.id;
     const ignoredClasses = ['mes_button', 'interactable', 'menu_button', 'mes_btn', 'displayNone', 'mc3-hidden', 'visible', 'fa-solid', 'fa-regular'];
@@ -790,7 +761,6 @@
         cl.push(c);
       }
     }
-    // 保留: 取首个非忽略 class（keys 如 mesButtons|.mes_edit 已持久化，改复合会破坏老用户 key 兼容）
     if (cl.length > 0) return '.' + cl[0];
     const title = el.getAttribute('title') || el.getAttribute('data-tooltip') || el.getAttribute('data-i18n');
     if (title) return '[title="' + title.replace(/"/g, '\\"') + '"]';
@@ -802,7 +772,6 @@
     return null;
   }
 
-  // 消息操作按钮标签提取
   function getMesButtonLabel(el, selector) {
     if (selector && MES_BUTTON_DEFAULT_LABELS[selector]) return MES_BUTTON_DEFAULT_LABELS[selector];
     const title = el.getAttribute('title') || el.getAttribute('data-tooltip');
@@ -816,7 +785,6 @@
     return selector ? selector.replace(/^[.#]/, '') : '未知按钮';
   }
 
-  // 「消息操作」扫描器：处理楼层小铅笔与省略号（.extraMesButtons）收纳区
   function scanMesButtons(group) {
     let containers = doc.querySelectorAll('#message_template .mes_buttons, #chat .mes_buttons');
     if (!containers.length) containers = doc.querySelectorAll('.mes_buttons');
@@ -827,14 +795,14 @@
       const extraBox = container.querySelector('.extraMesButtons');
       const allButtons = [];
 
-      // 被收纳（col 0）
+      // 收纳
       if (extraBox) {
         for (const eBtn of extraBox.children) {
           if (isSelf(eBtn)) continue;
           allButtons.push({ el: eBtn, nativeCol: 0 });
         }
       }
-      // 外显（col 1）
+      // 外显
       for (const cBtn of container.children) {
         if (isSelf(cBtn) || cBtn === extraBox ||
             cBtn.classList.contains('extraMesButtonsHint') || cBtn.classList.contains('extraMesButtons')) {
@@ -848,7 +816,7 @@
         const sel = getMesButtonSelector(btnEl);
         if (!sel) continue;
         const key = 'mesButtons|' + sel;
-        if (seenKeys.has(key)) continue; // 选择器碰撞去重
+        if (seenKeys.has(key)) continue; 
         seenKeys.add(key);
 
         const lbl = getMesButtonLabel(btnEl, sel);
@@ -862,7 +830,6 @@
       }
     }
 
-    // 针对已知持久化但当前扫描瞬时缺席的 mesButtons 补全虚拟记录，确保 syncMesButtons / buildMesSuppressCSS 规则不漏
     const savedOrder = settings.order && settings.order[group.id];
     if (savedOrder) {
       for (const key in savedOrder) {
@@ -897,10 +864,10 @@
 
   // ─── §6  APPLIERS ────────────────────────────────────────────────────────────
 
-  let suppressObserver = false; // 程序性 DOM 搬运期间抑制 observer，防回环
+  // 在搬运时不启用observer
+  let suppressObserver = false;
   let applyTimer = null;
 
-  // 对每个 record 的全副本做 (el, unit, rec) 遍历（applyOrder/applyHides/clearGroup 共用）
   function forEachElUnit(records, fn) {
     for (const r of records) {
       for (let e = 0; e < r.els.length; e++) {
@@ -936,7 +903,7 @@
       'button.mc3-user-drawer-arrow:hover{opacity:1;}',
       'button.mc3-user-drawer-arrow:focus-visible{outline:2px solid var(--SmartThemeQuoteColor,#3a6);outline-offset:1px;}',
     ];
-    // forceFlex：非 flex 容器强制 flex-direction:column，使 CSS order 生效
+    // 给非 flex 容器强制加上 flex-direction:column属性，使 CSS order 生效
     for (const g of GROUPS) {
       if (!g.forceFlex) continue;
       for (const c of g.containers) rules.push(c + '{display:flex;flex-direction:column;}');
@@ -948,10 +915,8 @@
     (doc.head || doc.documentElement).appendChild(st);
   }
 
-  // 修复 mesButtons 幽灵按钮 bug：
-  // 不变量：任何 targetCol===1（外显）记录的按钮，永远不得在 .extraMesButtons 抽屉内渲染。
-  // 后代作用域 `.extraMesButtons SELECTOR` 仅命中抽屉内副本；外显直接子级不受影响。
-  // 第三方重注入进抽屉的副本一被解析即隐藏——不依赖 JS、不受防抖影响、我们不写节点属性 → 无 observer 乒乓。
+  // 这是对mesbutton区域会被重复注入元素的防御
+  // 如果元素被移动后又被重新注入，那么会把新注入元素设为display:none并且将被移动的元素标记为副本
   function buildMesSuppressCSS(records) {
     let style = doc.getElementById('mc3-mes-suppress');
     if (!settings.enabled) { if (style) style.textContent = ''; return; }
@@ -972,7 +937,6 @@
     if (style.textContent !== css) style.textContent = css;
   }
 
-  // 依 key 分配槽位，新元素追加末尾；首次分配同时写 nativeOrder 快照
   function ensureSlots(group, records) {
     const map = settings.order[group.id] || (settings.order[group.id] = {});
     const nat = settings.nativeOrder[group.id] || (settings.nativeOrder[group.id] = {});
@@ -986,8 +950,7 @@
     return map;
   }
 
-  // 排序。保留: 同时写顶层 unit 与 rec.el —— display:contents 容器内真正参与 flex 的是 el（0622）。
-  // 伪抽屉组的 slot 乘 2 留出奇数位给标题按钮。
+  // 这部分是干嘛用的？slot*2+1是什么？
   function applyOrder(group, records) {
     const map = ensureSlots(group, records);
     const hasPseudoHeaders = supportsPseudoSubgroups(group);
@@ -1009,7 +972,6 @@
     return !!(subgroup && subgroup.collapsed);
   }
 
-  // 可见性。某 unit 成员全隐藏时容器自动收起。保留: 遍历全副本（0831）。
   function applyHides(group, records) {
     const byUnit = new Map();
     forEachElUnit(records, (el, unit, r) => {
@@ -1032,7 +994,7 @@
     if (!col0 || !col1) return;
     const single = settings.columnMode === 'single';
 
-    // 子分组分栏约束：extensionsSettings 子分组内条目遵循子分组的 column
+    // 元素优先遵循其所在子分组的位置
     const keyToSgCol = {};
     for (const sg of Subgroups.list('extensionsSettings')) {
       const sgCol = sg.column !== undefined ? sg.column : 0;
@@ -1042,10 +1004,10 @@
     let moved = false;
     for (const r of records) {
       if (r.column === undefined) continue;
-      if (settings.nativeColumn[r.key] === undefined) settings.nativeColumn[r.key] = r.column; // 首次=原生
+      if (settings.nativeColumn[r.key] === undefined) settings.nativeColumn[r.key] = r.column; 
       let target;
       if (keyToSgCol[r.key] !== undefined) {
-        target = single ? 0 : keyToSgCol[r.key]; // 子分组栏位覆盖个体设置
+        target = single ? 0 : keyToSgCol[r.key]; 
       } else {
         target = single ? 0 : (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
       }
@@ -1055,7 +1017,7 @@
         if (un && un.parentNode !== tc) { suppressObserver = true; tc.appendChild(un); moved = true; }
       }
     }
-    col1.style.display = single ? 'none' : ''; // 单栏时右栏收起，左栏占满
+    col1.style.display = single ? 'none' : ''; 
     if (moved) win.setTimeout(() => { suppressObserver = false; }, 0);
   }
 
@@ -1081,7 +1043,7 @@
     }
   }
 
-  // 即用显示状态伪装抽屉的收起/展开，保持原生扁平 DOM
+  // 用隐藏/显示伪装抽屉的收起/展开，保持扁平结构而不做嵌套
   // 扩展面板的标题与成员共同跟随子分组栏位；不包裹也不改动成员的原生抽屉结构。
   function applyPseudoSubgroups(group, records) {
     if (!supportsPseudoSubgroups(group)) return;
@@ -1144,6 +1106,7 @@
     }
 
     // 清理不再需要的标题按钮
+    // 上面这行是ai写的，不需要的标题按钮到底指哪些？
     for (const containerSel of group.containers) {
       const container = doc.querySelector(containerSel);
       if (!container) continue;
@@ -1153,8 +1116,6 @@
     }
   }
 
-  // 自定义CSS块原位重排：根据 settings.isolateCustomCss 决定在 DOM 中置于角色处理之前还是杂项之后
-  // 这是干嘛的？为什么要有这一块？
   function applyCustomCssPosition() {
     const cssBlock = doc.querySelector('#CustomCSS-block');
     if (!cssBlock) return;
@@ -1175,7 +1136,6 @@
     }
   }
 
-  // 用户设置原位伪抽屉：点击 h4 标题折叠/展开其内容目标。
   function applyUserSettingsDrawers() {
     applyCustomCssPosition();
     if (!settings.enabled || settings.enableUserFold === false) {
@@ -1203,7 +1163,6 @@
           arrow.title = '折叠或展开' + definition.label;
           header.insertBefore(arrow, header.firstChild);
         }
-        // 保留: 仅在状态真正变化时改写 DOM（避免打断原生交互）
         if (arrow.textContent !== arrowText) arrow.textContent = arrowText;
         if (arrow.getAttribute('aria-label') !== arrowLabel) arrow.setAttribute('aria-label', arrowLabel);
 
@@ -1247,7 +1206,6 @@
     }
   }
 
-  // 在 container 内收集匹配 rec.selector 的按钮（排除 hint/extra/self）—— apply/clear 共用
   // function collectMesMatches(container, rec, hint, extra) {
   //   const matched = [];
   //   for (const fb of container.querySelectorAll(rec.selector)) {
@@ -1256,7 +1214,7 @@
   //   return matched;
   // }
 
-  // 这部分和上面注释掉的内容不同的点在于，限制精简器本身只操作mes_button和深一层的extraMesButtons的内容，避免误杀由其他插件引入，且点了会有弹窗的元素
+  // 下方部分和上面注释掉的内容不同的点在于，限制精简器本身只操作mes_button和深一层的extraMesButtons的内容，避免误杀由其他插件引入，且点了会有弹窗的元素
   // 如果效果不对再换回上面的
   function collectMesMatches(container, rec, hint, extra) {
   const matched = [];
@@ -1268,8 +1226,6 @@
   return matched;
 }
 
-  // 应用消息操作栏配置：双栏包含关系、显隐与排序，保证省略号始终处于外显项左侧。
-  // restore=true 时为「清理」模式：回归原生栏位、取消隐藏与 order。
   function syncMesButtons(records, restore) {
     const group = getGroup('mesButtons');
     const map = (!restore && group) ? ensureSlots(group, records) : (settings.order['mesButtons'] || {});
@@ -1284,14 +1240,12 @@
 
       const hint = container.querySelector('.extraMesButtonsHint');
       const extra = container.querySelector('.extraMesButtons');
-      // 应用模式必须有 hint+extra 才能收纳/外显；清理模式即使缺失也要逐条复位（与 v1 clearMesButtons 一致）
       if (!restore && (!hint || !extra)) continue;
 
       if (restore) {
         if (hint) { hint.style.order = ''; hint.classList.remove('mc3-hidden'); }
         if (extra) extra.style.order = '';
       } else {
-        // 保留: 省略号(-2) 与折叠容器(-1) 永远赋予更小 order，确保始终处于外显项左侧（0909）
         hint.style.order = '-2';
         extra.style.order = '-1';
         if (hint.parentNode === container && container.firstChild !== hint) {
@@ -1315,8 +1269,6 @@
           : (settings.column[rec.key] !== undefined ? settings.column[rec.key] : rec.nativeColumn);
 
         if (targetCol === 0) {
-          // 收纳：置于 extra 内。保留一份主副本，其余多余副本 remove（对重复注入元素的防御）。
-          // extra 可能在清理模式下缺失（无收纳区）→ 与 v1 一致：仅在 extra 存在时搬入。
           let mainBtn = (extra && matchedBtns.find((b) => b.parentNode === extra)) || matchedBtns[0];
           if (extra && mainBtn.parentNode !== extra) { suppressObserver = true; extra.appendChild(mainBtn); moved = true; }
           mainBtn.classList.toggle('mc3-hidden', isHidden);
@@ -1326,7 +1278,6 @@
             if (b !== mainBtn) { suppressObserver = true; b.remove(); moved = true; }
           }
         } else {
-          // 外显：置于 container 直接子级。抽屉内的重注入副本交给 CSS 抑制规则处理（无需写节点）。
           let mainBtn = matchedBtns.find((b) => b.parentNode === container) || matchedBtns[0];
           if (mainBtn.parentNode !== container) { suppressObserver = true; container.appendChild(mainBtn); moved = true; }
           mainBtn.classList.remove('mc3-hidden');
@@ -1334,7 +1285,6 @@
           for (const b of matchedBtns) {
             if (b === mainBtn) continue;
             if (b.parentNode === extra) {
-              // 抽屉内副本：由 mc3-mes-suppress CSS 隐藏，不动其属性 → 不触发第三方 observer 乒乓
               if (restore) { suppressObserver = true; b.remove(); moved = true; }
             } else {
               suppressObserver = true; b.remove(); moved = true;
@@ -1343,7 +1293,6 @@
         }
       }
 
-      // extra 内无可见子项时联动隐藏 hint；restore 模式已重置 hint
       if (!restore && !extra.classList.contains('visible')) {
         hint.classList.toggle('mc3-hidden', visibleExtraChildrenCount === 0);
       }
@@ -1357,7 +1306,7 @@
   const applyMesButtons = (records) => syncMesButtons(records, false);
   const clearMesButtons = (records) => syncMesButtons(records, true);
 
-  // 无用元素默认隐藏（不提供滑块）
+  // 默认隐藏的垃圾
   function applyAlwaysHidden(on) {
     for (const sel of ALWAYS_HIDDEN) {
       for (const el of doc.querySelectorAll(sel)) el.classList.toggle('mc3-hidden', on);
@@ -1371,7 +1320,7 @@
     }
   }
 
-  // 自定义 Selector 显隐应用（跳过自建弹窗与启动入口）
+  // 自定义 Selector 显隐应用
   function applyCustomSelectors(on) {
     for (const item of settings.customSelectors || []) {
       if (!isValidCssSelector(item.selector)) continue;
@@ -1437,13 +1386,12 @@
     }
   }
 
-  // 单组应用/清理派发（依 GROUPS 能力标志，取代散落的 id 字面量分支）
   function applyGroup(group, records) {
     if (group.customApply) { applyMesButtons(records); return; }
-    if (group.supportsColumns) applyColumns(records); // 先定栏（唯一搬 DOM 处）
-    if (!group.curated) applyOrder(group, records);   // curated 跨原生容器，仅做显隐
-    applyHides(group, records);                       // 再可见性
-    applyPseudoSubgroups(group, records);             // 最后同步原地伪抽屉标题
+    if (group.supportsColumns) applyColumns(records); 
+    if (!group.curated) applyOrder(group, records);   
+    applyHides(group, records);                       
+    applyPseudoSubgroups(group, records);             
     if (group.hasUserDrawers) applyUserSettingsDrawers();
   }
 
@@ -1466,7 +1414,7 @@
   function applyAll() {
     ensureContainersObserved();
     injectStyle();
-    setupLaunchers(); // 幂等：先补回入口，使其作为普通条目被随后的 scanAll 扫描/排序/隐藏
+    setupLaunchers(); 
     applyAlwaysHidden(settings.enabled);
     applySeparatorHides(settings.enabled);
     applyCustomSelectors(settings.enabled);
@@ -1502,7 +1450,6 @@
     }
   }
 
-  // 幂等 observer：容器子树有增删就防抖重应用，取代旧版多重兜底重扫描。
   function scheduleApply() {
     ensureContainersObserved();
     if (applyTimer) win.clearTimeout(applyTimer);
@@ -1520,8 +1467,7 @@
       }
     });
 
-    // 保留: 启动 20s 内临时加挂 characterData 监听，覆盖 Vue 异步组件先插空标签后补文本的时序（0623）。
-    // 到点断开避免稳态开销——勿改为常驻。
+    // 此部分用于捕获vue组件先插入占位符再注入文字的情况
     cdObs = new win.MutationObserver(() => { if (!suppressObserver) scheduleApply(); });
     win.setTimeout(() => {
       cdActive = false;
@@ -1530,7 +1476,6 @@
 
     ensureContainersObserved();
 
-    // 浅层监听 doc.body，捕获延迟追加的原生容器（如 #extensionsMenu / 魔棒菜单）
     const bodyObs = new win.MutationObserver((muts) => {
       if (suppressObserver) return;
       for (const m of muts) {
@@ -1547,7 +1492,7 @@
       bodyObs.observe(doc.documentElement, { childList: true });
     }
 
-    // 监听扩展面板抽屉展开：宿主 SubtreeGate 在展开时水合子树，立即触发重排重应用
+    // 适配TT2.3.0水合，在触发水合时应用重排序
     const extBlock = doc.getElementById('rm_extensions_block');
     if (extBlock) {
       const drawerObs = new win.MutationObserver(() => {
@@ -1559,7 +1504,6 @@
       drawerObs.observe(extBlock, { attributes: true, attributeFilter: ['class'] });
     }
 
-    // 捕获打开菜单按钮点击：确保即使在特殊时序下展开菜单，也能瞬时挂载监听并重应用
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest) {
         if (e.target.closest('.extraMesButtonsHint')) {
@@ -1618,14 +1562,12 @@
 
   // ─── §8  REORDER ENGINE ──────────────────────────────────────────────────────
 
-  // 提交重排序：在场 key 按新顺序取 0..N-1，缺席 key 按旧槽位顺序沉底（无碰撞、可预期）。
-  // 子分组打包：同子分组的所有 memberKeys 取连续槽位，整体跟随第一个被拖动的成员。
   function commitReorder(groupId, orderedKeys) {
     const map = settings.order[groupId] || (settings.order[groupId] = {});
     const sgList = Subgroups.list(groupId);
 
     const keyToSg = {};
-    const sgMembers = {}; // sgId -> memberKeys[]
+    const sgMembers = {}; 
     for (const sg of sgList) {
       sgMembers[sg.id] = sg.memberKeys.slice();
       for (const mk of sg.memberKeys) keyToSg[mk] = sg.id;
@@ -1639,8 +1581,6 @@
     for (const key of orderedKeys) {
       const sgId = keyToSg[key];
       if (sgId && !processedSg[sgId]) {
-        // 子分组打包：按 orderedKeys 出现顺序提取本组成员（保持拖后新序），
-        // 不在 orderedKeys 中的成员（如折叠时不可见）按旧 map 顺序追加。
         const memberSet = {};
         for (const mk of sgMembers[sgId]) memberSet[mk] = 1;
         const members = [];
@@ -1656,16 +1596,14 @@
         newMap[key] = slot++;
         present[key] = 1;
       }
-      // sgId && processedSg[sgId] → 同组后续成员，已打包，跳过
     }
 
-    // 缺席 key 沉底
     const absent = Object.keys(map).filter((k) => !present[k]).sort((a, b) => map[a] - map[b]);
     for (const k of absent) newMap[k] = slot++;
     settings.order[groupId] = newMap;
   }
 
-  // 有成员的子分组由首个成员 order 定位；空子分组按单独持久化的 popupPosition 插回顶层单元列表。
+  // 似乎是对子分组位置的排序逻辑
   function insertEmptySubgroupUnits(units, sgList, sgData) {
     const emptyUnits = [];
     for (let i = 0; i < sgList.length; i++) {
@@ -1701,9 +1639,7 @@
     }
   }
 
-  // 重置所有设置为默认值（保留 native 快照供恢复原始）
   function resetAll() {
-    // 先清除自定义 Selector 施加的隐藏
     for (const item of settings.customSelectors || []) {
       if (isValidCssSelector(item.selector)) {
         try { for (const el of doc.querySelectorAll(item.selector)) el.classList.remove('mc3-hidden'); }
@@ -1712,7 +1648,7 @@
     }
     const nativeOrder = settings.nativeOrder || {};
     const nativeColumn = settings.nativeColumn || {};
-    const activeTab = settings.activeTab; // 保留: 与 v1 一致，重置不切走当前页签
+    const activeTab = settings.activeTab; 
     settings = Store.freshDefaults();
     settings.order = JSON.parse(JSON.stringify(nativeOrder));
     settings.column = Object.assign({}, nativeColumn);
@@ -1720,7 +1656,6 @@
     settings.nativeColumn = Object.assign({}, nativeColumn);
     if (activeTab) settings.activeTab = activeTab;
     Store.normalize(settings);
-    // resetAll 重新绑定了 settings，同步刷新 __mc3.settings 引用（否则调试面板读到旧对象）
     if (win.__mc3) win.__mc3.settings = settings;
     saveSettings(); applyAll(); renderPopup();
   }
@@ -1769,7 +1704,7 @@
     '.mc3-color-code{font-family:monospace;font-size:11px;opacity:.7;}' +
     '.mc3-reset-color-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:4px;padding:2px 8px;font-size:11px;opacity:.8;transition:all .15s;}' +
     '.mc3-reset-color-btn:hover{opacity:1;background:var(--black50a,rgba(128,128,128,.3));}' +
-    // 色彩流动小字样式（单向平滑无缝循环）
+    // 色彩流动小字样式
     '@keyframes mc3-flow-anim{0%{background-position:100% 0;}100%{background-position:0% 0;}}' +
     '.mc3-flow-text{font-size:11px;font-weight:normal;line-height:1.2;background:linear-gradient(90deg,#ff6b6b,#feca57,#48dbfb,#ff9ff3,#54a0ff,#1dd1a1,#ff6b6b,#feca57,#48dbfb,#ff9ff3,#54a0ff,#1dd1a1,#ff6b6b);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:mc3-flow-anim 3.5s linear infinite;display:block;user-select:none;}' +
     // 折叠箭头与动画
@@ -1786,12 +1721,12 @@
     '.mc3-card-body-inner{min-height:0;overflow:hidden;}' +
     '.mc3-card.mc3-collapsed .mc3-card-body{grid-template-rows:0fr;opacity:0;}' +
     '.mc3-card.mc3-collapsed .mc3-card-collapse .mc3-chevron{transform:rotate(-90deg);}' +
-    // 图标按钮（+ ✎ ✕）
+    // 图标按钮
     '.mc3-icon-btn{cursor:pointer;background:none;border:none;color:inherit;opacity:.6;font-size:14px;padding:0 4px;line-height:1;transition:opacity .15s;}' +
     '.mc3-icon-btn:hover{opacity:1;}' +
-    // 列表（卡片内）
+    // 列表
     '.mc3-list{padding:2px 0;}' +
-    // 行样式 — 无边框
+    // 行样式
     '.mc3-row{display:flex;align-items:center;gap:8px;padding:5px 10px;margin:0;border:none;border-radius:0;background:transparent;}' +
     '.mc3-row:hover{background:var(--black20a,rgba(255,255,255,.03));}' +
     '.mc3-row.mc3-off{opacity:.4;}' +
@@ -1799,7 +1734,7 @@
     '.mc3-handle{cursor:grab;touch-action:none;opacity:.5;user-select:none;font-size:14px;flex-shrink:0;}' +
     '.mc3-handle:hover{opacity:.9;}' +
     '.mc3-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}' +
-    // Toggle 按钮（显隐 / 左右栏）
+    // Toggle 按钮
     '.mc3-toggle{cursor:pointer;background:var(--black30a,rgba(0,0,0,.25));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:5px;padding:2px 10px;font-size:11px;white-space:nowrap;flex-shrink:0;min-width:34px;text-align:center;transition:background .15s;}' +
     '.mc3-toggle:hover{background:var(--black50a,rgba(128,128,128,.3));}' +
     '.mc3-toggle.on{background:var(--SmartThemeQuoteColor,#3a6);border-color:transparent;color:#fff;}' +
@@ -1888,7 +1823,7 @@
 
   // ─── §10  UI — RENDER ────────────────────────────────────────────────────────
 
-  // 共享卡片壳：折叠标题 + body 容器。headerExtra 放在标题右侧（如「+」新建子分组）。
+  // 卡片壳
   function renderCard(gid, titleText, count, collapsed, dur, bodyHtml, headerExtra) {
     return '<div class="mc3-card' + (collapsed ? ' mc3-collapsed' : '') + '" style="--mc3-dur:' + dur + 's;">' +
       '<div class="mc3-card-header" data-action="toggle-group" data-gid="' + gid + '" title="折叠或展开父分组">' +
@@ -1901,7 +1836,7 @@
     '</div>';
   }
 
-  // 渲染子分组标题栏。左：手柄+折叠三角+标题+重命名 ｜ 右：分栏(可选)+显隐+删除
+  // 子分组标题栏
   function renderSubgroupHeader(sg, group, recs) {
     const allHidden = recs.length > 0 && recs.every((r) => !!settings.hidden[r.key]);
     const hideLabel = allHidden ? '隐藏' : '显示';
@@ -2037,13 +1972,13 @@
     const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
 
     let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
-    // 栏0：左栏
+
     cols += '<div class="mc3-mes-column" data-col="0">';
     cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">左栏</span><span class="mc3-mes-col-count">(' + col0Count + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
     cols += col0Units.length === 0 ? emptyTip('拖动条目到此处 (左栏)') : col0Units.map(renderUnit).join('');
     cols += '</div></div>';
-    // 栏1：右栏
+
     cols += '<div class="mc3-mes-column" data-col="1">';
     cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">右栏</span><span class="mc3-mes-col-count">(' + col1Count + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
@@ -2072,13 +2007,13 @@
 
     const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
     let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
-    // 栏0：被省略号收纳
+
     cols += '<div class="mc3-mes-column" data-col="0">';
     cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">收纳至...内</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
     cols += col0Recs.length === 0 ? emptyTip('拖动元素到此处收纳') : col0Recs.map(renderMesRow).join('');
     cols += '</div></div>';
-    // 栏1：不被省略号收纳
+
     cols += '<div class="mc3-mes-column" data-col="1">';
     cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">始终外显</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
@@ -2172,9 +2107,8 @@
 
       recs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
 
-      // key→sg 映射 & sg 数据
       const keyToSg = {};
-      const sgData = {}; // sgId -> { subgroup, records[], minSlot }
+      const sgData = {}; 
       for (const sg of sgList) {
         sgData[sg.id] = { subgroup: sg, records: [], minSlot: Infinity };
         for (const mk of sg.memberKeys) keyToSg[mk] = sg.id;
@@ -2516,7 +2450,6 @@
   // ── 拖拽 ──
   let dragMeta = null; // { row, list, gid, key, startSgId, isSg }
 
-  // 在拖拽位置找到 .mc3-subgroup-items 容器（或穿透子分组 header 取其内部 items）
   function findDropTarget(ev) {
     const el = doc.elementFromPoint(ev.clientX, ev.clientY);
     if (!el) return null;
@@ -2527,7 +2460,6 @@
     return null;
   }
 
-  // 在指定容器中按 clientY 找 row 的视觉插入位置
   function findInsertAfter(container, row, clientY) {
     let after = null;
     for (const child of container.children) {
@@ -2761,7 +2693,6 @@
         }
       }
 
-      // 按视觉顺序深度收集 orderedKeys（折叠子分组按旧序展开成员）
       const orderedKeys = [];
       const collectKeys = (el) => {
         if (el.classList.contains('mc3-row')) {
@@ -2793,7 +2724,6 @@
 
   // ─── §12  LAUNCHERS ──────────────────────────────────────────────────────────
 
-  // 魔棒入口（作为普通 .list-group-item 参与扫描/排序/隐藏）
   function makeWandLauncher() {
     const el = doc.createElement('div');
     el.id = 'mc3-launcher-wand';
@@ -2804,7 +2734,6 @@
     return el;
   }
 
-  // 扩展面板入口（.inline-drawer：启用复选框 + 打开按钮）
   function makePanelLauncher() {
     const d = doc.createElement('div');
     d.id = 'mc3-launcher-panel';
@@ -2856,7 +2785,6 @@
     setupObserver();
     const records = applyAll();
     setupLaunchers();
-    // 保留: 递进补跑 applyAll()，兜底晚到时序（0623/M8）
     [600, 1800, 4000, 8000, 12000, 16000].forEach((d) => {
       win.setTimeout(() => {
         if (!suppressObserver) {
