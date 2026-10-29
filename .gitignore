@@ -1,34 +1,26 @@
-# Dependencies
-node_modules/
+# ide和agent
+.agents
+.claude
+.idea
+.superpowers
+docs
 
-# Playwright MCP 测试产物
-.playwright-mcp/
-!tests/*.js
-!tests/*.mjs
+# 调试产物
+.playwright-mcp
+node_modules
+tests
 
-# Claude Code 内部文件
-.claude/
-.idea/
-
-# 参考文档和需求文档
-reference/
-*.png
+# 除了readme以外的md文件
 *.md
-*.json
-!mainfest.json
 !README.md
-可展开列表.md
-待办事项.md
-工作日志.md
-自查方法.md
-toggle-demo.html
-*.txt
-不同世界线的备份/
 
-# 发布产物：loader JSON 需随仓库分发（dist/menu-cleaner.js 是 .js 默认已跟踪）
+# 除了发布产物以外的构建产物
+*.json
+!dist/menu-cleaner.js
 !dist/酒馆助手脚本-菜单精简器.json
 
-# 系统文件
-.DS_Store
-Thumbs.db
-desktop.ini
+# 参考材料
+reference
+
+# 工作树
+.worktrees
