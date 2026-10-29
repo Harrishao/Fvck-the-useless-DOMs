@@ -861,6 +861,27 @@
         });
       }
     }
+
+    // 针对已知持久化但当前扫描瞬时缺席的 mesButtons 补全虚拟记录，确保 syncMesButtons / buildMesSuppressCSS 规则不漏
+    const savedOrder = settings.order && settings.order[group.id];
+    if (savedOrder) {
+      for (const key in savedOrder) {
+        if (seenKeys.has(key)) continue;
+        const prefix = group.id + '|';
+        if (key.indexOf(prefix) !== 0) continue;
+        const sel = key.slice(prefix.length);
+        if (!sel || !isValidCssSelector(sel)) continue;
+        seenKeys.add(key);
+        const lbl = MES_BUTTON_DEFAULT_LABELS[sel] || sel.replace(/^[.#]/, '');
+        const nativeCol = settings.nativeColumn[key] !== undefined ? settings.nativeColumn[key] : 0;
+        const curCol = settings.column[key] !== undefined ? settings.column[key] : nativeCol;
+        records.push({
+          key, selector: sel, el: null, els: [], unit: null, units: [],
+          groupId: group.id, label: lbl, column: curCol, nativeColumn: nativeCol,
+        });
+      }
+    }
+
     return records;
   }
 
@@ -1483,7 +1504,6 @@
 
   // 幂等 observer：容器子树有增删就防抖重应用，取代旧版多重兜底重扫描。
   function scheduleApply() {
-    if (suppressObserver) return;
     ensureContainersObserved();
     if (applyTimer) win.clearTimeout(applyTimer);
     applyTimer = win.setTimeout(() => {
@@ -1541,16 +1561,31 @@
 
     // 捕获打开菜单按钮点击：确保即使在特殊时序下展开菜单，也能瞬时挂载监听并重应用
     doc.addEventListener('click', (e) => {
-      if (e.target && e.target.closest && e.target.closest('#extensionsMenuButton, #options_button, #extensions-settings-button')) {
-        ensureContainersObserved();
-        scheduleApply();
+      if (e.target && e.target.closest) {
+        if (e.target.closest('.extraMesButtonsHint')) {
+          ensureContainersObserved();
+          applyAll();
+        } else if (e.target.closest('#extensionsMenuButton, #options_button, #extensions-settings-button')) {
+          ensureContainersObserved();
+          scheduleApply();
+        }
       }
     }, { capture: true, passive: true });
 
     try {
-      if (win.eventSource && win.event_types) {
-        if (win.event_types.CHAT_CHANGED) win.eventSource.on(win.event_types.CHAT_CHANGED, scheduleApply);
-        if (win.event_types.APP_READY) win.eventSource.on(win.event_types.APP_READY, () => {
+      const ctx = getCtx();
+      const evSource = (ctx && ctx.eventSource) || win.eventSource;
+      const event_types = (ctx && (ctx.eventTypes || ctx.event_types)) || win.event_types;
+      if (evSource && event_types) {
+        if (event_types.CHAT_CHANGED) {
+          evSource.on(event_types.CHAT_CHANGED, () => {
+            scheduleApply();
+            [350, 700, 1200].forEach((d) => {
+              win.setTimeout(() => { ensureContainersObserved(); applyAll(); }, d);
+            });
+          });
+        }
+        if (event_types.APP_READY) evSource.on(event_types.APP_READY, () => {
           const eb = doc.getElementById('rm_extensions_block');
           if (eb && eb.classList.contains('openDrawer')) {
             ensureExtensionsHydrated();
@@ -1558,7 +1593,7 @@
           ensureContainersObserved();
           scheduleApply();
         });
-        if (win.event_types.EXTENSIONS_FIRST_LOAD) win.eventSource.on(win.event_types.EXTENSIONS_FIRST_LOAD, () => {
+        if (event_types.EXTENSIONS_FIRST_LOAD) evSource.on(event_types.EXTENSIONS_FIRST_LOAD, () => {
           const eb = doc.getElementById('rm_extensions_block');
           if (eb && eb.classList.contains('openDrawer')) {
             ensureExtensionsHydrated();
@@ -1566,6 +1601,17 @@
           ensureContainersObserved();
           scheduleApply();
         });
+
+        const onFloorRendered = () => {
+          scheduleApply();
+          win.setTimeout(() => { ensureContainersObserved(); applyAll(); }, 200);
+          win.setTimeout(() => { ensureContainersObserved(); applyAll(); }, 500);
+        };
+        if (event_types.CHARACTER_MESSAGE_RENDERED) evSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onFloorRendered);
+        if (event_types.USER_MESSAGE_RENDERED) evSource.on(event_types.USER_MESSAGE_RENDERED, onFloorRendered);
+        if (event_types.MESSAGE_SWIPED) evSource.on(event_types.MESSAGE_SWIPED, onFloorRendered);
+        if (event_types.MESSAGE_UPDATED) evSource.on(event_types.MESSAGE_UPDATED, onFloorRendered);
+        if (event_types.MESSAGE_EDITED) evSource.on(event_types.MESSAGE_EDITED, onFloorRendered);
       }
     } catch (e) {}
   }
