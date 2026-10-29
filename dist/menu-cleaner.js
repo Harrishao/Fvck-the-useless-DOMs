@@ -2079,8 +2079,7 @@
     cols += '</div></div>';
     cols += '</div>';
 
-    const headerExtra = '<button class="mc3-icon-btn" data-action="reset-sendform" title="恢复输入框区域原生排布" style="font-size:12px;padding:2px 8px;margin-right:4px;">恢复默认</button>';
-    return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols, headerExtra);
+    return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols);
   }
 
   // 渲染消息操作专属双栏卡片
@@ -2413,21 +2412,6 @@
     },
 
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
-
-    'reset-sendform': () => {
-      const g = getGroup('sendForm');
-      const recs = g ? scanGroup(g) : [];
-      for (const r of recs) {
-        if (settings.nativeColumn[r.key] !== undefined) {
-          settings.column[r.key] = settings.nativeColumn[r.key];
-        }
-        delete settings.hidden[r.key];
-      }
-      delete settings.order['sendForm'];
-      saveSettings();
-      applyAll();
-      renderPopup();
-    },
 
     'toggle-group': (t, e) => {
       if (e && e.target && e.target.closest('.mc3-icon-btn, .mc3-toggle, input')) return;

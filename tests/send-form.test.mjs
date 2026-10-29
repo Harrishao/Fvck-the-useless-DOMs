@@ -40,11 +40,12 @@ test('renderBody 派发 sendForm 至 renderSendFormCard', () => {
   assert.match(source, /if\s*\(\s*group\.id\s*===\s*'sendForm'\s*\)\s*\{\s*html\s*\+=\s*renderSendFormCard\(/);
 });
 
-test('renderSendFormCard 渲染具有左右两栏的标准结构', () => {
+test('renderSendFormCard 渲染具有左右两栏的标准结构，且无独立的恢复默认按钮', () => {
   assert.match(source, /function renderSendFormCard\(\s*group\s*,\s*recs\s*,\s*map\s*\)/);
   assert.match(source, /data-col="0"/);
   assert.match(source, /data-col="1"/);
   assert.match(source, /左侧按钮/);
   assert.match(source, /右侧按钮/);
   assert.match(source, /mc3-mes-list/);
+  assert.doesNotMatch(source, /data-action="reset-sendform"/);
 });

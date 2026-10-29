@@ -70,11 +70,13 @@ async function runE2ETest() {
 
       const col0List = document.querySelector('.mc3-mes-list[data-gid="sendForm"][data-col="0"]');
       const col1List = document.querySelector('.mc3-mes-list[data-gid="sendForm"][data-col="1"]');
+      const resetBtn = document.querySelector('[data-action="reset-sendform"]');
       return {
         hasCol0: !!col0List,
         hasCol1: !!col1List,
         col0Count: col0List?.querySelectorAll('.mc3-row')?.length,
         col1Count: col1List?.querySelectorAll('.mc3-row')?.length,
+        hasResetBtn: !!resetBtn,
       };
     });
 
@@ -82,7 +84,8 @@ async function runE2ETest() {
     assert.equal(uiData.hasCol1, true, '右栏容器应存在');
     assert.ok(uiData.col0Count >= 1, '左栏应至少有 1 个按钮');
     assert.ok(uiData.col1Count >= 5, '右栏应至少有 5 个按钮');
-    console.log(`[E2E] 双栏卡片渲染成功！左栏条目: ${uiData.col0Count}, 右栏条目: ${uiData.col1Count}`);
+    assert.equal(uiData.hasResetBtn, false, '输入框区域不应存在独立的恢复默认按钮');
+    console.log(`[E2E] 双栏卡片渲染成功（无独立恢复默认按钮）！左栏条目: ${uiData.col0Count}, 右栏条目: ${uiData.col1Count}`);
 
     // 测试跨栏功能
     console.log('[E2E] 测试跨栏搬运: 将 #send_but 移入左栏 ...');
@@ -110,11 +113,10 @@ async function runE2ETest() {
     assert.equal(hideData.hasHiddenClass, true, '#options_button 应带有 mc3-hidden 类');
     console.log('[E2E] 显隐功能验证成功！');
 
-    // 测试重置功能
-    console.log('[E2E] 测试恢复默认重置按钮 ...');
+    // 测试全局重置功能
+    console.log('[E2E] 测试全局恢复原始重置 ...');
     const resetData = await page.evaluate(() => {
-      const resetBtn = document.querySelector('[data-action="reset-sendform"]');
-      if (resetBtn) resetBtn.click();
+      window.__mc3.resetAll();
       const sendBut = document.querySelector('#send_but');
       const opt = document.querySelector('#options_button');
       return {
@@ -124,7 +126,7 @@ async function runE2ETest() {
     });
     assert.equal(resetData.sendButParent, 'rightSendForm', '重置后 send_but 应回归 rightSendForm');
     assert.equal(resetData.optHidden, false, '重置后 options_button 不应再隐藏');
-    console.log('[E2E] 恢复默认重置验证成功！');
+    console.log('[E2E] 全局重置验证成功！');
 
     console.log('\n[E2E] 🎉 全部端到端验收测试通过！');
   } finally {
