@@ -830,25 +830,6 @@
       }
     }
 
-    const savedOrder = settings.order && settings.order[group.id];
-    if (savedOrder) {
-      for (const key in savedOrder) {
-        if (seenKeys.has(key)) continue;
-        const prefix = group.id + '|';
-        if (key.indexOf(prefix) !== 0) continue;
-        const sel = key.slice(prefix.length);
-        if (!sel || !isValidCssSelector(sel)) continue;
-        seenKeys.add(key);
-        const lbl = MES_BUTTON_DEFAULT_LABELS[sel] || sel.replace(/^[.#]/, '');
-        const nativeCol = settings.nativeColumn[key] !== undefined ? settings.nativeColumn[key] : 0;
-        const curCol = settings.column[key] !== undefined ? settings.column[key] : nativeCol;
-        records.push({
-          key, selector: sel, el: null, els: [], unit: null, units: [],
-          groupId: group.id, label: lbl, column: curCol, nativeColumn: nativeCol,
-        });
-      }
-    }
-
     return records;
   }
 
@@ -922,12 +903,34 @@
     if (!settings.enabled) { if (style) style.textContent = ''; return; }
     const selectors = [];
     const seen = new Set();
-    for (const rec of records) {
+
+    for (const rec of (records || [])) {
       const targetCol = settings.column[rec.key] !== undefined ? settings.column[rec.key] : rec.nativeColumn;
       if (targetCol !== 1 || !rec.selector || seen.has(rec.selector)) continue;
       seen.add(rec.selector);
       selectors.push('.extraMesButtons ' + rec.selector);
     }
+
+    const checkKey = (key) => {
+      const prefix = 'mesButtons|';
+      if (key.indexOf(prefix) !== 0) return;
+      const sel = key.slice(prefix.length);
+      if (!sel || seen.has(sel) || !isValidCssSelector(sel)) return;
+      const curCol = settings.column[key] !== undefined ? settings.column[key] : settings.nativeColumn[key];
+      if (curCol === 1) {
+        seen.add(sel);
+        selectors.push('.extraMesButtons ' + sel);
+      }
+    };
+
+    const savedOrder = settings.order && settings.order['mesButtons'];
+    if (savedOrder) {
+      for (const key in savedOrder) checkKey(key);
+    }
+    if (settings.column) {
+      for (const key in settings.column) checkKey(key);
+    }
+    
     const css = selectors.length ? selectors.join(',\n') + '{display:none !important;}' : '';
     if (!style) {
       style = doc.createElement('style');
