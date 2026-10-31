@@ -1,5 +1,6 @@
 import os
 import json
+import re
 
 # 主版本v2 构建脚本 —— 产出两份制品（互不覆盖）：
 #   ① dist/menu-cleaner.js                —— content.js 原样，jsDelivr @v0 自动更新通道的代码本体。
@@ -8,7 +9,7 @@ import json
 # 不触碰 dist/酒馆助手脚本-菜单精简器.json（那是 @v0 loader，一行 import，正常无需改动；
 # 本脚本只【读】它作为元数据模板，复用同一 UUID/name/info → 已安装用户处表现为更新而非新脚本）。
 #
-# 发布步骤（@v0 通道）：改 content.js → 跑本脚本 → git commit → git tag v0.0.N → git push origin main v0.0.N
+# 发布步骤（@v0 通道）：改 content.js（同步更新抬头版本与 VERSION） → 跑本脚本 → git commit → git tag v0.0.N → git push origin main v0.0.N
 #                     → 访问 https://purge.jsdelivr.net/ 对应链接强制刷新 CDN 缓存。
 
 script_dir = os.path.dirname(os.path.abspath(__file__))          # 主版本v2/
@@ -18,6 +19,16 @@ os.makedirs(dist_dir, exist_ok=True)
 
 with open(os.path.join(script_dir, "content.js"), "r", encoding="utf-8") as f:
     content_js = f.read()
+
+# 校验抬头版本与代码中 VERSION 常量一致性
+header_match = re.search(r"^//\s*version\s+([^\r\n]+)", content_js, re.M)
+const_match = re.search(r"const\s+VERSION\s*=\s*['\"]([^'\"]+)['\"]", content_js)
+if header_match and const_match:
+    h_ver = header_match.group(1).strip()
+    c_ver = const_match.group(1).strip()
+    if h_ver != c_ver:
+        raise ValueError(f"版本号不一致！content.js 抬头为 '{h_ver}'，而 const VERSION 为 '{c_ver}'，请保持一致！")
+    print(f"Building Version: {h_ver}")
 
 # ① dist/menu-cleaner.js（content.js 原样）
 dist_js = os.path.join(dist_dir, "menu-cleaner.js")

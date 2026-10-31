@@ -3,6 +3,7 @@
 (function () {
   'use strict';
 
+  const VERSION = '1031.0.0';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -2870,7 +2871,7 @@
       }, d);
     });
     win.__mc3 = {
-      version: 'M18',
+      version: VERSION,
       settings,
       groups: GROUPS,
       getGroup,
