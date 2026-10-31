@@ -1,4 +1,4 @@
-// version 1029.0.0
+// version 1031.0.0
 
 (function () {
   'use strict';
@@ -1022,7 +1022,7 @@
     });
   }
 
-  // 通用多栏搬运。支持 extensionsSettings 与 sendForm
+  // 通用多栏搬运函数
   function applyColumns(group, records) {
     if (!group || !group.containers || group.containers.length < 2) return;
     const col0 = doc.querySelector(group.containers[0]);
@@ -1032,7 +1032,7 @@
     const isExt = group.id === 'extensionsSettings';
     const single = isExt && settings.columnMode === 'single';
 
-    // 仅 extensionsSettings 遵循子分组分栏约束
+    // extensionsSettings 元素分栏遵循其所属子分组
     const keyToSgCol = {};
     if (isExt) {
       for (const sg of Subgroups.list('extensionsSettings')) {
@@ -2049,13 +2049,13 @@
 
     const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
     let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
-    // 栏0：左栏 (#leftSendForm)
+    // 输入框以左
     cols += '<div class="mc3-mes-column" data-col="0">';
     cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">左侧按钮 (#leftSendForm)</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
     cols += col0Recs.length === 0 ? emptyTip('拖动条目到此处 (左侧)') : col0Recs.map((r) => renderItemRow(r, group, false)).join('');
     cols += '</div></div>';
-    // 栏1：右栏 (#rightSendForm)
+    // 输入框以右
     cols += '<div class="mc3-mes-column" data-col="1">';
     cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">右侧按钮 (#rightSendForm)</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
