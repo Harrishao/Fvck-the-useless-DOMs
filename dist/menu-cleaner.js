@@ -78,6 +78,14 @@
       observe: ['#chat', '#message_template'],
       mode: 'mesButtons', customApply: true,
     },
+    {
+      id: 'sendForm', name: '输入框区域',
+      containers: ['#leftSendForm', '#rightSendForm'],
+      observe: ['#send_form', '#nonQRFormItems'],
+      mode: 'children',
+      supportsColumns: true,
+      label: 'attrTitle',
+    },
   ];
 
   // 支持子分组的分组
@@ -105,6 +113,19 @@
     '.mes_embed': '嵌入文件/图片',
     '.mes_create_bookmark': '创建检查点',
     '.mes_create_branch': '创建分支',
+  };
+
+  // 输入框区域按钮友好标签映射
+  const SEND_FORM_DEFAULT_LABELS = {
+    '#options_button': '左下选项菜单',
+    '#extensionsMenuButton': '扩展魔棒',
+    '#send_but': '发送消息',
+    '#mes_impersonate': '让AI为您撰写消息',
+    '#mes_continue': '继续上一条消息',
+    '#mes_stop': '中止请求',
+    '#stscript_continue': '继续执行脚本',
+    '#stscript_pause': '暂停执行脚本',
+    '#stscript_stop': '中止执行脚本',
   };
 
   // 预设面板打包隐藏
@@ -502,6 +523,9 @@
 
   // 按分组策略取候选元素标签
   function labelOf(el, group) {
+    if (group.id === 'sendForm' && el.id && SEND_FORM_DEFAULT_LABELS['#' + el.id]) {
+      return SEND_FORM_DEFAULT_LABELS['#' + el.id];
+    }
     switch (group.label) {
       case 'text': {
         let t = '';
@@ -518,9 +542,17 @@
       }
       case 'attrTitle': {
         const withTitle = el.matches('[title]') ? el : el.querySelector('[title]');
-        if (withTitle) return normLabel(withTitle.getAttribute('title'));
-        const i18n = el.querySelector('[data-i18n]');
-        return normLabel(i18n ? i18n.textContent : '');
+        if (withTitle && withTitle.getAttribute('title')) return normLabel(withTitle.getAttribute('title'));
+        const i18n = el.matches('[data-i18n]') ? el : el.querySelector('[data-i18n]');
+        if (i18n) {
+          const attr = i18n.getAttribute('data-i18n') || '';
+          const m = attr.match(/\[title\]([^;]+)/);
+          if (m && m[1]) return normLabel(m[1]);
+          if (i18n.textContent) return normLabel(i18n.textContent);
+        }
+        let dt = '';
+        for (const n of el.childNodes) if (n.nodeType === 3) dt += n.textContent;
+        return normLabel(dt) || normLabel(el.textContent) || (el.id ? normLabel(el.id) : '');
       }
       case 'header':
       default:
@@ -990,18 +1022,23 @@
     });
   }
 
-  // 扩展面板单双栏。保留: 搬整个 .extension_container，原本是走歪路做自绘面板时的修复方案，现在不知道还有没有用，总之先留着
-  function applyColumns(records) {
-    const col0 = doc.querySelector('#extensions_settings');
-    const col1 = doc.querySelector('#extensions_settings2');
+  // 通用多栏搬运。支持 extensionsSettings 与 sendForm
+  function applyColumns(group, records) {
+    if (!group || !group.containers || group.containers.length < 2) return;
+    const col0 = doc.querySelector(group.containers[0]);
+    const col1 = doc.querySelector(group.containers[1]);
     if (!col0 || !col1) return;
-    const single = settings.columnMode === 'single';
 
-    // 元素优先遵循其所在子分组的位置
+    const isExt = group.id === 'extensionsSettings';
+    const single = isExt && settings.columnMode === 'single';
+
+    // 仅 extensionsSettings 遵循子分组分栏约束
     const keyToSgCol = {};
-    for (const sg of Subgroups.list('extensionsSettings')) {
-      const sgCol = sg.column !== undefined ? sg.column : 0;
-      for (const mk of sg.memberKeys) keyToSgCol[mk] = sgCol;
+    if (isExt) {
+      for (const sg of Subgroups.list('extensionsSettings')) {
+        const sgCol = sg.column !== undefined ? sg.column : 0;
+        for (const mk of sg.memberKeys) keyToSgCol[mk] = sgCol;
+      }
     }
 
     let moved = false;
@@ -1015,12 +1052,14 @@
         target = single ? 0 : (settings.column[r.key] !== undefined ? settings.column[r.key] : r.column);
       }
       const tc = target === 1 ? col1 : col0;
-      const unitsToMove = (r.units && r.units.length) ? r.units : (r.unit ? [r.unit] : []);
+      const unitsToMove = (r.units && r.units.length) ? r.units : (r.unit ? [r.unit] : (r.el ? [r.el] : []));
       for (const un of unitsToMove) {
         if (un && un.parentNode !== tc) { suppressObserver = true; tc.appendChild(un); moved = true; }
       }
     }
-    col1.style.display = single ? 'none' : ''; 
+    if (isExt) {
+      col1.style.display = single ? 'none' : ''; 
+    }
     if (moved) win.setTimeout(() => { suppressObserver = false; }, 0);
   }
 
@@ -1391,7 +1430,7 @@
 
   function applyGroup(group, records) {
     if (group.customApply) { applyMesButtons(records); return; }
-    if (group.supportsColumns) applyColumns(records); 
+    if (group.supportsColumns) applyColumns(group, records); 
     if (!group.curated) applyOrder(group, records);   
     applyHides(group, records);                       
     applyPseudoSubgroups(group, records);             
@@ -1870,7 +1909,7 @@
       html += '<span class="mc3-handle" title="拖动排序">⠿</span>';
     }
     html += '<span class="mc3-label">' + escHtml(r.label) + '</span>';
-    if (r.column !== undefined && group.id === 'extensionsSettings' && !inSubgroup) {
+    if (r.column !== undefined && (group.id === 'extensionsSettings' || group.id === 'sendForm') && !inSubgroup) {
       const colLabel = col === 1 ? '右' : '左';
       const colTitle = col === 1 ? '点击移至左栏' : '点击移至右栏';
       html += '<button class="mc3-toggle' + (col === 1 ? ' on' : '') + '" data-action="toggle-col" data-key="' + escHtml(r.key) + '" data-col="' + col + '" title="' + colTitle + '">' + colLabel + '</button>';
@@ -1994,6 +2033,39 @@
     return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols, headerExtra);
   }
 
+  // 渲染输入框区域专属双栏卡片
+  function renderSendFormCard(group, recs, map) {
+    const isCollapsed = !!settings.groupCollapsed[group.id];
+    const cardDur = calcCollapseDuration(recs.length);
+
+    const col0Recs = [];
+    const col1Recs = [];
+    for (const r of recs) {
+      const col = settings.column[r.key] !== undefined ? settings.column[r.key] : (r.column !== undefined ? r.column : 0);
+      if (col === 0) col0Recs.push(r); else col1Recs.push(r);
+    }
+    col0Recs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
+    col1Recs.sort((a, b) => (map[a.key] || 0) - (map[b.key] || 0));
+
+    const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
+    let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
+    // 栏0：左栏 (#leftSendForm)
+    cols += '<div class="mc3-mes-column" data-col="0">';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">左侧按钮 (#leftSendForm)</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
+    cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
+    cols += col0Recs.length === 0 ? emptyTip('拖动条目到此处 (左侧)') : col0Recs.map((r) => renderItemRow(r, group, false)).join('');
+    cols += '</div></div>';
+    // 栏1：右栏 (#rightSendForm)
+    cols += '<div class="mc3-mes-column" data-col="1">';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">右侧按钮 (#rightSendForm)</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
+    cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
+    cols += col1Recs.length === 0 ? emptyTip('拖动条目到此处 (右侧)') : col1Recs.map((r) => renderItemRow(r, group, false)).join('');
+    cols += '</div></div>';
+    cols += '</div>';
+
+    return renderCard(group.id, group.name, recs.length, isCollapsed, cardDur, cols);
+  }
+
   // 渲染消息操作专属双栏卡片
   function renderMesButtonsCard(group, recs, map) {
     const isCollapsed = !!settings.groupCollapsed[group.id];
@@ -2104,6 +2176,7 @@
 
       if (group.customApply) { html += renderMesButtonsCard(group, recs, map); continue; }
       if (group.id === 'extensionsSettings') { html += renderExtensionsSettingsCard(group, recs, map); continue; }
+      if (group.id === 'sendForm') { html += renderSendFormCard(group, recs, map); continue; }
 
       const supportsSg = supportsPseudoSubgroups(group);
       const sgList = supportsSg ? Subgroups.list(group.id) : [];
@@ -2501,10 +2574,10 @@
     const allSubgroups = list.querySelectorAll('.mc3-subgroup');
 
     const move = (ev) => {
-      if (gid === 'mesButtons') {
+      if (gid === 'mesButtons' || gid === 'sendForm') {
         const elAtPoint = doc.elementFromPoint(ev.clientX, ev.clientY);
-        const mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="mesButtons"]') : null;
-        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="mesButtons"]')) ml.classList.remove('mc3-drop-target');
+        const mesList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="' + gid + '"]') : null;
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="' + gid + '"]')) ml.classList.remove('mc3-drop-target');
         if (mesList) {
           mesList.classList.add('mc3-drop-target');
           if (dragEl.parentNode !== mesList) mesList.appendChild(dragEl);
@@ -2571,17 +2644,17 @@
       const lastX = (ev && ev.clientX !== undefined) ? ev.clientX : (dragMeta._lastX || 0);
       const lastY = (ev && ev.clientY !== undefined) ? ev.clientY : (dragMeta._lastY || 0);
 
-      if (gid === 'mesButtons') {
-        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="mesButtons"]')) ml.classList.remove('mc3-drop-target');
+      if (gid === 'mesButtons' || gid === 'sendForm') {
+        for (const ml of doc.querySelectorAll('.mc3-mes-list[data-gid="' + gid + '"]')) ml.classList.remove('mc3-drop-target');
         let finalColList = dragEl.closest('.mc3-mes-list');
         if (!finalColList) {
           const elAtPoint = doc.elementFromPoint(lastX, lastY);
-          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="mesButtons"]') : null;
+          finalColList = elAtPoint ? elAtPoint.closest('.mc3-mes-list[data-gid="' + gid + '"]') : null;
         }
         if (finalColList) settings.column[dragMeta.key] = Number(finalColList.getAttribute('data-col'));
 
         const orderedKeys = [];
-        for (const colSel of ['.mc3-mes-list[data-gid="mesButtons"][data-col="0"]', '.mc3-mes-list[data-gid="mesButtons"][data-col="1"]']) {
+        for (const colSel of ['.mc3-mes-list[data-gid="' + gid + '"][data-col="0"]', '.mc3-mes-list[data-gid="' + gid + '"][data-col="1"]']) {
           const colList = doc.querySelector(colSel);
           if (!colList) continue;
           for (const row of colList.querySelectorAll('.mc3-row[data-key]')) {
@@ -2589,7 +2662,7 @@
             if (k && orderedKeys.indexOf(k) === -1) orderedKeys.push(k);
           }
         }
-        commitReorder('mesButtons', orderedKeys);
+        commitReorder(gid, orderedKeys);
         saveSettings(); applyAll(); renderPopup();
         dragMeta = null;
         return;

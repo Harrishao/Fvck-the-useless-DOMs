@@ -19,6 +19,11 @@ tests
 !dist/menu-cleaner.js
 !dist/酒馆助手脚本-菜单精简器.json
 
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
 # 参考材料
 reference
 
