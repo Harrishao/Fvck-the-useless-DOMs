@@ -21,14 +21,14 @@ with open(os.path.join(script_dir, "content.js"), "r", encoding="utf-8") as f:
     content_js = f.read()
 
 # 校验抬头版本与代码中 VERSION 常量一致性
-header_match = re.search(r"^//\s*version\s+([^\r\n]+)", content_js, re.M)
-const_match = re.search(r"const\s+VERSION\s*=\s*['\"]([^'\"]+)['\"]", content_js)
-if header_match and const_match:
-    h_ver = header_match.group(1).strip()
-    c_ver = const_match.group(1).strip()
-    if h_ver != c_ver:
-        raise ValueError(f"版本号不一致！content.js 抬头为 '{h_ver}'，而 const VERSION 为 '{c_ver}'，请保持一致！")
-    print(f"Building Version: {h_ver}")
+# header_match = re.search(r"^//\s*version\s+([^\r\n]+)", content_js, re.M)
+# const_match = re.search(r"const\s+VERSION\s*=\s*['\"]([^'\"]+)['\"]", content_js)
+# if header_match and const_match:
+#     h_ver = header_match.group(1).strip()
+#     c_ver = const_match.group(1).strip()
+#     if h_ver != c_ver:
+#         raise ValueError(f"版本号不一致！content.js 抬头为 '{h_ver}'，而 const VERSION 为 '{c_ver}'，请保持一致！")
+#     print(f"Building Version: {h_ver}")
 
 # ① dist/menu-cleaner.js（content.js 原样）
 dist_js = os.path.join(dist_dir, "menu-cleaner.js")

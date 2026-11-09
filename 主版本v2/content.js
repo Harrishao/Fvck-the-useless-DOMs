@@ -1,9 +1,9 @@
-// version 1031.0.0
+// version 1109.0.2
 
 (function () {
   'use strict';
 
-  const VERSION = '1031.0.0';
+  const VERSION = '1109.0.2';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -274,6 +274,7 @@
     nativeOrder: {},     // { groupId: { key: slot } }      — 首次扫描捕获的原生顺序（供「恢复原始」）
     columnMode: 'dual',  // 'single' | 'dual'
     subgroups: {},       // { groupId: [{ id, name, memberKeys[], collapsed?, column?, popupPosition? }] }
+    excludedSelectors: [], // [{ id, selector, label }] — 始终排除，优先于所有管理行为
     customSelectors: [], // [{ id, selector, label }]       — 用户自定义 Selector
     groupCollapsed: {},  // { groupId: boolean }            — 管理面板父分组折叠；缺省一律收起
     userDrawerCollapsed: {}, // { 'userSettings|标签': boolean } — 用户设置伪抽屉；缺省全收起
@@ -305,6 +306,7 @@
           ? JSON.parse(JSON.stringify(d[k])) : d[k];
       }
       if (!Array.isArray(s.customSelectors)) s.customSelectors = [];
+      if (!Array.isArray(s.excludedSelectors)) s.excludedSelectors = [];
       if (typeof s.customFontColorEnabled !== 'boolean') s.customFontColorEnabled = false;
       if (s.customFontColor && typeof s.customFontColor === 'object') {
         s.customFontColor = {
@@ -319,6 +321,7 @@
         if (s.groupCollapsed[g.id] === undefined) s.groupCollapsed[g.id] = true;
       }
       if (s.groupCollapsed['customSelectors'] === undefined) s.groupCollapsed['customSelectors'] = true;
+      if (s.groupCollapsed['excludedSelectors'] === undefined) s.groupCollapsed['excludedSelectors'] = true;
       for (const def of getUserSettingsGroups()) {
         const key = getUserDrawerKey(def);
         if (s.userDrawerCollapsed[key] === undefined) s.userDrawerCollapsed[key] = true;
@@ -333,13 +336,13 @@
       const ctx = Store.getCtx();
       const ext = ctx && ctx.extensionSettings ? ctx.extensionSettings[EXT_KEY] : null;
       if (ext && typeof ext === 'object') {
-        settings = Object.assign({}, defaultSettings, ext);
+        settings = Object.assign(Store.freshDefaults(), ext);
       } else {
         // 这部分用来从浏览器缓存中迁移数据至配置文件，但由于插件持久化存储已经推送很久，所以可以考虑移除
         try {
           const raw = win.localStorage.getItem(STORAGE_KEY);
           if (raw) {
-            settings = Object.assign({}, defaultSettings, JSON.parse(raw));
+            settings = Object.assign(Store.freshDefaults(), JSON.parse(raw));
             if (ctx && ctx.extensionSettings && ctx.saveSettingsDebounced) {
               ctx.extensionSettings[EXT_KEY] = settings;
               ctx.saveSettingsDebounced();
@@ -347,11 +350,11 @@
               console.log('[菜单精简器] 已从 localStorage 迁移至 extension_settings');
             }
           } else {
-            settings = Object.assign({}, defaultSettings);
+            settings = Store.freshDefaults();
           }
         } catch (e) {
           console.warn('[菜单精简器] 读取设置失败，用默认值', e);
-          settings = Object.assign({}, defaultSettings);
+          settings = Store.freshDefaults();
         }
       }
       Store.normalize(settings);
@@ -456,7 +459,7 @@
       if (target && isValidCssSelector(target.selector)) {
         try {
           for (const el of doc.querySelectorAll(target.selector)) {
-            if (!isSelf(el)) el.classList.remove('mc3-hidden');
+            if (!isSelf(el) && !isProtected(el)) ManagedDom.toggle(el, 'mc3-hidden', false);
           }
         } catch (_) {}
       }
@@ -464,6 +467,161 @@
       if (settings.hidden && settings.hidden[id]) delete settings.hidden[id];
       saveSettings();
       applyAll();
+    },
+  };
+
+  // 始终排除元素
+  const ExcludedSelectors = {
+    cachedInput: null,
+    cachedSelector: '',
+
+    selector() {
+      const input = (settings.excludedSelectors || []).map((item) => item && item.selector).filter((sel) => typeof sel === 'string').join('\n');
+      if (input !== ExcludedSelectors.cachedInput) {
+        ExcludedSelectors.cachedInput = input;
+        ExcludedSelectors.cachedSelector = (settings.excludedSelectors || [])
+          .filter((item) => item && isValidCssSelector(item.selector)).map((item) => item.selector).join(',');
+      }
+      return ExcludedSelectors.cachedSelector;
+    },
+
+    add(selector, label) {
+      const sel = typeof selector === 'string' ? selector.trim() : '';
+      if (!sel) return { success: false, error: '选择器不能为空喵！' };
+      if (!isValidCssSelector(sel)) return { success: false, error: '选择器格式不合法喵，请输入有效的 CSS Selector！' };
+      if (settings.excludedSelectors.some((item) => item.selector === sel)) return { success: false, error: '该选择器已经存在了喵！' };
+      const item = { id: 'ex_' + Math.random().toString(36).slice(2, 10), selector: sel, label: (label || '').trim() || sel };
+      settings.excludedSelectors.push(item);
+      saveSettings();
+      applyAll();
+      return { success: true, item };
+    },
+
+    remove(id) {
+      settings.excludedSelectors = settings.excludedSelectors.filter((item) => item.id !== id);
+      saveSettings();
+      applyAll();
+    },
+
+    cssGuard() {
+      const sel = ExcludedSelectors.selector();
+      return sel ? ':not(:where(' + sel + ')):not(:where(' + sel + ') *)' : '';
+    },
+  };
+
+  function isExcluded(el) {
+    const selector = ExcludedSelectors.selector();
+    return !!(el && selector && el.closest && el.closest(selector));
+  }
+
+  function isProtected(el) {
+    const selector = ExcludedSelectors.selector();
+    return !!(el && selector && (isExcluded(el) || (el.querySelector && el.querySelector(selector))));
+  }
+
+  const ManagedDom = {
+    elements: new Map(),
+
+    state(el) {
+      if (!ManagedDom.elements.has(el)) ManagedDom.elements.set(el, { styles: {}, classes: {}, attrs: {}, position: null });
+      return ManagedDom.elements.get(el);
+    },
+
+    style(el, property, value) {
+      if (!el || isProtected(el)) return;
+      const current = { value: el.style.getPropertyValue(property), priority: el.style.getPropertyPriority(property) };
+      if (current.value === value && !current.priority) return;
+      const styles = ManagedDom.state(el).styles;
+      let record = styles[property];
+      if (!record || current.value !== record.last.value || current.priority !== record.last.priority) {
+        record = styles[property] = { before: current, last: current };
+      }
+      el.style.setProperty(property, value);
+      record.last = { value: el.style.getPropertyValue(property), priority: el.style.getPropertyPriority(property) };
+    },
+
+    toggle(el, className, on) {
+      if (!el || isProtected(el)) return;
+      const before = el.classList.contains(className);
+      if (before === !!on) return;
+      const classes = ManagedDom.state(el).classes;
+      if (!(className in classes)) classes[className] = before;
+      el.classList.toggle(className, !!on);
+    },
+
+    attr(el, name, value) {
+      if (!el || isProtected(el) || el.getAttribute(name) === value) return;
+      const attrs = ManagedDom.state(el).attrs;
+      if (!attrs[name]) attrs[name] = { before: el.getAttribute(name), last: value };
+      attrs[name].last = value;
+      if (value === null) el.removeAttribute(name); else el.setAttribute(name, value);
+    },
+
+    move(el, parent, before) {
+      if (!el || !parent || isProtected(el) || isExcluded(parent) || isExcluded(el.parentElement)) return false;
+      if (el.parentNode === parent && (before === undefined || el.nextSibling === before)) return false;
+      const state = ManagedDom.state(el);
+      if (!state.position) state.position = { parent: el.parentNode, next: el.nextSibling, previous: el.previousSibling, index: Array.prototype.indexOf.call(el.parentNode.childNodes, el), lastParent: parent };
+      state.position.lastParent = parent;
+      suppressObserver = true;
+      parent.insertBefore(el, before || null);
+      win.setTimeout(() => { suppressObserver = false; }, 0);
+      return true;
+    },
+
+    restoreClass(el, className) {
+      const state = ManagedDom.elements.get(el);
+      if (!state || !(className in state.classes)) return;
+      el.classList.toggle(className, state.classes[className]);
+      delete state.classes[className];
+    },
+
+    restoreAttr(el, name) {
+      const state = ManagedDom.elements.get(el);
+      const record = state && state.attrs[name];
+      if (!record) return;
+      if (el.getAttribute(name) === record.last) {
+        if (record.before === null) el.removeAttribute(name); else el.setAttribute(name, record.before);
+      }
+      delete state.attrs[name];
+    },
+
+    restore(el) {
+      const state = ManagedDom.elements.get(el);
+      if (!state) return;
+      for (const property in state.styles) {
+        const record = state.styles[property];
+        if (el.style.getPropertyValue(property) === record.last.value && el.style.getPropertyPriority(property) === record.last.priority) {
+          el.style.setProperty(property, record.before.value, record.before.priority);
+        }
+      }
+      for (const className in state.classes) el.classList.toggle(className, state.classes[className]);
+      for (const name in state.attrs) {
+        const record = state.attrs[name];
+        if (el.getAttribute(name) !== record.last) continue;
+        if (record.before === null) el.removeAttribute(name); else el.setAttribute(name, record.before);
+      }
+      const pos = state.position;
+      if (pos && pos.parent && pos.parent.isConnected && el.parentNode === pos.lastParent) {
+        const next = pos.next && pos.next.parentNode === pos.parent ? pos.next
+          : (pos.previous && pos.previous.parentNode === pos.parent ? pos.previous.nextSibling : pos.parent.childNodes[pos.index] || null);
+        if (el.parentNode !== pos.parent || el.nextSibling !== next) {
+          suppressObserver = true;
+          pos.parent.insertBefore(el, next === el ? el.nextSibling : next);
+          win.setTimeout(() => { suppressObserver = false; }, 0);
+        }
+      }
+      ManagedDom.elements.delete(el);
+    },
+
+    releaseExcluded() {
+      for (const el of Array.from(ManagedDom.elements.keys()).reverse()) {
+        if (!el.isConnected) { ManagedDom.elements.delete(el); continue; }
+        if (isProtected(el)) ManagedDom.restore(el);
+      }
+      for (const el of doc.querySelectorAll('.mc3-native-subgroup-header,.mc3-subgroup-sep,#mc3-qr-toggle-btn,#mc3-launcher-wand,#mc3-launcher-panel')) {
+        if (isExcluded(el) || (!el.id.startsWith('mc3-launcher') && isProtected(el.parentElement))) el.remove();
+      }
     },
   };
 
@@ -563,7 +721,11 @@
 
   function isValidCssSelector(selector) {
     if (!selector || typeof selector !== 'string') return false;
-    try { doc.querySelector(selector); return true; }
+    try {
+      doc.querySelector(selector);
+      doc.querySelector(':not(' + selector + ')');
+      return true;
+    }
     catch (e) { return false; }
   }
 
@@ -634,6 +796,7 @@
 
   function collectCandidates(group, container) {
     const out = [];
+    if (isExcluded(container)) return out;
     const children = container.children;
 
     if (group.mode === 'children') {
@@ -728,6 +891,7 @@
         }
 
         const unit = cand.fallbackUnit || unitOf(el, container);
+        if (isProtected(el) || isProtected(unit)) continue;
 
         let key = cand.key;
         if (!key) {
@@ -773,7 +937,7 @@
       const els = [];
       for (const sel of pg.selectors) {
         for (const found of doc.querySelectorAll(sel)) {
-          if (els.indexOf(found) === -1 && !isSelf(found)) els.push(found);
+          if (els.indexOf(found) === -1 && !isSelf(found) && !isProtected(found)) els.push(found);
         }
       }
       if (!els.length) continue;
@@ -846,6 +1010,7 @@
 
       for (const item of allButtons) {
         const btnEl = item.el;
+        if (isProtected(btnEl)) continue;
         const sel = getMesButtonSelector(btnEl);
         if (!sel) continue;
         const key = 'mesButtons|' + sel;
@@ -887,13 +1052,13 @@
       for (let e = 0; e < r.els.length; e++) {
         const el = r.els[e];
         const unit = (r.units && r.units[e]) ? r.units[e] : (r.unit || el);
-        fn(el, unit, r);
+        if (!isProtected(el) && !isProtected(unit)) fn(el, unit, r);
       }
     }
   }
 
   function injectStyle() {
-    if (doc.getElementById('mc3-style')) return;
+    let st = doc.getElementById('mc3-style');
     const rules = [
       '.mc3-hidden{display:none !important;}',
       'button.mc3-native-subgroup-header{width:100%;display:flex;align-items:center;gap:6px;padding:6px 10px;margin:2px 0;background:var(--black20a,rgba(255,255,255,.02));color:inherit;border:0;border-top:1px solid var(--SmartThemeBorderColor,#555);font:inherit;font-weight:600;text-align:left;cursor:pointer;user-select:none;}',
@@ -920,13 +1085,19 @@
     // 给非 flex 容器强制加上 flex-direction:column属性，使 CSS order 生效
     for (const g of GROUPS) {
       if (!g.forceFlex) continue;
-      for (const c of g.containers) rules.push(c + '{display:flex;flex-direction:column;}');
+      for (const c of g.containers) {
+        if (!isProtected(doc.querySelector(c))) rules.push(c + ExcludedSelectors.cssGuard() + '{display:flex;flex-direction:column;}');
+      }
     }
-    rules.push('#extensionsMenu > .extension_container{display:contents !important;}');
-    const st = doc.createElement('style');
-    st.id = 'mc3-style';
-    st.textContent = rules.join('\n');
-    (doc.head || doc.documentElement).appendChild(st);
+    if (!isProtected(doc.querySelector('#extensionsMenu'))) {
+      rules.push('#extensionsMenu > .extension_container' + ExcludedSelectors.cssGuard() + '{display:contents !important;}');
+    }
+    if (!st) {
+      st = doc.createElement('style'); st.id = 'mc3-style';
+      (doc.head || doc.documentElement).appendChild(st);
+    }
+    const css = rules.join('\n');
+    if (st.textContent !== css) st.textContent = css;
   }
 
   // 这是对mesbutton区域会被重复注入元素的防御
@@ -940,6 +1111,7 @@
     for (const rec of (records || [])) {
       const targetCol = settings.column[rec.key] !== undefined ? settings.column[rec.key] : rec.nativeColumn;
       if (targetCol !== 1 || !rec.selector || seen.has(rec.selector)) continue;
+      if (Array.from(doc.querySelectorAll(rec.selector)).some(isProtected)) continue;
       seen.add(rec.selector);
       selectors.push('.extraMesButtons ' + rec.selector);
     }
@@ -949,6 +1121,7 @@
       if (key.indexOf(prefix) !== 0) return;
       const sel = key.slice(prefix.length);
       if (!sel || seen.has(sel) || !isValidCssSelector(sel)) return;
+      if (Array.from(doc.querySelectorAll(sel)).some(isProtected)) return;
       const curCol = settings.column[key] !== undefined ? settings.column[key] : settings.nativeColumn[key];
       if (curCol === 1) {
         seen.add(sel);
@@ -964,7 +1137,7 @@
       for (const key in settings.column) checkKey(key);
     }
     
-    const css = selectors.length ? selectors.join(',\n') + '{display:none !important;}' : '';
+    const css = selectors.length ? selectors.map((sel) => sel + ExcludedSelectors.cssGuard()).join(',\n') + '{display:none !important;}' : '';
     if (!style) {
       style = doc.createElement('style');
       style.id = 'mc3-mes-suppress';
@@ -996,9 +1169,9 @@
       if (slot === undefined) return;
       const displaySlot = hasPseudoHeaders ? slot * 2 + 1 : slot;
       if (unit && (!unitSlot.has(unit) || displaySlot < unitSlot.get(unit))) unitSlot.set(unit, displaySlot);
-      if (el && el !== unit) el.style.order = String(displaySlot);
+      if (el && el !== unit) ManagedDom.style(el, 'order', String(displaySlot));
     });
-    unitSlot.forEach((slot, unit) => { if (unit) unit.style.order = String(slot); });
+    unitSlot.forEach((slot, unit) => { if (unit) ManagedDom.style(unit, 'order', String(slot)); });
   }
 
   function isRecordEffectivelyHidden(group, record) {
@@ -1011,7 +1184,7 @@
   function applyHides(group, records) {
     const byUnit = new Map();
     forEachElUnit(records, (el, unit, r) => {
-      el.classList.toggle('mc3-hidden', isRecordEffectivelyHidden(group, r));
+      ManagedDom.toggle(el, 'mc3-hidden', isRecordEffectivelyHidden(group, r));
       if (unit) {
         if (!byUnit.has(unit)) byUnit.set(unit, []);
         byUnit.get(unit).push(r);
@@ -1019,7 +1192,7 @@
     });
     byUnit.forEach((recs, unit) => {
       const allHidden = recs.every((r) => isRecordEffectivelyHidden(group, r));
-      unit.classList.toggle('mc3-hidden', allHidden);
+      ManagedDom.toggle(unit, 'mc3-hidden', allHidden);
     });
   }
 
@@ -1044,7 +1217,7 @@
 
     let moved = false;
     for (const r of records) {
-      if (r.column === undefined) continue;
+      if (r.column === undefined || isProtected(r.el) || isProtected(r.unit)) continue;
       if (settings.nativeColumn[r.key] === undefined) settings.nativeColumn[r.key] = r.column; 
       let target;
       if (keyToSgCol[r.key] !== undefined) {
@@ -1055,11 +1228,11 @@
       const tc = target === 1 ? col1 : col0;
       const unitsToMove = (r.units && r.units.length) ? r.units : (r.unit ? [r.unit] : (r.el ? [r.el] : []));
       for (const un of unitsToMove) {
-        if (un && un.parentNode !== tc) { suppressObserver = true; tc.appendChild(un); moved = true; }
+        if (un && un.parentNode !== tc) moved = ManagedDom.move(un, tc) || moved;
       }
     }
     if (isExt) {
-      col1.style.display = single ? 'none' : ''; 
+      ManagedDom.style(col1, 'display', single ? 'none' : '');
     }
     if (moved) win.setTimeout(() => { suppressObserver = false; }, 0);
   }
@@ -1091,7 +1264,7 @@
   function applyPseudoSubgroups(group, records) {
     if (!supportsPseudoSubgroups(group)) return;
     const defaultContainer = doc.querySelector(group.containers[0]);
-    if (!defaultContainer) return;
+    if (!defaultContainer || isProtected(defaultContainer)) return;
     // 清理原生分隔线
     for (const containerSel of group.containers) {
       const c = doc.querySelector(containerSel);
@@ -1112,7 +1285,7 @@
       if (group.id === 'extensionsSettings') {
         const targetColumn = settings.columnMode === 'single' ? 0 : (sg.column === 1 ? 1 : 0);
         targetContainer = doc.querySelector(group.containers[targetColumn]);
-        if (!targetContainer) continue;
+        if (!targetContainer || isProtected(targetContainer)) continue;
       }
 
       const headerId = 'mc3-native-subgroup-' + group.id + '-' + sg.id;
@@ -1161,19 +1334,19 @@
 
   function applyCustomCssPosition() {
     const cssBlock = doc.querySelector('#CustomCSS-block');
-    if (!cssBlock) return;
+    if (!cssBlock || isProtected(cssBlock)) return;
     if (settings.enabled && settings.isolateCustomCss) {
       const charBlock = doc.querySelector('div[name="CharacterHandlingToggles"]');
       if (charBlock && charBlock.parentNode && cssBlock.nextElementSibling !== charBlock) {
         suppressObserver = true;
-        charBlock.parentNode.insertBefore(cssBlock, charBlock);
+        ManagedDom.move(cssBlock, charBlock.parentNode, charBlock);
         win.setTimeout(() => { suppressObserver = false; }, 0);
       }
     } else {
       const miscBlock = doc.querySelector('div[name="MiscellaneousToggles"]');
       if (miscBlock && miscBlock.parentNode && cssBlock.previousElementSibling !== miscBlock) {
         suppressObserver = true;
-        miscBlock.parentNode.insertBefore(cssBlock, miscBlock.nextSibling);
+        ManagedDom.move(cssBlock, miscBlock.parentNode, miscBlock.nextSibling);
         win.setTimeout(() => { suppressObserver = false; }, 0);
       }
     }
@@ -1191,11 +1364,13 @@
       if (settings.userDrawerCollapsed[key] === undefined) settings.userDrawerCollapsed[key] = true;
       const collapsed = !!settings.userDrawerCollapsed[key];
       const header = doc.querySelector(definition.drawerHeader);
+      const blocked = isProtected(header) || definition.drawerTargets.some((sel) => Array.from(doc.querySelectorAll(sel)).some(isProtected));
+      if (blocked) { clearUserDrawerDefinition(definition); continue; }
 
       if (header) {
-        if (!header.classList.contains('mc3-user-drawer-header')) header.classList.add('mc3-user-drawer-header');
+        ManagedDom.toggle(header, 'mc3-user-drawer-header', true);
         const expanded = collapsed ? 'false' : 'true';
-        if (header.getAttribute('aria-expanded') !== expanded) header.setAttribute('aria-expanded', expanded);
+        ManagedDom.attr(header, 'aria-expanded', expanded);
         const arrowText = collapsed ? '▶' : '▼';
         const arrowLabel = (collapsed ? '展开' : '收起') + definition.label;
         let arrow = header.querySelector(':scope > .mc3-user-drawer-arrow');
@@ -1226,27 +1401,29 @@
       }
 
       for (const targetSel of definition.drawerTargets) {
-        for (const el of doc.querySelectorAll(targetSel)) el.classList.toggle('mc3-user-drawer-collapsed', collapsed);
+        for (const el of doc.querySelectorAll(targetSel)) ManagedDom.toggle(el, 'mc3-user-drawer-collapsed', collapsed);
       }
+    }
+  }
+
+  function clearUserDrawerDefinition(definition) {
+    const header = doc.querySelector(definition.drawerHeader);
+    if (header) {
+      if (header.__mc3UserDrawerHandler) header.removeEventListener('click', header.__mc3UserDrawerHandler);
+      delete header.__mc3UserDrawerHandler;
+      delete header.__mc3UserDrawerKey;
+      for (const arrow of header.querySelectorAll(':scope > .mc3-user-drawer-arrow')) arrow.remove();
+      ManagedDom.restoreClass(header, 'mc3-user-drawer-header');
+      ManagedDom.restoreAttr(header, 'aria-expanded');
+    }
+    for (const sel of definition.drawerTargets) {
+      for (const el of doc.querySelectorAll(sel)) ManagedDom.restoreClass(el, 'mc3-user-drawer-collapsed');
     }
   }
 
   function clearUserSettingsDrawers() {
     applyCustomCssPosition();
-    for (const definition of getUserSettingsGroups()) {
-      const header = doc.querySelector(definition.drawerHeader);
-      if (header) {
-        if (header.__mc3UserDrawerHandler) header.removeEventListener('click', header.__mc3UserDrawerHandler);
-        delete header.__mc3UserDrawerHandler;
-        delete header.__mc3UserDrawerKey;
-        header.classList.remove('mc3-user-drawer-header');
-        header.removeAttribute('aria-expanded');
-        for (const a of header.querySelectorAll(':scope > .mc3-user-drawer-arrow')) a.remove();
-      }
-      for (const targetSel of definition.drawerTargets) {
-        for (const el of doc.querySelectorAll(targetSel)) el.classList.remove('mc3-user-drawer-collapsed');
-      }
-    }
+    for (const definition of getUserSettingsGroups()) clearUserDrawerDefinition(definition);
   }
 
   // function collectMesMatches(container, rec, hint, extra) {
@@ -1257,12 +1434,13 @@
   //   return matched;
   // }
 
-  // 下方部分和上面注释掉的内容不同的点在于，限制精简器本身只操作mes_button和深一层的extraMesButtons的内容，避免误杀由其他插件引入，且点了会有弹窗的元素
+  // 下方部分和上面注释掉的内容不同的点在于，下面的限制精简器本身只操作mes_button和深一层的extraMesButtons的内容，避免误杀由其他插件引入，且点了会有弹窗的元素
   // 如果效果不对再换回上面的
+
   function collectMesMatches(container, rec, hint, extra) {
   const matched = [];
   for (const fb of container.querySelectorAll(rec.selector)) {
-    if (fb === hint || fb === extra || isSelf(fb)) continue;
+    if (fb === hint || fb === extra || isSelf(fb) || isProtected(fb)) continue;
     if (fb.parentNode !== container && fb.parentNode !== extra) continue;
     matched.push(fb);
   }
@@ -1278,7 +1456,7 @@
     let moved = false;
 
     for (const container of containers) {
-      if (seenContainers.has(container) || isSelf(container)) continue;
+      if (seenContainers.has(container) || isSelf(container) || isExcluded(container)) continue;
       seenContainers.add(container);
 
       const hint = container.querySelector('.extraMesButtonsHint');
@@ -1286,20 +1464,20 @@
       if (!restore && (!hint || !extra)) continue;
 
       if (restore) {
-        if (hint) { hint.style.order = ''; hint.classList.remove('mc3-hidden'); }
-        if (extra) extra.style.order = '';
+        if (hint) { ManagedDom.style(hint, 'order', ''); ManagedDom.toggle(hint, 'mc3-hidden', false); }
+        if (extra) ManagedDom.style(extra, 'order', '');
       } else {
-        hint.style.order = '-2';
-        extra.style.order = '-1';
+        ManagedDom.style(hint, 'order', '-2');
+        ManagedDom.style(extra, 'order', '-1');
         if (hint.parentNode === container && container.firstChild !== hint) {
-          suppressObserver = true; container.insertBefore(hint, container.firstChild); moved = true;
+          moved = ManagedDom.move(hint, container, container.firstChild) || moved;
         }
         if (extra.parentNode === container && hint.nextSibling !== extra) {
-          suppressObserver = true; container.insertBefore(extra, hint.nextSibling); moved = true;
+          moved = ManagedDom.move(extra, container, hint.nextSibling) || moved;
         }
       }
 
-      let visibleExtraChildrenCount = 0;
+      let visibleExtraChildrenCount = extra ? Array.from(extra.children).filter((el) => isProtected(el) && isOwnVisible(el)).length : 0;
 
       for (const rec of records) {
         const matchedBtns = collectMesMatches(container, rec, hint, extra);
@@ -1313,18 +1491,18 @@
 
         if (targetCol === 0) {
           let mainBtn = (extra && matchedBtns.find((b) => b.parentNode === extra)) || matchedBtns[0];
-          if (extra && mainBtn.parentNode !== extra) { suppressObserver = true; extra.appendChild(mainBtn); moved = true; }
-          mainBtn.classList.toggle('mc3-hidden', isHidden);
-          mainBtn.style.order = restore ? '' : (slot !== undefined ? String(slot) : '');
+          if (extra && mainBtn.parentNode !== extra) { moved = ManagedDom.move(mainBtn, extra) || moved; }
+          ManagedDom.toggle(mainBtn, 'mc3-hidden', isHidden);
+          ManagedDom.style(mainBtn, 'order', restore ? '' : (slot !== undefined ? String(slot) : ''));
           if (!isHidden && mainBtn.style.display !== 'none') visibleExtraChildrenCount++;
           for (const b of matchedBtns) {
             if (b !== mainBtn) { suppressObserver = true; b.remove(); moved = true; }
           }
         } else {
           let mainBtn = matchedBtns.find((b) => b.parentNode === container) || matchedBtns[0];
-          if (mainBtn.parentNode !== container) { suppressObserver = true; container.appendChild(mainBtn); moved = true; }
-          mainBtn.classList.remove('mc3-hidden');
-          mainBtn.style.order = restore ? '' : (slot !== undefined ? String(slot) : '');
+          if (mainBtn.parentNode !== container) { moved = ManagedDom.move(mainBtn, container) || moved; }
+          ManagedDom.toggle(mainBtn, 'mc3-hidden', false);
+          ManagedDom.style(mainBtn, 'order', restore ? '' : (slot !== undefined ? String(slot) : ''));
           for (const b of matchedBtns) {
             if (b === mainBtn) continue;
             if (b.parentNode === extra) {
@@ -1337,7 +1515,7 @@
       }
 
       if (!restore && !extra.classList.contains('visible')) {
-        hint.classList.toggle('mc3-hidden', visibleExtraChildrenCount === 0);
+        ManagedDom.toggle(hint, 'mc3-hidden', visibleExtraChildrenCount === 0);
       }
     }
 
@@ -1352,14 +1530,14 @@
   // 默认隐藏的垃圾
   function applyAlwaysHidden(on) {
     for (const sel of ALWAYS_HIDDEN) {
-      for (const el of doc.querySelectorAll(sel)) el.classList.toggle('mc3-hidden', on);
+      for (const el of doc.querySelectorAll(sel)) ManagedDom.toggle(el, 'mc3-hidden', on);
     }
   }
 
   // 移除左下菜单/魔棒的原生分隔线
   function applySeparatorHides(on) {
     for (const sel of SEPARATOR_SELECTORS) {
-      for (const hr of doc.querySelectorAll(sel)) hr.classList.toggle('mc3-hidden', on);
+      for (const hr of doc.querySelectorAll(sel)) ManagedDom.toggle(hr, 'mc3-hidden', on);
     }
   }
 
@@ -1370,8 +1548,8 @@
       try {
         const hidden = on && !!settings.hidden[item.id];
         for (const el of doc.querySelectorAll(item.selector)) {
-          if (isSelf(el) || el.closest('#mc3-overlay') || el.closest('#mc3-popup')) continue;
-          el.classList.toggle('mc3-hidden', hidden);
+          if (isSelf(el) || isProtected(el) || el.closest('#mc3-overlay') || el.closest('#mc3-popup')) continue;
+          ManagedDom.toggle(el, 'mc3-hidden', hidden);
         }
       } catch (_) {}
     }
@@ -1384,12 +1562,12 @@
 
     let toggleBtn = doc.getElementById('mc3-qr-toggle-btn');
     const clearFold = () => {
-      if (toggleBtn) toggleBtn.style.display = 'none';
-      bar.classList.remove('mc3-qr-bar-collapsed');
-      for (const ch of bar.children) ch.classList.remove('mc3-qr-content-collapsed');
+      if (toggleBtn) toggleBtn.remove();
+      ManagedDom.restoreClass(bar, 'mc3-qr-bar-collapsed');
+      for (const ch of bar.children) ManagedDom.restoreClass(ch, 'mc3-qr-content-collapsed');
     };
 
-    if (!settings.enabled || settings.enableQrFold === false) { clearFold(); return; }
+    if (!settings.enabled || settings.enableQrFold === false || isProtected(bar)) { clearFold(); return; }
 
     const contents = [];
     for (const ch of bar.children) {
@@ -1417,7 +1595,7 @@
 
     toggleBtn.style.display = 'inline-flex';
     const isCollapsed = !!settings.qrPanelCollapsed;
-    bar.classList.toggle('mc3-qr-bar-collapsed', isCollapsed);
+    ManagedDom.toggle(bar, 'mc3-qr-bar-collapsed', isCollapsed);
     const arrowHtml = '<span class="mc3-qr-arrow">' + (isCollapsed ? '▲' : '▼') + '</span>';
     if (toggleBtn.innerHTML !== arrowHtml) toggleBtn.innerHTML = arrowHtml;
     const titleText = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
@@ -1425,7 +1603,7 @@
 
     for (const child of bar.children) {
       if (child.id === 'mc3-qr-toggle-btn' || child.id === 'qr--popoutTrigger') continue;
-      child.classList.toggle('mc3-qr-content-collapsed', isCollapsed);
+      ManagedDom.toggle(child, 'mc3-qr-content-collapsed', isCollapsed);
     }
   }
 
@@ -1442,19 +1620,21 @@
     if (group.customApply) { clearMesButtons(records); return; }
     const seen = new Set();
     forEachElUnit(records, (el, unit) => {
-      el.classList.remove('mc3-hidden');
-      el.style.order = '';
+      ManagedDom.toggle(el, 'mc3-hidden', false);
+      ManagedDom.style(el, 'order', '');
       if (unit && !seen.has(unit)) {
         seen.add(unit);
-        unit.style.order = '';
-        unit.classList.remove('mc3-hidden');
-        if (unit.style.display === 'contents') unit.style.display = '';
+        ManagedDom.style(unit, 'order', '');
+        ManagedDom.toggle(unit, 'mc3-hidden', false);
+        if (unit.style.display === 'contents') ManagedDom.style(unit, 'display', '');
       }
     });
     if (group.hasUserDrawers) clearUserSettingsDrawers();
   }
 
   function applyAll() {
+    syncExclusionObserver();
+    ManagedDom.releaseExcluded();
     ensureContainersObserved();
     injectStyle();
     setupLaunchers(); 
@@ -1472,6 +1652,55 @@
   }
 
   // ─── §7  OBSERVER ────────────────────────────────────────────────────────────
+
+  let exclusionObs = null;
+
+  function syncExclusionObserver() {
+    if (!ExcludedSelectors.selector()) {
+      if (exclusionObs) exclusionObs.disconnect();
+      exclusionObs = null;
+      return;
+    }
+    if (exclusionObs) return;
+    exclusionObs = new win.MutationObserver((mutations) => {
+      if (suppressObserver) return;
+      for (const mutation of mutations) {
+        const target = mutation.target;
+        if (target.closest && target.closest('[id^="mc3-"]')) continue;
+        if (mutation.type === 'childList') {
+          const nodes = Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes));
+          const nativeChange = nodes.some((node) => node.nodeType !== 1 ||
+            (!isSelf(node) && !(node.id || '').startsWith(OWN_PREFIX) && !Array.from(node.classList).some((c) => c.startsWith(OWN_PREFIX))));
+          if (nativeChange) { scheduleApply(); return; }
+          continue;
+        }
+        const name = mutation.attributeName;
+        const value = target.getAttribute(name);
+        if (value === mutation.oldValue) continue;
+        if (name === 'class') {
+          const nativeClasses = (text) => (text || '').split(/\s+/).filter((c) => c && !c.startsWith(OWN_PREFIX)).sort().join(' ');
+          if (nativeClasses(value) === nativeClasses(mutation.oldValue)) continue;
+        } else if (name === 'style') {
+          const oldStyle = doc.createElement('div').style;
+          oldStyle.cssText = mutation.oldValue || '';
+          const state = ManagedDom.elements.get(target);
+          const properties = new Set(Array.from(oldStyle).concat(Array.from(target.style)));
+          const nativeChange = Array.from(properties).some((property) => {
+            if (oldStyle.getPropertyValue(property) === target.style.getPropertyValue(property) && oldStyle.getPropertyPriority(property) === target.style.getPropertyPriority(property)) return false;
+            const managed = state && state.styles[property];
+            return !managed || target.style.getPropertyValue(property) !== managed.last.value || target.style.getPropertyPriority(property) !== managed.last.priority;
+          });
+          if (!nativeChange) continue;
+        } else {
+          const state = ManagedDom.elements.get(target);
+          if (state && state.attrs[name] && state.attrs[name].last === value) continue;
+        }
+        scheduleApply();
+        return;
+      }
+    });
+    exclusionObs.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeOldValue: true });
+  }
 
   let mainObs = null;
   const observedContainers = new Set();
@@ -1685,7 +1914,7 @@
   function resetAll() {
     for (const item of settings.customSelectors || []) {
       if (isValidCssSelector(item.selector)) {
-        try { for (const el of doc.querySelectorAll(item.selector)) el.classList.remove('mc3-hidden'); }
+        try { for (const el of doc.querySelectorAll(item.selector)) ManagedDom.toggle(el, 'mc3-hidden', false); }
         catch (_) {}
       }
     }
@@ -2050,15 +2279,15 @@
 
     const emptyTip = (txt) => '<div class="mc3-row mc3-empty-tip" style="opacity:.25;font-style:italic;justify-content:center;padding:12px;font-size:12px">' + txt + '</div>';
     let cols = '<div class="mc3-mes-columns" data-gid="' + group.id + '">';
-    // 输入框以左
+
     cols += '<div class="mc3-mes-column" data-col="0">';
-    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">左侧按钮 (#leftSendForm)</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">输入框左侧</span><span class="mc3-mes-col-count">(' + col0Recs.length + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="0">';
     cols += col0Recs.length === 0 ? emptyTip('拖动条目到此处 (左侧)') : col0Recs.map((r) => renderItemRow(r, group, false)).join('');
     cols += '</div></div>';
-    // 输入框以右
+
     cols += '<div class="mc3-mes-column" data-col="1">';
-    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">右侧按钮 (#rightSendForm)</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
+    cols += '<div class="mc3-mes-col-header"><span class="mc3-mes-col-title">输入框右侧</span><span class="mc3-mes-col-count">(' + col1Recs.length + ')</span></div>';
     cols += '<div class="mc3-list mc3-mes-list" data-gid="' + group.id + '" data-col="1">';
     cols += col1Recs.length === 0 ? emptyTip('拖动条目到此处 (右侧)') : col1Recs.map((r) => renderItemRow(r, group, false)).join('');
     cols += '</div></div>';
@@ -2273,8 +2502,32 @@
     }
     cbody += '</div></div>';
     html += renderCard('customSelectors', '指哪消哪', customList.length, customCollapsed, calcCollapseDuration(customList.length), cbody);
+    html += renderExcludedSelectorsCard();
 
     return html;
+  }
+
+  function renderExcludedSelectorsCard() {
+    const list = settings.excludedSelectors || [];
+    let body = '<div style="padding:8px 10px;">' +
+      '<div class="mc3-custom-add-row">' +
+        '<input type="text" id="mc3-custom-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，随后插件不会干涉这些元素">' +
+        '<button type="button" class="mc3-toggle on" data-action="add-excluded-selector" style="padding:4px 12px;font-size:12px;cursor:pointer;">+ 添加</button>' +
+      '</div><div class="mc3-list">';
+    if (!list.length) body += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px;font-size:12px">暂无排除的 Selector，在上方输入后点击添加喵～</div>';
+    for (const item of list) {
+      let count = 0;
+      if (isValidCssSelector(item.selector)) {
+        for (const el of doc.querySelectorAll(item.selector)) {
+          if (!isSelf(el) && !el.closest('#mc3-overlay')) count++;
+        }
+      }
+      body += '<div class="mc3-row" data-excluded-id="' + escHtml(item.id) + '">' +
+        '<span class="mc3-label mc3-mid-truncate" title="' + escHtml(item.selector) + '">' + renderSelectorLabelHtml(item.label || item.selector, count) + '</span>' +
+        '<button type="button" class="mc3-icon-btn" data-action="delete-excluded-selector" data-excluded-id="' + escHtml(item.id) + '" title="删除此排除规则" style="font-size:14px;padding:2px 6px;margin-left:4px;">删除</button></div>';
+    }
+    body += '</div></div>';
+    return renderCard('excludedSelectors', '始终排除', list.length, settings.groupCollapsed.excludedSelectors !== false, calcCollapseDuration(list.length), body);
   }
 
   function renderPopup() {
@@ -2309,9 +2562,10 @@
     popup.addEventListener('click', onPopupClick);
     popup.addEventListener('pointerdown', onPopupPointerDown);
     popup.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.target && e.target.id === 'mc3-custom-selector-input') {
+      if (e.key === 'Enter' && e.target && (e.target.id === 'mc3-custom-selector-input' || e.target.id === 'mc3-excluded-selector-input')) {
         e.preventDefault();
-        const res = CustomSelectors.add(e.target.value.trim());
+        const selectors = e.target.id === 'mc3-excluded-selector-input' ? ExcludedSelectors : CustomSelectors;
+        const res = selectors.add(e.target.value.trim());
         if (!res.success) { alert(res.error); e.target.focus(); } else { renderPopup(); }
       }
     });
@@ -2355,7 +2609,6 @@
 
   // ─── §11  UI — INTERACT ──────────────────────────────────────────────────────
 
-  // data-action → 处理器映射，取代旧版 20 分支 else-if 链
   const POPUP_ACTIONS = {
     'close': () => closePopup(),
 
@@ -2510,6 +2763,13 @@
     },
 
     'delete-custom-selector': (t) => { CustomSelectors.remove(t.getAttribute('data-custom-id')); renderPopup(); },
+
+    'add-excluded-selector': () => {
+      const input = doc.getElementById('mc3-excluded-selector-input');
+      const res = ExcludedSelectors.add(input ? input.value : '');
+      if (!res.success) { alert(res.error); if (input) input.focus(); } else { renderPopup(); }
+    },
+    'delete-excluded-selector': (t) => { ExcludedSelectors.remove(t.getAttribute('data-excluded-id')); renderPopup(); },
 
     'toggle-custom-hide': (t) => {
       const id = t.getAttribute('data-custom-id');
@@ -2840,9 +3100,9 @@
   let slashRegistered = false;
   function setupLaunchers() {
     const wand = doc.getElementById('extensionsMenu');
-    if (wand && !doc.getElementById('mc3-launcher-wand')) wand.appendChild(makeWandLauncher());
+    if (wand && !isExcluded(wand) && !doc.getElementById('mc3-launcher-wand')) wand.appendChild(makeWandLauncher());
     const panel = doc.getElementById('extensions_settings');
-    if (panel && !doc.getElementById('mc3-launcher-panel')) panel.insertBefore(makePanelLauncher(), panel.firstChild);
+    if (panel && !isExcluded(panel) && !doc.getElementById('mc3-launcher-panel')) panel.insertBefore(makePanelLauncher(), panel.firstChild);
     const cb = doc.getElementById('mc3-enable-cb'); if (cb) cb.checked = !!settings.enabled;
     if (!slashRegistered) {
       try {
@@ -2881,6 +3141,9 @@
       renderMesButtonsCard, applyPseudoSubgroups, applyCustomSelectors,
       addCustomSelector: (sel, label) => CustomSelectors.add(sel, label),
       deleteCustomSelector: (id) => CustomSelectors.remove(id),
+      addExcludedSelector: (sel, label) => ExcludedSelectors.add(sel, label),
+      deleteExcludedSelector: (id) => ExcludedSelectors.remove(id),
+      isExcluded,
       setColumnMode,
       openPopup, closePopup, resetAll, applyFontColor,
       save: saveSettings,
