@@ -1,9 +1,9 @@
-// version 1117.0.0
+// version 1117.0.1
 
 (function () {
   'use strict';
 
-  const VERSION = '1117.0.0';
+  const VERSION = '1117.0.1';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -2018,7 +2018,7 @@
     '.mc3-tab:hover{opacity:.9;background:var(--black20a,rgba(255,255,255,.05));}' +
     '.mc3-tab.active{opacity:1;font-weight:bold;background:var(--black30a,rgba(0,0,0,.3));border-color:var(--SmartThemeBorderColor,#555);color:var(--SmartThemeQuoteColor,#3a6);}' +
     '#mc3-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);}' +
-    '#mc3-tools .mc3-tip{opacity:.6;font-size:11px;margin-left:auto;}' +
+    '#mc3-tools .mc3-tip{opacity:.6;font-size:11px;margin-left:auto;text-align:right;}' +
     '#mc3-body{overflow-y:auto;padding:6px 10px 12px;}' +
     // 设置界面样式
     '.mc3-settings-panel{padding:12px 16px;display:flex;flex-direction:column;gap:12px;}' +
@@ -2060,13 +2060,6 @@
     '.mc3-card.mc3-collapsed .mc3-card-header{border-bottom-color:transparent;}' +
     '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;cursor:pointer;}' +
     '.mc3-card-disabled .mc3-card-title{opacity:.5;}' +
-    '.mc3-group-switch{position:relative;display:inline-flex;align-items:center;flex-shrink:0;width:32px;height:20px;margin-left:4px;cursor:pointer;}' +
-    '.mc3-group-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1;}' +
-    '.mc3-group-switch-track{display:block;width:32px;height:18px;border-radius:10px;background:var(--black50a,rgba(128,128,128,.3));border:1px solid var(--SmartThemeBorderColor,#555);box-sizing:border-box;transition:background .15s;}' +
-    '.mc3-group-switch-track::after{content:"";display:block;width:12px;height:12px;margin:2px;border-radius:50%;background:currentColor;opacity:.8;transition:transform .15s;}' +
-    '.mc3-group-switch input:checked + .mc3-group-switch-track{background:var(--SmartThemeQuoteColor,#3a6);border-color:transparent;}' +
-    '.mc3-group-switch input:checked + .mc3-group-switch-track::after{transform:translateX(12px);background:#fff;opacity:1;}' +
-    '.mc3-group-switch input:focus-visible + .mc3-group-switch-track{outline:2px solid var(--SmartThemeQuoteColor,#3a6);outline-offset:2px;}' +
     '.mc3-user-options{padding:8px 10px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);}' +
     '.mc3-user-options .mc3-setting-label{min-width:0;flex:1;}' +
     '.mc3-user-options .mc3-checkbox{flex-shrink:0;}' +
@@ -2182,17 +2175,14 @@
   // 卡片壳
   function renderCard(gid, titleText, count, collapsed, dur, bodyHtml, headerExtra) {
     const enabled = settings.groupEnabled[gid] !== false;
-    const switchLabel = '插件介入：' + titleText;
+    const buttonLabel = '插件介入：' + titleText;
     return '<div class="mc3-card' + (collapsed ? ' mc3-collapsed' : '') + (enabled ? '' : ' mc3-card-disabled') + '" style="--mc3-dur:' + dur + 's;">' +
       '<div class="mc3-card-header" data-action="toggle-group" data-gid="' + gid + '" title="折叠或展开父分组">' +
         '<button type="button" class="mc3-card-collapse" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>' +
         '<span class="mc3-card-title">' + escHtml(titleText) + '</span>' +
         '<small>(' + count + ')</small>' +
         (headerExtra || '') +
-        '<label class="mc3-group-switch" title="' + escHtml((enabled ? '关闭' : '开启') + titleText + '区域的插件介入') + '">' +
-          '<input type="checkbox" role="switch" aria-label="' + escHtml(switchLabel) + '" data-action="set-group-enabled" data-gid="' + gid + '"' + (enabled ? ' checked' : '') + '>' +
-          '<span class="mc3-group-switch-track" aria-hidden="true"></span>' +
-        '</label>' +
+        '<button type="button" class="mc3-toggle' + (enabled ? ' on' : '') + '" aria-label="' + escHtml(buttonLabel) + '" aria-pressed="' + enabled + '" data-action="set-group-enabled" data-gid="' + gid + '" title="' + escHtml((enabled ? '停用' : '启用') + titleText + '区域的插件介入') + '">' + (enabled ? '启用' : '停用') + '</button>' +
       '</div>' +
       '<div class="mc3-card-body"><div class="mc3-card-body-inner">' + bodyHtml + '</div></div>' +
     '</div>';
@@ -2710,7 +2700,8 @@
     'set-colmode': (t) => { setColumnMode(t.getAttribute('data-val')); renderPopup(); },
 
     'set-group-enabled': (t) => {
-      settings.groupEnabled[t.getAttribute('data-gid')] = t.checked;
+      const gid = t.getAttribute('data-gid');
+      settings.groupEnabled[gid] = settings.groupEnabled[gid] === false;
       saveSettings(); applyAll(); renderPopup();
     },
 
@@ -2738,7 +2729,7 @@
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
 
     'toggle-group': (t, e) => {
-      if (e && e.target && e.target.closest('.mc3-icon-btn, .mc3-toggle, .mc3-group-switch, input')) return;
+      if (e && e.target && e.target.closest('.mc3-icon-btn, .mc3-toggle, input')) return;
       const groupId = t.getAttribute('data-gid');
       const card = t.closest('.mc3-card');
       const willCollapse = card ? !card.classList.contains('mc3-collapsed') : !settings.groupCollapsed[groupId];
