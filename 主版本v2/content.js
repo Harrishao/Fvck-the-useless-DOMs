@@ -2059,6 +2059,9 @@
     '.mc3-segment-btn.active{background:var(--SmartThemeQuoteColor,#3a6);color:#fff;opacity:1;font-weight:bold;}' +
     '.mc3-danger-btn{cursor:pointer;background:rgba(220,53,69,.15);color:#ff6b6b;border:1px solid rgba(220,53,69,.4);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:bold;transition:all .15s;}' +
     '.mc3-danger-btn:hover{background:rgba(220,53,69,.3);border-color:#dc3545;color:#fff;}' +
+    '.mc3-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:5px 12px;font-size:12px;font-weight:500;transition:all .15s;}' +
+    '.mc3-btn:hover{background:var(--black50a,rgba(128,128,128,.3));border-color:var(--SmartThemeQuoteColor,#3a6);}' +
+    '.mc3-btn:active{transform:scale(.97);}' +
     // RGB 拾色器样式
     '.mc3-color-picker-box{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding:12px;background:var(--black30a,rgba(0,0,0,.25));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:8px;box-sizing:border-box;}' +
     '.mc3-rgb-row{display:flex;align-items:center;gap:10px;}' +
@@ -2491,6 +2494,13 @@
     }
     html += '</div>';
     html += '<div class="mc3-setting-row">' +
+      '<span class="mc3-setting-label">配置备份与迁移</span>' +
+      '<div style="display:flex;gap:8px;align-items:center;">' +
+        '<button class="mc3-btn" data-action="export-config">导出配置</button>' +
+        '<button class="mc3-btn" data-action="import-config">导入配置</button>' +
+      '</div>' +
+      '</div>';
+    html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">恢复配置初始状态</span>' +
       '<button class="mc3-danger-btn" data-action="clear-data">清除插件数据</button>' +
       '</div>';
@@ -2748,6 +2758,37 @@
       saveSettings();
       applyFontColor();
       renderPopup();
+    },
+
+    'export-config': () => {
+      Store.exportJSON();
+    },
+
+    'import-config': () => {
+      const fileInput = doc.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.json,application/json';
+      fileInput.style.display = 'none';
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            Store.importJSON(evt.target.result);
+            alert('配置已成功导入并覆盖生效喵！');
+          } catch (err) {
+            alert('导入失败喵：' + (err.message || '未知错误'));
+          }
+        };
+        reader.onerror = () => alert('读取文件失败喵！');
+        reader.readAsText(file);
+      });
+      doc.body.appendChild(fileInput);
+      fileInput.click();
+      setTimeout(() => {
+        if (fileInput.parentNode) fileInput.parentNode.removeChild(fileInput);
+      }, 1000);
     },
 
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
