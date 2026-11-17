@@ -332,6 +332,63 @@
       return s;
     },
 
+    validate(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+        return { valid: false, error: '配置文件必须为一个 JSON 对象喵' };
+      }
+      if (obj.order !== undefined) {
+        if (typeof obj.order !== 'object' || obj.order === null || Array.isArray(obj.order)) {
+          return { valid: false, error: 'order 字段格式不正确（必须为对象）喵' };
+        }
+        for (const gid in obj.order) {
+          const grp = obj.order[gid];
+          if (typeof grp !== 'object' || grp === null || Array.isArray(grp)) {
+            return { valid: false, error: 'order[' + gid + '] 格式不正确（必须为对象）喵' };
+          }
+        }
+      }
+      if (obj.hidden !== undefined && (typeof obj.hidden !== 'object' || obj.hidden === null || Array.isArray(obj.hidden))) {
+        return { valid: false, error: 'hidden 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.column !== undefined && (typeof obj.column !== 'object' || obj.column === null || Array.isArray(obj.column))) {
+        return { valid: false, error: 'column 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.subgroups !== undefined) {
+        if (typeof obj.subgroups !== 'object' || obj.subgroups === null || Array.isArray(obj.subgroups)) {
+          return { valid: false, error: 'subgroups 字段格式不正确（必须为对象）喵' };
+        }
+        for (const gid in obj.subgroups) {
+          const list = obj.subgroups[gid];
+          if (!Array.isArray(list)) return { valid: false, error: 'subgroups[' + gid + '] 必须为数组喵' };
+          for (const sg of list) {
+            if (!sg || typeof sg !== 'object' || typeof sg.id !== 'string' || typeof sg.name !== 'string' || !Array.isArray(sg.memberKeys)) {
+              return { valid: false, error: 'subgroups 项必须包含 id、name 和 memberKeys 数组喵' };
+            }
+          }
+        }
+      }
+      if (obj.customSelectors !== undefined) {
+        if (!Array.isArray(obj.customSelectors)) return { valid: false, error: 'customSelectors 必须为数组喵' };
+        for (const item of obj.customSelectors) {
+          if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.selector !== 'string' || typeof item.label !== 'string') {
+            return { valid: false, error: 'customSelectors 项必须包含 id、selector 和 label 喵' };
+          }
+        }
+      }
+      if (obj.excludedSelectors !== undefined) {
+        if (!Array.isArray(obj.excludedSelectors)) return { valid: false, error: 'excludedSelectors 必须为数组喵' };
+        for (const item of obj.excludedSelectors) {
+          if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.selector !== 'string' || typeof item.label !== 'string') {
+            return { valid: false, error: 'excludedSelectors 项必须包含 id、selector 和 label 喵' };
+          }
+        }
+      }
+      if (obj.columnMode !== undefined && obj.columnMode !== 'single' && obj.columnMode !== 'dual') {
+        return { valid: false, error: 'columnMode 必须为 single 或 dual 喵' };
+      }
+      return { valid: true };
+    },
+
     load() {
       const ctx = Store.getCtx();
       const ext = ctx && ctx.extensionSettings ? ctx.extensionSettings[EXT_KEY] : null;
