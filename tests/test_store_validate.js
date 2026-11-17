@@ -79,4 +79,9 @@ assert.strictEqual(Store.validate({ userDrawerCollapsed: null }).valid, false, '
 assert.strictEqual(Store.validate({ userDrawerCollapsed: [] }).valid, false, 'userDrawerCollapsed 为数组应失败');
 assert.strictEqual(Store.validate({ userDrawerCollapsed: { 'userSettings|UI主题': true } }).valid, true, '合法 userDrawerCollapsed 应通过');
 
+assert.strictEqual(Store.validate({ groupEnabled: 'not an object' }).valid, false, 'groupEnabled 非对象应失败');
+assert.strictEqual(Store.validate({ groupEnabled: null }).valid, false, 'groupEnabled 为 null 应失败');
+assert.strictEqual(Store.validate({ groupEnabled: [] }).valid, false, 'groupEnabled 为数组应失败');
+assert.strictEqual(Store.validate({ groupEnabled: { options: true } }).valid, true, '合法 groupEnabled 应通过');
+
 console.log('Task 1 测试全部通过！');

@@ -1,9 +1,9 @@
-// version 1117.0.0
+// version 1117.0.1
 
 (function () {
   'use strict';
 
-  const VERSION = '1117.0.0';
+  const VERSION = '1117.0.1';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -267,6 +267,7 @@
 
   const defaultSettings = {
     enabled: true,
+    groupEnabled: {},    // { groupId: boolean } — 各卡片独立介入开关，缺省开启
     hidden: {},          // { key: true }                   — 可见性，无任何预设
     order: {},           // { groupId: { key: slot:int } }  — 全局总序，跨情境一致
     column: {},          // { key: 0|1 }                    — 用户当前栏位（扩展面板/消息操作）
@@ -279,8 +280,6 @@
     groupCollapsed: {},  // { groupId: boolean }            — 管理面板父分组折叠；缺省一律收起
     userDrawerCollapsed: {}, // { 'userSettings|标签': boolean } — 用户设置伪抽屉；缺省全收起
     qrPanelCollapsed: false, // QR 面板折叠状态
-    enableQrFold: true,      // 启用 QR 面板折叠
-    enableUserFold: true,    // 启用用户条目折叠
     isolateCustomCss: false, // 独立"自定义CSS"块
     customFontColorEnabled: false, // 是否指定字体颜色（默认关闭，关闭时继承酒馆字体属性）
     customFontColor: null,   // 自定义 RGB 颜色 { r, g, b }；null 表示未指定，首次开启自动抓取
@@ -288,6 +287,39 @@
   };
 
   let settings = {};
+
+  const isGroupEnabled = (gid) => settings.enabled && settings.groupEnabled[gid] !== false;
+
+  // 这里用来管理每个功能区的单独开关
+  function isInGroup(el, group) {
+    if (!el || !el.closest) return false;
+    if (group.id === 'topSettings') {
+      return el.matches('#top-settings-holder') || !!(el.parentElement && el.parentElement.matches('#top-settings-holder'));
+    }
+    const selectors = group.id === 'mesButtons' ? [MES_CONTAINER_SEL]
+      : group.id === 'userSettings' ? ['#user-settings-block']
+      : group.id === 'presetSettings' ? ['#left-nav-panel', '#rm_api_block']
+      : group.id === 'extensionsSettings' ? ['#rm_extensions_block'].concat(group.containers)
+      : group.containers || [];
+    return selectors.some((selector) => !!el.closest(selector));
+  }
+
+  function isRegionDisabled(el) {
+    return GROUPS.some((group) => settings.groupEnabled[group.id] === false && isInGroup(el, group));
+  }
+
+  function containsDisabledRegion(el) {
+    if (!el || !el.querySelector) return false;
+    return GROUPS.some((group) => {
+      if (settings.groupEnabled[group.id] !== false) return false;
+      const selectors = group.id === 'mesButtons' ? [MES_CONTAINER_SEL]
+        : group.id === 'userSettings' ? ['#user-settings-block']
+        : group.id === 'presetSettings' ? ['#left-nav-panel', '#rm_api_block']
+        : group.id === 'extensionsSettings' ? ['#rm_extensions_block'].concat(group.containers)
+        : group.containers || [];
+      return selectors.some((selector) => !!el.querySelector(selector));
+    });
+  }
 
   const Store = {
     getCtx() {
@@ -304,6 +336,14 @@
       for (const k in d) {
         if (s[k] === undefined) s[k] = (typeof d[k] === 'object' && d[k] !== null)
           ? JSON.parse(JSON.stringify(d[k])) : d[k];
+      }
+      if (!s.groupEnabled || typeof s.groupEnabled !== 'object' || Array.isArray(s.groupEnabled)) s.groupEnabled = {};
+      for (const [gid, legacy] of [['qrPanel', 'enableQrFold'], ['userSettings', 'enableUserFold']]) {
+        if (typeof s.groupEnabled[gid] !== 'boolean' && typeof s[legacy] === 'boolean') s.groupEnabled[gid] = s[legacy];
+        delete s[legacy];
+      }
+      for (const gid of GROUPS.map((g) => g.id).concat(['customSelectors', 'excludedSelectors'])) {
+        if (typeof s.groupEnabled[gid] !== 'boolean') s.groupEnabled[gid] = true;
       }
       if (!Array.isArray(s.customSelectors)) s.customSelectors = [];
       if (!Array.isArray(s.excludedSelectors)) s.excludedSelectors = [];
@@ -391,6 +431,9 @@
       }
       if (obj.nativeColumn !== undefined && (typeof obj.nativeColumn !== 'object' || obj.nativeColumn === null || Array.isArray(obj.nativeColumn))) {
         return { valid: false, error: 'nativeColumn 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.groupEnabled !== undefined && (typeof obj.groupEnabled !== 'object' || obj.groupEnabled === null || Array.isArray(obj.groupEnabled))) {
+        return { valid: false, error: 'groupEnabled 字段格式不正确（必须为对象）喵' };
       }
       if (obj.groupCollapsed !== undefined && (typeof obj.groupCollapsed !== 'object' || obj.groupCollapsed === null || Array.isArray(obj.groupCollapsed))) {
         return { valid: false, error: 'groupCollapsed 字段格式不正确（必须为对象）喵' };
@@ -610,6 +653,7 @@
     cachedSelector: '',
 
     selector() {
+      if (settings.groupEnabled.excludedSelectors === false) return '';
       const input = (settings.excludedSelectors || []).map((item) => item && item.selector).filter((sel) => typeof sel === 'string').join('\n');
       if (input !== ExcludedSelectors.cachedInput) {
         ExcludedSelectors.cachedInput = input;
@@ -662,7 +706,7 @@
     },
 
     style(el, property, value) {
-      if (!el || isProtected(el)) return;
+      if (!el || isProtected(el) || isRegionDisabled(el)) return;
       const current = { value: el.style.getPropertyValue(property), priority: el.style.getPropertyPriority(property) };
       if (current.value === value && !current.priority) return;
       const styles = ManagedDom.state(el).styles;
@@ -675,7 +719,7 @@
     },
 
     toggle(el, className, on) {
-      if (!el || isProtected(el)) return;
+      if (!el || isProtected(el) || isRegionDisabled(el)) return;
       const before = el.classList.contains(className);
       if (before === !!on) return;
       const classes = ManagedDom.state(el).classes;
@@ -684,7 +728,7 @@
     },
 
     attr(el, name, value) {
-      if (!el || isProtected(el) || el.getAttribute(name) === value) return;
+      if (!el || isProtected(el) || isRegionDisabled(el) || el.getAttribute(name) === value) return;
       const attrs = ManagedDom.state(el).attrs;
       if (!attrs[name]) attrs[name] = { before: el.getAttribute(name), last: value };
       attrs[name].last = value;
@@ -692,7 +736,7 @@
     },
 
     move(el, parent, before) {
-      if (!el || !parent || isProtected(el) || isExcluded(parent) || isExcluded(el.parentElement)) return false;
+      if (!el || !parent || isProtected(el) || isRegionDisabled(el) || isRegionDisabled(parent) || isExcluded(parent) || isExcluded(el.parentElement)) return false;
       if (el.parentNode === parent && (before === undefined || el.nextSibling === before)) return false;
       const state = ManagedDom.state(el);
       if (!state.position) state.position = { parent: el.parentNode, next: el.nextSibling, previous: el.previousSibling, index: Array.prototype.indexOf.call(el.parentNode.childNodes, el), lastParent: parent };
@@ -746,6 +790,28 @@
         }
       }
       ManagedDom.elements.delete(el);
+    },
+
+    // 这里涉及消息操作的内容处理，在插件撤出消息操作时，清理插件注入的影子元素，随后恢复原有排序
+    releaseDisabled() {
+      for (const el of Array.from(ManagedDom.elements.keys()).reverse()) {
+        if (!el.isConnected) { ManagedDom.elements.delete(el); continue; }
+        const state = ManagedDom.elements.get(el);
+        if (!settings.enabled || isRegionDisabled(el) || (state.position && isRegionDisabled(state.position.parent))) {
+          const pos = state.position;
+          if (state.mesSelector && pos && pos.parent && pos.parent.isConnected &&
+              pos.parent.matches('.extraMesButtons') && el.parentNode === pos.lastParent && el.parentNode !== pos.parent) {
+            for (const duplicate of Array.from(pos.parent.children)) {
+              if (duplicate !== el && duplicate.matches(state.mesSelector) && !isProtected(duplicate)) {
+                suppressObserver = true;
+                duplicate.remove();
+                win.setTimeout(() => { suppressObserver = false; }, 0);
+              }
+            }
+          }
+          ManagedDom.restore(el);
+        }
+      }
     },
 
     releaseExcluded() {
@@ -889,6 +955,7 @@
   // 这部分用来适配TT版本>=2.3.0时的改动
   // 在高版本TT下酒馆自带元素只有在面板展开时才会水合，所以修复前插件扫不到
   function ensureExtensionsHydrated() {
+    if (!isGroupEnabled('extensionsSettings')) return false;
     try {
       const mgr = win.__TAURITAVERN_PANEL_RUNTIME__;
       if (mgr && typeof mgr.setVisible === 'function' && typeof mgr.reconcile === 'function') {
@@ -1217,13 +1284,14 @@
       'button.mc3-user-drawer-arrow:focus-visible{outline:2px solid var(--SmartThemeQuoteColor,#3a6);outline-offset:1px;}',
     ];
     // 给非 flex 容器强制加上 flex-direction:column属性，使 CSS order 生效
+    // 这里是修什么的？为什么要这一段？
     for (const g of GROUPS) {
-      if (!g.forceFlex) continue;
+      if (!g.forceFlex || !isGroupEnabled(g.id)) continue;
       for (const c of g.containers) {
         if (!isProtected(doc.querySelector(c))) rules.push(c + ExcludedSelectors.cssGuard() + '{display:flex;flex-direction:column;}');
       }
     }
-    if (!isProtected(doc.querySelector('#extensionsMenu'))) {
+    if (isGroupEnabled('extensionsMenu') && !isProtected(doc.querySelector('#extensionsMenu'))) {
       rules.push('#extensionsMenu > .extension_container' + ExcludedSelectors.cssGuard() + '{display:contents !important;}');
     }
     if (!st) {
@@ -1238,7 +1306,7 @@
   // 如果元素被移动后又被重新注入，那么会把新注入元素设为display:none并且将被移动的元素标记为副本
   function buildMesSuppressCSS(records) {
     let style = doc.getElementById('mc3-mes-suppress');
-    if (!settings.enabled) { if (style) style.textContent = ''; return; }
+    if (!isGroupEnabled('mesButtons')) { if (style) style.textContent = ''; return; }
     const selectors = [];
     const seen = new Set();
 
@@ -1469,7 +1537,8 @@
   function applyCustomCssPosition() {
     const cssBlock = doc.querySelector('#CustomCSS-block');
     if (!cssBlock || isProtected(cssBlock)) return;
-    if (settings.enabled && settings.isolateCustomCss) {
+    if (!isGroupEnabled('userSettings')) { ManagedDom.restore(cssBlock); return; }
+    if (settings.isolateCustomCss) {
       const charBlock = doc.querySelector('div[name="CharacterHandlingToggles"]');
       if (charBlock && charBlock.parentNode && cssBlock.nextElementSibling !== charBlock) {
         suppressObserver = true;
@@ -1488,7 +1557,7 @@
 
   function applyUserSettingsDrawers() {
     applyCustomCssPosition();
-    if (!settings.enabled || settings.enableUserFold === false) {
+    if (!isGroupEnabled('userSettings')) {
       clearUserSettingsDrawers();
       return;
     }
@@ -1635,6 +1704,7 @@
         } else {
           let mainBtn = matchedBtns.find((b) => b.parentNode === container) || matchedBtns[0];
           if (mainBtn.parentNode !== container) { moved = ManagedDom.move(mainBtn, container) || moved; }
+          if (!restore) ManagedDom.state(mainBtn).mesSelector = rec.selector;
           ManagedDom.toggle(mainBtn, 'mc3-hidden', false);
           ManagedDom.style(mainBtn, 'order', restore ? '' : (slot !== undefined ? String(slot) : ''));
           for (const b of matchedBtns) {
@@ -1663,16 +1733,24 @@
 
   // 默认隐藏的垃圾
   function applyAlwaysHidden(on) {
-    for (const sel of ALWAYS_HIDDEN) {
-      for (const el of doc.querySelectorAll(sel)) ManagedDom.toggle(el, 'mc3-hidden', on);
-    }
+    ALWAYS_HIDDEN.forEach((sel, index) => {
+      const enabled = on && isGroupEnabled(index === 0 ? 'presetSettings' : 'extensionsSettings');
+      for (const el of doc.querySelectorAll(sel)) {
+        if (enabled) ManagedDom.toggle(el, 'mc3-hidden', true);
+        else ManagedDom.restoreClass(el, 'mc3-hidden');
+      }
+    });
   }
 
   // 移除左下菜单/魔棒的原生分隔线
   function applySeparatorHides(on) {
-    for (const sel of SEPARATOR_SELECTORS) {
-      for (const hr of doc.querySelectorAll(sel)) ManagedDom.toggle(hr, 'mc3-hidden', on);
-    }
+    SEPARATOR_SELECTORS.forEach((sel, index) => {
+      const enabled = on && isGroupEnabled(index === 0 ? 'options' : 'extensionsMenu');
+      for (const hr of doc.querySelectorAll(sel)) {
+        if (enabled) ManagedDom.toggle(hr, 'mc3-hidden', true);
+        else ManagedDom.restoreClass(hr, 'mc3-hidden');
+      }
+    });
   }
 
   // 自定义 Selector 显隐应用
@@ -1683,7 +1761,8 @@
         const hidden = on && !!settings.hidden[item.id];
         for (const el of doc.querySelectorAll(item.selector)) {
           if (isSelf(el) || isProtected(el) || el.closest('#mc3-overlay') || el.closest('#mc3-popup')) continue;
-          ManagedDom.toggle(el, 'mc3-hidden', hidden);
+          if (!on || isRegionDisabled(el) || containsDisabledRegion(el)) ManagedDom.restoreClass(el, 'mc3-hidden');
+          else ManagedDom.toggle(el, 'mc3-hidden', hidden);
         }
       } catch (_) {}
     }
@@ -1701,7 +1780,7 @@
       for (const ch of bar.children) ManagedDom.restoreClass(ch, 'mc3-qr-content-collapsed');
     };
 
-    if (!settings.enabled || settings.enableQrFold === false || isProtected(bar)) { clearFold(); return; }
+    if (!isGroupEnabled('qrPanel') || isProtected(bar)) { clearFold(); return; }
 
     const contents = [];
     for (const ch of bar.children) {
@@ -1751,34 +1830,31 @@
   }
 
   function clearGroup(group, records) {
-    if (group.customApply) { clearMesButtons(records); return; }
-    const seen = new Set();
     forEachElUnit(records, (el, unit) => {
-      ManagedDom.toggle(el, 'mc3-hidden', false);
-      ManagedDom.style(el, 'order', '');
-      if (unit && !seen.has(unit)) {
-        seen.add(unit);
-        ManagedDom.style(unit, 'order', '');
-        ManagedDom.toggle(unit, 'mc3-hidden', false);
-        if (unit.style.display === 'contents') ManagedDom.style(unit, 'display', '');
-      }
+      ManagedDom.restore(el);
+      if (unit) ManagedDom.restore(unit);
     });
+    if (group.customApply) {
+      const style = doc.getElementById('mc3-mes-suppress');
+      if (style) style.textContent = '';
+    }
     if (group.hasUserDrawers) clearUserSettingsDrawers();
   }
 
   function applyAll() {
     syncExclusionObserver();
     ManagedDom.releaseExcluded();
+    ManagedDom.releaseDisabled();
     ensureContainersObserved();
     injectStyle();
     setupLaunchers(); 
     applyAlwaysHidden(settings.enabled);
     applySeparatorHides(settings.enabled);
-    applyCustomSelectors(settings.enabled);
+    applyCustomSelectors(isGroupEnabled('customSelectors'));
     const all = scanAll();
     for (const group of GROUPS) {
       const recs = all[group.id] || [];
-      if (settings.enabled) applyGroup(group, recs);
+      if (isGroupEnabled(group.id)) applyGroup(group, recs);
       else { clearGroup(group, recs); clearPseudoSubgroups(group); }
     }
     applyQrPanelFold();
@@ -2079,7 +2155,7 @@
     '.mc3-tab:hover{opacity:.9;background:var(--black20a,rgba(255,255,255,.05));}' +
     '.mc3-tab.active{opacity:1;font-weight:bold;background:var(--black30a,rgba(0,0,0,.3));border-color:var(--SmartThemeBorderColor,#555);color:var(--SmartThemeQuoteColor,#3a6);}' +
     '#mc3-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);}' +
-    '#mc3-tools .mc3-tip{opacity:.6;font-size:11px;margin-left:auto;}' +
+    '#mc3-tools .mc3-tip{opacity:.6;font-size:11px;margin-left:auto;text-align:right;}' +
     '#mc3-body{overflow-y:auto;padding:6px 10px 12px;}' +
     // 设置界面样式
     '.mc3-settings-panel{padding:12px 16px;display:flex;flex-direction:column;gap:12px;}' +
@@ -2123,6 +2199,10 @@
     '.mc3-card-header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--black30a,rgba(0,0,0,.2));font-weight:bold;font-size:13px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);transition:border-bottom-color var(--mc3-dur,.25s) ease;cursor:pointer;user-select:none;}' +
     '.mc3-card.mc3-collapsed .mc3-card-header{border-bottom-color:transparent;}' +
     '.mc3-card-header small{opacity:.5;font-weight:normal;margin-right:auto;cursor:pointer;}' +
+    '.mc3-card-disabled .mc3-card-title{opacity:.5;}' +
+    '.mc3-user-options{padding:8px 10px;border-bottom:1px solid var(--SmartThemeBorderColor,#444);}' +
+    '.mc3-user-options .mc3-setting-label{min-width:0;flex:1;}' +
+    '.mc3-user-options .mc3-checkbox{flex-shrink:0;}' +
     '.mc3-card-collapse,.mc3-subgroup-collapse{cursor:pointer;background:none;border:0;color:inherit;padding:0;line-height:1;opacity:.7;flex-shrink:0;width:18px;height:18px;text-align:center;display:inline-flex;align-items:center;justify-content:center;}' +
     '.mc3-card-collapse:hover,.mc3-subgroup-collapse:hover{opacity:1;}' +
     '.mc3-card-title{opacity:.9;cursor:pointer;}' +
@@ -2234,12 +2314,15 @@
 
   // 卡片壳
   function renderCard(gid, titleText, count, collapsed, dur, bodyHtml, headerExtra) {
-    return '<div class="mc3-card' + (collapsed ? ' mc3-collapsed' : '') + '" style="--mc3-dur:' + dur + 's;">' +
+    const enabled = settings.groupEnabled[gid] !== false;
+    const buttonLabel = '插件介入：' + titleText;
+    return '<div class="mc3-card' + (collapsed ? ' mc3-collapsed' : '') + (enabled ? '' : ' mc3-card-disabled') + '" style="--mc3-dur:' + dur + 's;">' +
       '<div class="mc3-card-header" data-action="toggle-group" data-gid="' + gid + '" title="折叠或展开父分组">' +
         '<button type="button" class="mc3-card-collapse" title="折叠或展开父分组"><span class="mc3-chevron">▾</span></button>' +
         '<span class="mc3-card-title">' + escHtml(titleText) + '</span>' +
         '<small>(' + count + ')</small>' +
         (headerExtra || '') +
+        '<button type="button" class="mc3-toggle' + (enabled ? ' on' : '') + '" aria-label="' + escHtml(buttonLabel) + '" aria-pressed="' + enabled + '" data-action="set-group-enabled" data-gid="' + gid + '" title="' + escHtml((enabled ? '停用' : '启用') + titleText + '区域的插件介入') + '">' + (enabled ? '启用' : '停用') + '</button>' +
       '</div>' +
       '<div class="mc3-card-body"><div class="mc3-card-body-inner">' + bodyHtml + '</div></div>' +
     '</div>';
@@ -2479,18 +2562,6 @@
         '<button class="mc3-segment-btn' + (settings.columnMode === 'dual' ? ' active' : '') + '" data-action="set-colmode" data-val="dual">双栏</button>' +
       '</div>' +
       '</div>';
-    html += '<div class="mc3-setting-row">' +
-      '<label class="mc3-setting-label" for="mc3-set-qrfold"><span>启用QR面板折叠</span></label>' +
-      '<input type="checkbox" id="mc3-set-qrfold" class="mc3-checkbox" data-action="set-qrfold"' + (settings.enableQrFold !== false ? ' checked' : '') + '>' +
-      '</div>';
-    html += '<div class="mc3-setting-row">' +
-      '<label class="mc3-setting-label" for="mc3-set-userfold"><span>启用用户设置条目折叠</span></label>' +
-      '<input type="checkbox" id="mc3-set-userfold" class="mc3-checkbox" data-action="set-userfold"' + (settings.enableUserFold !== false ? ' checked' : '') + '>' +
-      '</div>';
-    html += '<div class="mc3-setting-row">' +
-      '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将自定义CSS块从杂项中独立出来</span></label>' +
-      '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
-      '</div>';
     html += '<div class="mc3-setting-row" style="flex-direction:column;align-items:stretch;">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;width:100%;">' +
         '<label class="mc3-setting-label" for="mc3-set-custom-color" style="flex-direction:column;align-items:flex-start;gap:3px;cursor:pointer;">' +
@@ -2542,7 +2613,9 @@
 
   function renderSortPanel() {
     const all = scanAll();
-    let html = '<div id="mc3-tools"><span class="mc3-tip">点击 + 号新建一个子分组</span></div>';
+    let html = '<div id="mc3-tools">' +
+    '<span class="mc3-tip">点击 + 号新建一个子分组<br>各功能区可独立开关，如果遇到奇怪问题可以暂时停用对应区域<br>以及随时欢迎到帖子下反映问题</span>' +
+    '</div>';
 
     for (const group of GROUPS) {
       const recs = (all[group.id] || []).slice();
@@ -2607,6 +2680,12 @@
         }
       }
       body += '</div>';
+      if (group.id === 'userSettings') {
+        body = '<div class="mc3-user-options mc3-setting-row">' +
+          '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将自定义CSS块从杂项中独立出来</span></label>' +
+          '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
+          '</div>' + body;
+      }
 
       const headerExtra = supportsSg
         ? '<button class="mc3-icon-btn" data-action="add-subgroup" data-gid="' + group.id + '" title="新建子分组" style="font-size:18px;font-weight:bold">+</button>'
@@ -2767,9 +2846,11 @@
 
     'set-colmode': (t) => { setColumnMode(t.getAttribute('data-val')); renderPopup(); },
 
-    'set-qrfold': (t) => { settings.enableQrFold = t.checked; saveSettings(); applyAll(); renderPopup(); },
-
-    'set-userfold': (t) => { settings.enableUserFold = t.checked; saveSettings(); applyAll(); renderPopup(); },
+    'set-group-enabled': (t) => {
+      const gid = t.getAttribute('data-gid');
+      settings.groupEnabled[gid] = settings.groupEnabled[gid] === false;
+      saveSettings(); applyAll(); renderPopup();
+    },
 
     'set-customcss': (t) => { settings.isolateCustomCss = t.checked; saveSettings(); applyAll(); renderPopup(); },
 
