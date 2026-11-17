@@ -427,6 +427,51 @@
       try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
       catch (e) { console.warn('[菜单精简器] 保存设置失败', e); }
     },
+
+    exportJSON(opts) {
+      const jsonText = JSON.stringify(settings, null, 2);
+      if (opts && opts.returnString) return jsonText;
+      try {
+        const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = 'menu-cleaner-settings-' + dateStr + '.json';
+        const url = URL.createObjectURL(blob);
+        const a = doc.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        doc.body.appendChild(a);
+        a.click();
+        doc.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (err) {
+        console.error('[菜单精简器] 导出配置失败', err);
+        alert('导出配置失败喵：' + (err.message || '未知错误'));
+      }
+      return jsonText;
+    },
+
+    importJSON(rawText) {
+      let parsed;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch (e) {
+        throw new Error('JSON 解析失败：' + e.message);
+      }
+      const val = Store.validate(parsed);
+      if (!val.valid) {
+        throw new Error(val.error || '配置格式校验失败');
+      }
+      const curTab = settings.activeTab || 'settings';
+      settings = Object.assign(Store.freshDefaults(), parsed);
+      settings.activeTab = curTab;
+      Store.normalize(settings);
+      if (win.__mc3) win.__mc3.settings = settings;
+      saveSettings();
+      applyAll();
+      renderPopup();
+      return { success: true };
+    },
   };
   const saveSettings = () => Store.save();
 
@@ -3204,6 +3249,12 @@
       setColumnMode,
       openPopup, closePopup, resetAll, applyFontColor,
       save: saveSettings,
+      exportConfig: (opts) => Store.exportJSON(opts),
+      importConfig: (jsonOrObj) => {
+        const text = typeof jsonOrObj === 'string' ? jsonOrObj : JSON.stringify(jsonOrObj);
+        return Store.importJSON(text);
+      },
+      validateConfig: (obj) => Store.validate(obj),
       addSubgroup: (gid) => Subgroups.add(gid),
       deleteSubgroup: (gid, sgId) => Subgroups.remove(gid, sgId),
       renameSubgroup: (gid, sgId, name) => Subgroups.rename(gid, sgId, name),
