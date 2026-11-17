@@ -1,9 +1,9 @@
-// version 1109.0.2
+// version 1117.0.0
 
 (function () {
   'use strict';
 
-  const VERSION = '1109.0.2';
+  const VERSION = '1117.0.0';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -332,6 +332,63 @@
       return s;
     },
 
+    validate(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+        return { valid: false, error: '配置文件必须为一个 JSON 对象喵' };
+      }
+      if (obj.order !== undefined) {
+        if (typeof obj.order !== 'object' || obj.order === null || Array.isArray(obj.order)) {
+          return { valid: false, error: 'order 字段格式不正确（必须为对象）喵' };
+        }
+        for (const gid in obj.order) {
+          const grp = obj.order[gid];
+          if (typeof grp !== 'object' || grp === null || Array.isArray(grp)) {
+            return { valid: false, error: 'order[' + gid + '] 格式不正确（必须为对象）喵' };
+          }
+        }
+      }
+      if (obj.hidden !== undefined && (typeof obj.hidden !== 'object' || obj.hidden === null || Array.isArray(obj.hidden))) {
+        return { valid: false, error: 'hidden 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.column !== undefined && (typeof obj.column !== 'object' || obj.column === null || Array.isArray(obj.column))) {
+        return { valid: false, error: 'column 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.subgroups !== undefined) {
+        if (typeof obj.subgroups !== 'object' || obj.subgroups === null || Array.isArray(obj.subgroups)) {
+          return { valid: false, error: 'subgroups 字段格式不正确（必须为对象）喵' };
+        }
+        for (const gid in obj.subgroups) {
+          const list = obj.subgroups[gid];
+          if (!Array.isArray(list)) return { valid: false, error: 'subgroups[' + gid + '] 必须为数组喵' };
+          for (const sg of list) {
+            if (!sg || typeof sg !== 'object' || typeof sg.id !== 'string' || typeof sg.name !== 'string' || !Array.isArray(sg.memberKeys)) {
+              return { valid: false, error: 'subgroups 项必须包含 id、name 和 memberKeys 数组喵' };
+            }
+          }
+        }
+      }
+      if (obj.customSelectors !== undefined) {
+        if (!Array.isArray(obj.customSelectors)) return { valid: false, error: 'customSelectors 必须为数组喵' };
+        for (const item of obj.customSelectors) {
+          if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.selector !== 'string' || typeof item.label !== 'string') {
+            return { valid: false, error: 'customSelectors 项必须包含 id、selector 和 label 喵' };
+          }
+        }
+      }
+      if (obj.excludedSelectors !== undefined) {
+        if (!Array.isArray(obj.excludedSelectors)) return { valid: false, error: 'excludedSelectors 必须为数组喵' };
+        for (const item of obj.excludedSelectors) {
+          if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.selector !== 'string' || typeof item.label !== 'string') {
+            return { valid: false, error: 'excludedSelectors 项必须包含 id、selector 和 label 喵' };
+          }
+        }
+      }
+      if (obj.columnMode !== undefined && obj.columnMode !== 'single' && obj.columnMode !== 'dual') {
+        return { valid: false, error: 'columnMode 必须为 single 或 dual 喵' };
+      }
+      return { valid: true };
+    },
+
     load() {
       const ctx = Store.getCtx();
       const ext = ctx && ctx.extensionSettings ? ctx.extensionSettings[EXT_KEY] : null;
@@ -369,6 +426,51 @@
       }
       try { win.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
       catch (e) { console.warn('[菜单精简器] 保存设置失败', e); }
+    },
+
+    exportJSON(opts) {
+      const jsonText = JSON.stringify(settings, null, 2);
+      if (opts && opts.returnString) return jsonText;
+      try {
+        const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = 'menu-cleaner-settings-' + dateStr + '.json';
+        const url = URL.createObjectURL(blob);
+        const a = doc.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        doc.body.appendChild(a);
+        a.click();
+        doc.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (err) {
+        console.error('[菜单精简器] 导出配置失败', err);
+        alert('导出配置失败喵：' + (err.message || '未知错误'));
+      }
+      return jsonText;
+    },
+
+    importJSON(rawText) {
+      let parsed;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch (e) {
+        throw new Error('JSON 解析失败：' + e.message);
+      }
+      const val = Store.validate(parsed);
+      if (!val.valid) {
+        throw new Error(val.error || '配置格式校验失败');
+      }
+      const curTab = settings.activeTab || 'settings';
+      settings = Object.assign(Store.freshDefaults(), parsed);
+      settings.activeTab = curTab;
+      Store.normalize(settings);
+      if (win.__mc3) win.__mc3.settings = settings;
+      saveSettings();
+      applyAll();
+      renderPopup();
+      return { success: true };
     },
   };
   const saveSettings = () => Store.save();
@@ -1957,6 +2059,9 @@
     '.mc3-segment-btn.active{background:var(--SmartThemeQuoteColor,#3a6);color:#fff;opacity:1;font-weight:bold;}' +
     '.mc3-danger-btn{cursor:pointer;background:rgba(220,53,69,.15);color:#ff6b6b;border:1px solid rgba(220,53,69,.4);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:bold;transition:all .15s;}' +
     '.mc3-danger-btn:hover{background:rgba(220,53,69,.3);border-color:#dc3545;color:#fff;}' +
+    '.mc3-btn{cursor:pointer;background:var(--black30a,rgba(0,0,0,.3));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);border-radius:6px;padding:5px 12px;font-size:12px;font-weight:500;transition:all .15s;}' +
+    '.mc3-btn:hover{background:var(--black50a,rgba(128,128,128,.3));border-color:var(--SmartThemeQuoteColor,#3a6);}' +
+    '.mc3-btn:active{transform:scale(.97);}' +
     // RGB 拾色器样式
     '.mc3-color-picker-box{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding:12px;background:var(--black30a,rgba(0,0,0,.25));border:1px solid var(--SmartThemeBorderColor,#444);border-radius:8px;box-sizing:border-box;}' +
     '.mc3-rgb-row{display:flex;align-items:center;gap:10px;}' +
@@ -2389,6 +2494,13 @@
     }
     html += '</div>';
     html += '<div class="mc3-setting-row">' +
+      '<span class="mc3-setting-label">配置备份与迁移</span>' +
+      '<div style="display:flex;gap:8px;align-items:center;">' +
+        '<button class="mc3-btn" data-action="export-config">导出配置</button>' +
+        '<button class="mc3-btn" data-action="import-config">导入配置</button>' +
+      '</div>' +
+      '</div>';
+    html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">恢复配置初始状态</span>' +
       '<button class="mc3-danger-btn" data-action="clear-data">清除插件数据</button>' +
       '</div>';
@@ -2646,6 +2758,37 @@
       saveSettings();
       applyFontColor();
       renderPopup();
+    },
+
+    'export-config': () => {
+      Store.exportJSON();
+    },
+
+    'import-config': () => {
+      const fileInput = doc.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.json,application/json';
+      fileInput.style.display = 'none';
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            Store.importJSON(evt.target.result);
+            alert('配置已成功导入并覆盖生效喵！');
+          } catch (err) {
+            alert('导入失败喵：' + (err.message || '未知错误'));
+          }
+        };
+        reader.onerror = () => alert('读取文件失败喵！');
+        reader.readAsText(file);
+      });
+      doc.body.appendChild(fileInput);
+      fileInput.click();
+      setTimeout(() => {
+        if (fileInput.parentNode) fileInput.parentNode.removeChild(fileInput);
+      }, 1000);
     },
 
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },
@@ -3147,6 +3290,12 @@
       setColumnMode,
       openPopup, closePopup, resetAll, applyFontColor,
       save: saveSettings,
+      exportConfig: (opts) => Store.exportJSON(opts),
+      importConfig: (jsonOrObj) => {
+        const text = typeof jsonOrObj === 'string' ? jsonOrObj : JSON.stringify(jsonOrObj);
+        return Store.importJSON(text);
+      },
+      validateConfig: (obj) => Store.validate(obj),
       addSubgroup: (gid) => Subgroups.add(gid),
       deleteSubgroup: (gid, sgId) => Subgroups.remove(gid, sgId),
       renameSubgroup: (gid, sgId, name) => Subgroups.rename(gid, sgId, name),
