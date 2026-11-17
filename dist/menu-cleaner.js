@@ -290,11 +290,10 @@
 
   const isGroupEnabled = (gid) => settings.enabled && settings.groupEnabled[gid] !== false;
 
-  // 区域关闭后仍扫描供配置编辑，但任何写 DOM 的路径（包括自定义 Selector）都不再介入。
+  // 这里用来管理每个功能区的单独开关
   function isInGroup(el, group) {
     if (!el || !el.closest) return false;
     if (group.id === 'topSettings') {
-      // 导航栏只管理顶层图标，不将其抽屉内部的其他区域连带停用。
       return el.matches('#top-settings-holder') || !!(el.parentElement && el.parentElement.matches('#top-settings-holder'));
     }
     const selectors = group.id === 'mesButtons' ? [MES_CONTAINER_SEL]
@@ -339,7 +338,6 @@
           ? JSON.parse(JSON.stringify(d[k])) : d[k];
       }
       if (!s.groupEnabled || typeof s.groupEnabled !== 'object' || Array.isArray(s.groupEnabled)) s.groupEnabled = {};
-      // 旧折叠开关迁移为区域开关；已保存的新开关优先，迁移后不再保留重复设置。
       for (const [gid, legacy] of [['qrPanel', 'enableQrFold'], ['userSettings', 'enableUserFold']]) {
         if (typeof s.groupEnabled[gid] !== 'boolean' && typeof s[legacy] === 'boolean') s.groupEnabled[gid] = s[legacy];
         delete s[legacy];
@@ -657,13 +655,12 @@
       ManagedDom.elements.delete(el);
     },
 
+    // 这里涉及消息操作的内容处理，在插件撤出消息操作时，清理插件注入的影子元素，随后恢复原有排序
     releaseDisabled() {
       for (const el of Array.from(ManagedDom.elements.keys()).reverse()) {
         if (!el.isConnected) { ManagedDom.elements.delete(el); continue; }
         const state = ManagedDom.elements.get(el);
         if (!settings.enabled || isRegionDisabled(el) || (state.position && isRegionDisabled(state.position.parent))) {
-          // 只在撤回已搬出的消息按钮时清理管理期间原生重新注入的副本。
-          // 关闭后出现的未管理按钮不再去重；保留原按钮及其监听器、原生样式。
           const pos = state.position;
           if (state.mesSelector && pos && pos.parent && pos.parent.isConnected &&
               pos.parent.matches('.extraMesButtons') && el.parentNode === pos.lastParent && el.parentNode !== pos.parent) {
@@ -1150,6 +1147,7 @@
       'button.mc3-user-drawer-arrow:focus-visible{outline:2px solid var(--SmartThemeQuoteColor,#3a6);outline-offset:1px;}',
     ];
     // 给非 flex 容器强制加上 flex-direction:column属性，使 CSS order 生效
+    // 这里是修什么的？为什么要这一段？
     for (const g of GROUPS) {
       if (!g.forceFlex || !isGroupEnabled(g.id)) continue;
       for (const c of g.containers) {
@@ -1695,7 +1693,6 @@
   }
 
   function clearGroup(group, records) {
-    // releaseDisabled 已撤回本次运行的样式和搬动，不能再写空 order 覆盖原生值。
     forEachElUnit(records, (el, unit) => {
       ManagedDom.restore(el);
       if (unit) ManagedDom.restore(unit);
@@ -2479,7 +2476,10 @@
 
   function renderSortPanel() {
     const all = scanAll();
-    let html = '<div id="mc3-tools"><span class="mc3-tip">点击 + 号新建一个子分组</span></div>';
+    let html = '<div id="mc3-tools">' +
+    '<span class="mc3-tip">点击 + 号新建一个子分组</span>' +
+    '<span class="mc3-tip2">各功能区可独立开关，遇到奇怪的问题可以关掉对应功能区，以及随时欢迎到帖子下反馈问题</span>' +
+    '</div>';
 
     for (const group of GROUPS) {
       const recs = (all[group.id] || []).slice();

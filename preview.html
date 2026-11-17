@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Menu Cleaner UI Mock Preview</title>
+  <style>
+    body { background: #3b667481; color: #f0ff66; font-family: sans-serif; padding: 20px; }
+    .mock-group { border: 1px dashed #444; padding: 10px; margin: 10px 0; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h2>这是一个预览页面</h2>
+  <button onclick="window.__mc3?.openPopup()">打开控制面板</button>
+
+  <script>
+    window.SillyTavern = {
+      getContext: () => ({
+        extensionSettings: {
+          menu_cleaner3: {
+          }
+        },
+        saveSettingsDebounced: () => console.log('🐾 [Mock] 设置已防抖保存喵~'),
+        registerSlashCommand: (name, cb) => console.log(`🐾 [Mock] 注册命令 /${name}`)
+      })
+    };
+  </script>
+  <script src="./主版本v2/content.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        window.__mc3?.openPopup();
+      }, 100);
+    });
+  </script>
+</body>
+</html>

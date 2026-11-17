@@ -2476,7 +2476,9 @@
 
   function renderSortPanel() {
     const all = scanAll();
-    let html = '<div id="mc3-tools"><span class="mc3-tip">点击 + 号新建一个子分组</span></div>';
+    let html = '<div id="mc3-tools">' +
+    '<span class="mc3-tip">点击 + 号新建一个子分组<br>各功能区可独立开关，如果遇到奇怪问题可以暂时停用对应区域<br>以及随时欢迎到帖子下反映问题</span>' +
+    '</div>';
 
     for (const group of GROUPS) {
       const recs = (all[group.id] || []).slice();
