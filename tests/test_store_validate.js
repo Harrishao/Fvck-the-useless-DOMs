@@ -58,4 +58,25 @@ assert.strictEqual(Store.validate({ excludedSelectors: [{ id: '1', selector: '.a
 // 6. columnMode 格式校验
 assert.strictEqual(Store.validate({ columnMode: 'invalid' }).valid, false, '非法 columnMode 应失败');
 
+// 7. nativeOrder / nativeColumn / groupCollapsed / userDrawerCollapsed 对象格式校验
+assert.strictEqual(Store.validate({ nativeOrder: 'not an object' }).valid, false, 'nativeOrder 非对象应失败');
+assert.strictEqual(Store.validate({ nativeOrder: null }).valid, false, 'nativeOrder 为 null 应失败');
+assert.strictEqual(Store.validate({ nativeOrder: [] }).valid, false, 'nativeOrder 为数组应失败');
+assert.strictEqual(Store.validate({ nativeOrder: { options: { '#opt1': 0 } } }).valid, true, '合法 nativeOrder 应通过');
+
+assert.strictEqual(Store.validate({ nativeColumn: 'not an object' }).valid, false, 'nativeColumn 非对象应失败');
+assert.strictEqual(Store.validate({ nativeColumn: null }).valid, false, 'nativeColumn 为 null 应失败');
+assert.strictEqual(Store.validate({ nativeColumn: [] }).valid, false, 'nativeColumn 为数组应失败');
+assert.strictEqual(Store.validate({ nativeColumn: { '#opt1': 0 } }).valid, true, '合法 nativeColumn 应通过');
+
+assert.strictEqual(Store.validate({ groupCollapsed: 'not an object' }).valid, false, 'groupCollapsed 非对象应失败');
+assert.strictEqual(Store.validate({ groupCollapsed: null }).valid, false, 'groupCollapsed 为 null 应失败');
+assert.strictEqual(Store.validate({ groupCollapsed: [] }).valid, false, 'groupCollapsed 为数组应失败');
+assert.strictEqual(Store.validate({ groupCollapsed: { options: true } }).valid, true, '合法 groupCollapsed 应通过');
+
+assert.strictEqual(Store.validate({ userDrawerCollapsed: 'not an object' }).valid, false, 'userDrawerCollapsed 非对象应失败');
+assert.strictEqual(Store.validate({ userDrawerCollapsed: null }).valid, false, 'userDrawerCollapsed 为 null 应失败');
+assert.strictEqual(Store.validate({ userDrawerCollapsed: [] }).valid, false, 'userDrawerCollapsed 为数组应失败');
+assert.strictEqual(Store.validate({ userDrawerCollapsed: { 'userSettings|UI主题': true } }).valid, true, '合法 userDrawerCollapsed 应通过');
+
 console.log('Task 1 测试全部通过！');

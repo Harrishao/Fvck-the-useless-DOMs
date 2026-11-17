@@ -386,6 +386,18 @@
       if (obj.columnMode !== undefined && obj.columnMode !== 'single' && obj.columnMode !== 'dual') {
         return { valid: false, error: 'columnMode 必须为 single 或 dual 喵' };
       }
+      if (obj.nativeOrder !== undefined && (typeof obj.nativeOrder !== 'object' || obj.nativeOrder === null || Array.isArray(obj.nativeOrder))) {
+        return { valid: false, error: 'nativeOrder 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.nativeColumn !== undefined && (typeof obj.nativeColumn !== 'object' || obj.nativeColumn === null || Array.isArray(obj.nativeColumn))) {
+        return { valid: false, error: 'nativeColumn 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.groupCollapsed !== undefined && (typeof obj.groupCollapsed !== 'object' || obj.groupCollapsed === null || Array.isArray(obj.groupCollapsed))) {
+        return { valid: false, error: 'groupCollapsed 字段格式不正确（必须为对象）喵' };
+      }
+      if (obj.userDrawerCollapsed !== undefined && (typeof obj.userDrawerCollapsed !== 'object' || obj.userDrawerCollapsed === null || Array.isArray(obj.userDrawerCollapsed))) {
+        return { valid: false, error: 'userDrawerCollapsed 字段格式不正确（必须为对象）喵' };
+      }
       return { valid: true };
     },
 
@@ -463,9 +475,29 @@
         throw new Error(val.error || '配置格式校验失败');
       }
       const curTab = settings.activeTab || 'settings';
-      settings = Object.assign(Store.freshDefaults(), parsed);
-      settings.activeTab = curTab;
-      Store.normalize(settings);
+      const nextSettings = Object.assign(Store.freshDefaults(), parsed);
+      nextSettings.activeTab = curTab;
+      Store.normalize(nextSettings);
+
+      // 清理旧配置中的自定义选择器 (customSelectors) 防止残留
+      if (typeof doc !== 'undefined' && doc && typeof doc.querySelectorAll === 'function') {
+        for (const item of (settings && settings.customSelectors) || []) {
+          if (item && item.selector && (typeof isValidCssSelector !== 'function' || isValidCssSelector(item.selector))) {
+            try {
+              for (const el of doc.querySelectorAll(item.selector)) {
+                if (typeof isSelf === 'function' && isSelf(el)) continue;
+                if (typeof ManagedDom !== 'undefined' && ManagedDom.toggle) {
+                  ManagedDom.toggle(el, 'mc3-hidden', false);
+                } else if (el && el.classList && typeof el.classList.remove === 'function') {
+                  el.classList.remove('mc3-hidden');
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      settings = nextSettings;
       if (win.__mc3) win.__mc3.settings = settings;
       saveSettings();
       applyAll();
@@ -2769,9 +2801,17 @@
       fileInput.type = 'file';
       fileInput.accept = '.json,application/json';
       fileInput.style.display = 'none';
+      const cleanup = () => {
+        if (fileInput && fileInput.parentNode) {
+          fileInput.parentNode.removeChild(fileInput);
+        }
+      };
       fileInput.addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
-        if (!file) return;
+        if (!file) {
+          cleanup();
+          return;
+        }
         const reader = new FileReader();
         reader.onload = (evt) => {
           try {
@@ -2779,16 +2819,20 @@
             alert('配置已成功导入并覆盖生效喵！');
           } catch (err) {
             alert('导入失败喵：' + (err.message || '未知错误'));
+          } finally {
+            cleanup();
           }
         };
-        reader.onerror = () => alert('读取文件失败喵！');
+        reader.onerror = () => {
+          alert('读取文件失败喵！');
+          cleanup();
+        };
         reader.readAsText(file);
       });
+      fileInput.addEventListener('cancel', cleanup);
       doc.body.appendChild(fileInput);
       fileInput.click();
-      setTimeout(() => {
-        if (fileInput.parentNode) fileInput.parentNode.removeChild(fileInput);
-      }, 1000);
+      setTimeout(cleanup, 60000);
     },
 
     'clear-data': () => { if (confirm('确定要清除所有插件数据并恢复原始状态吗？')) resetAll(); },

@@ -27,6 +27,22 @@ const sandbox = { win: mockWin, doc: mockWin.document, saved: false, applied: fa
 const fn = new Function('sandbox', `
   const win = sandbox.win;
   const doc = sandbox.doc;
+  const ManagedDom = {
+    toggle: (el, cls, on) => {
+      if (sandbox.ManagedDom && sandbox.ManagedDom.toggle) {
+        return sandbox.ManagedDom.toggle(el, cls, on);
+      }
+      if (el && el.classList) el.classList.toggle(cls, !!on);
+    }
+  };
+  const isValidCssSelector = (sel) => {
+    if (sandbox.isValidCssSelector) return sandbox.isValidCssSelector(sel);
+    return typeof sel === 'string' && sel.length > 0;
+  };
+  const isSelf = (el) => {
+    if (sandbox.isSelf) return sandbox.isSelf(el);
+    return false;
+  };
   const GROUPS = [{ id: 'options' }];
   const SUBGROUP_GROUP_IDS = ['options'];
   const getUserSettingsGroups = () => [];
@@ -152,5 +168,75 @@ mockWin.document.body.removeChild = (el) => {
 
 Store.exportJSON();
 assert.strictEqual(downloadClicked, true, '无 returnString 时应触发模拟下载点击');
+
+// 7. 旧 customSelectors 清理验证（防止旧规则在 DOM 中残留）
+const oldDomElement = {
+  classList: {
+    classes: new Set(['mc3-hidden']),
+    contains(cls) { return this.classes.has(cls); },
+    remove(cls) { this.classes.delete(cls); },
+    toggle(cls, on) { if (on) this.classes.add(cls); else this.classes.delete(cls); }
+  }
+};
+let managedDomToggled = false;
+sandbox.ManagedDom = {
+  toggle: (el, cls, on) => {
+    managedDomToggled = true;
+    el.classList.toggle(cls, on);
+  }
+};
+sandbox.doc.querySelectorAll = (selector) => {
+  if (selector === '.old-remnant') {
+    return [oldDomElement];
+  }
+  return [];
+};
+setSettings({
+  enabled: true,
+  customSelectors: [{ id: 'cs_old_remnant', selector: '.old-remnant', label: '残留选择器' }],
+  hidden: { cs_old_remnant: true },
+  activeTab: 'settings'
+});
+
+assert.strictEqual(oldDomElement.classList.contains('mc3-hidden'), true, '导入前元素包含 mc3-hidden');
+
+Store.importJSON(JSON.stringify({
+  enabled: true,
+  customSelectors: [{ id: 'cs_new', selector: '.new-rule', label: '新规则' }],
+}));
+
+assert.strictEqual(oldDomElement.classList.contains('mc3-hidden'), false, '导入后旧选择器对应元素的 mc3-hidden 必须被清除');
+assert.strictEqual(managedDomToggled, true, '应通过 ManagedDom.toggle 移除 mc3-hidden');
+
+// 8. 原子化设置替换验证 (导入失败时不破坏原 settings)
+const originalSettings = {
+  enabled: true,
+  hidden: { '#protected_item': true },
+  customSelectors: [{ id: 'cs_stay', selector: '.stay', label: '保留' }],
+  activeTab: 'settings'
+};
+setSettings(JSON.parse(JSON.stringify(originalSettings)));
+
+// 8.1 格式校验失败时，原 settings 不变
+assert.throws(() => Store.importJSON(JSON.stringify({ order: 'invalid-non-object' })), /order 字段格式不正确/);
+assert.deepStrictEqual(getSettings().hidden, originalSettings.hidden, '校验失败时 hidden 不应被修改');
+assert.strictEqual(getSettings().customSelectors[0].id, 'cs_stay', '校验失败时 customSelectors 不应被修改');
+
+// 8.2 JSON 解析失败时，原 settings 不变
+assert.throws(() => Store.importJSON('{ invalid-json-syntax }'), /JSON 解析失败/);
+assert.deepStrictEqual(getSettings().hidden, originalSettings.hidden, 'JSON 解析失败时 hidden 不应被修改');
+
+// 8.3 normalize 抛出异常时，原 settings 不变且不触发旧 customSelectors 清理
+let unapplyAttemptedOnNormalizeFail = false;
+sandbox.doc.querySelectorAll = (selector) => {
+  unapplyAttemptedOnNormalizeFail = true;
+  return [];
+};
+const realNormalize = Store.normalize;
+Store.normalize = () => { throw new Error('normalize 模拟异常'); };
+assert.throws(() => Store.importJSON(JSON.stringify({ enabled: false })), /normalize 模拟异常/);
+assert.strictEqual(getSettings().enabled, true, 'normalize 异常时 settings 不应被替换');
+assert.strictEqual(unapplyAttemptedOnNormalizeFail, false, 'normalize 异常时不应执行旧选择器清理');
+Store.normalize = realNormalize;
 
 console.log('Task 2 测试全部通过！');
