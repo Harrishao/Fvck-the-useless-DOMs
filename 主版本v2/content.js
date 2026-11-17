@@ -2528,8 +2528,8 @@
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">配置备份与迁移</span>' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
-        '<button class="mc3-btn" data-action="export-config">导出配置</button>' +
-        '<button class="mc3-btn" data-action="import-config">导入配置</button>' +
+        '<button class="mc3-btn" data-action="export-config">导出</button>' +
+        '<button class="mc3-btn" data-action="import-config">导入</button>' +
       '</div>' +
       '</div>';
     html += '<div class="mc3-setting-row">' +
