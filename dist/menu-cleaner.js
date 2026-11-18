@@ -1,9 +1,9 @@
-// version 1117.0.1
+// version 1117.0.2
 
 (function () {
   'use strict';
 
-  const VERSION = '1117.0.1';
+  const VERSION = '1117.0.2';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -267,6 +267,7 @@
 
   const defaultSettings = {
     enabled: true,
+    wandSubgroupClickFixEnabled: false, // 可选 TT 魔棒分组点击修复；默认保留原有事件路径
     groupEnabled: {},    // { groupId: boolean } — 各卡片独立介入开关，缺省开启
     hidden: {},          // { key: true }                   — 可见性，无任何预设
     order: {},           // { groupId: { key: slot:int } }  — 全局总序，跨情境一致
@@ -348,6 +349,7 @@
       if (!Array.isArray(s.customSelectors)) s.customSelectors = [];
       if (!Array.isArray(s.excludedSelectors)) s.excludedSelectors = [];
       if (typeof s.customFontColorEnabled !== 'boolean') s.customFontColorEnabled = false;
+      if (typeof s.wandSubgroupClickFixEnabled !== 'boolean') s.wandSubgroupClickFixEnabled = false;
       if (s.customFontColor && typeof s.customFontColor === 'object') {
         s.customFontColor = {
           r: clampRgb(s.customFontColor.r, 238),
@@ -375,6 +377,9 @@
     validate(obj) {
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
         return { valid: false, error: '配置文件必须为一个 JSON 对象喵' };
+      }
+      if (obj.wandSubgroupClickFixEnabled !== undefined && typeof obj.wandSubgroupClickFixEnabled !== 'boolean') {
+        return { valid: false, error: 'wandSubgroupClickFixEnabled 必须为布尔值喵' };
       }
       if (obj.order !== undefined) {
         if (typeof obj.order !== 'object' || obj.order === null || Array.isArray(obj.order)) {
@@ -1461,6 +1466,16 @@
     }
   }
 
+  function toggleNativeSubgroup(header) {
+    const subgroup = Subgroups.getById(header.getAttribute('data-gid'), header.getAttribute('data-sgid'));
+    if (!subgroup) return;
+    subgroup.collapsed = !subgroup.collapsed;
+    saveSettings();
+    applyAll();
+    const overlay = doc.getElementById('mc3-overlay');
+    if (overlay && win.getComputedStyle(overlay).display !== 'none') renderPopup();
+  }
+
   // 用隐藏/显示伪装抽屉的收起/展开，保持扁平结构而不做嵌套
   // 扩展面板的标题与成员共同跟随子分组栏位；不包裹也不改动成员的原生抽屉结构。
   function applyPseudoSubgroups(group, records) {
@@ -1504,14 +1519,7 @@
         header.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopImmediatePropagation();
-          const target = e.currentTarget;
-          const targetSg = Subgroups.getById(target.getAttribute('data-gid'), target.getAttribute('data-sgid'));
-          if (!targetSg) return;
-          targetSg.collapsed = !targetSg.collapsed;
-          saveSettings();
-          applyAll();
-          const overlay = doc.getElementById('mc3-overlay');
-          if (overlay && win.getComputedStyle(overlay).display !== 'none') renderPopup();
+          toggleNativeSubgroup(e.currentTarget);
         });
       }
       const headerHtml = '<span class="mc3-native-subgroup-arrow" aria-hidden="true">' + (sg.collapsed ? '▶' : '▼') + '</span>' +
@@ -1988,6 +1996,17 @@
 
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest) {
+        if (settings.wandSubgroupClickFixEnabled && isGroupEnabled('extensionsMenu')) {
+          const header = e.target.closest('#extensionsMenu button.mc3-native-subgroup-header[data-action="toggle-native-subgroup"][data-gid="extensionsMenu"]');
+          if (header && !isProtected(header.closest('#extensionsMenu')) && Subgroups.getById('extensionsMenu', header.getAttribute('data-sgid'))) {
+            // TT 在菜单容器捕获阶段关闭菜单，必须在父文档提前处理自己的分组标题。
+            // stopPropagation 保留同一文档上的其他捕获监听；原按钮监听不再执行。
+            e.preventDefault();
+            e.stopPropagation();
+            toggleNativeSubgroup(header);
+            return;
+          }
+        }
         if (e.target.closest('.extraMesButtonsHint')) {
           ensureContainersObserved();
           applyAll();
@@ -1996,7 +2015,7 @@
           scheduleApply();
         }
       }
-    }, { capture: true, passive: true });
+    }, { capture: true, passive: false });
 
     try {
       const ctx = getCtx();
@@ -2555,6 +2574,13 @@
       '<label class="mc3-setting-label" for="mc3-set-enabled"><span>启用插件</span></label>' +
       '<input type="checkbox" id="mc3-set-enabled" class="mc3-checkbox" data-action="set-enabled"' + (settings.enabled ? ' checked' : '') + '>' +
       '</div>';
+    html += '<div class="mc3-setting-row" style="gap:12px;">' +
+      '<div style="min-width:0;flex:1;">' +
+        '<label class="mc3-setting-label" for="mc3-set-wand-subgroup-click-fix">TauriTavern 魔棒分组点击修复</label>' +
+        '<div id="mc3-wand-subgroup-click-fix-desc" style="font-size:11px;line-height:1.5;opacity:.75;margin-top:4px;">防止展开／收起自建分组时关闭整个魔棒菜单。默认关闭；原版酒馆或已修复此问题的 TauriTavern 可关闭。</div>' +
+      '</div>' +
+      '<input type="checkbox" id="mc3-set-wand-subgroup-click-fix" class="mc3-checkbox" style="flex-shrink:0;" aria-describedby="mc3-wand-subgroup-click-fix-desc" data-action="set-wand-subgroup-click-fix"' + (settings.wandSubgroupClickFixEnabled ? ' checked' : '') + '>' +
+      '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">扩展面板状态</span>' +
       '<div class="mc3-segment-switch">' +
@@ -2682,7 +2708,7 @@
       body += '</div>';
       if (group.id === 'userSettings') {
         body = '<div class="mc3-user-options mc3-setting-row">' +
-          '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将自定义CSS块从杂项中独立出来</span></label>' +
+          '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将"自定义CSS"从杂项中独立出来</span></label>' +
           '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
           '</div>' + body;
       }
@@ -2842,6 +2868,11 @@
 
     'set-enabled': (t) => {
       settings.enabled = t.checked; saveSettings(); applyAll(); renderPopup();
+    },
+
+    'set-wand-subgroup-click-fix': (t) => {
+      settings.wandSubgroupClickFixEnabled = !!t.checked;
+      saveSettings();
     },
 
     'set-colmode': (t) => { setColumnMode(t.getAttribute('data-val')); renderPopup(); },
