@@ -1994,13 +1994,12 @@
       drawerObs.observe(extBlock, { attributes: true, attributeFilter: ['class'] });
     }
 
+    // 适应tt重写的魔棒菜单的关闭事件监听的策略，在父文档提前处理自己的分组标题
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest) {
         if (settings.wandSubgroupClickFixEnabled && isGroupEnabled('extensionsMenu')) {
           const header = e.target.closest('#extensionsMenu button.mc3-native-subgroup-header[data-action="toggle-native-subgroup"][data-gid="extensionsMenu"]');
           if (header && !isProtected(header.closest('#extensionsMenu')) && Subgroups.getById('extensionsMenu', header.getAttribute('data-sgid'))) {
-            // TT 在菜单容器捕获阶段关闭菜单，必须在父文档提前处理自己的分组标题。
-            // stopPropagation 保留同一文档上的其他捕获监听；原按钮监听不再执行。
             e.preventDefault();
             e.stopPropagation();
             toggleNativeSubgroup(header);
@@ -2574,13 +2573,6 @@
       '<label class="mc3-setting-label" for="mc3-set-enabled"><span>启用插件</span></label>' +
       '<input type="checkbox" id="mc3-set-enabled" class="mc3-checkbox" data-action="set-enabled"' + (settings.enabled ? ' checked' : '') + '>' +
       '</div>';
-    html += '<div class="mc3-setting-row" style="gap:12px;">' +
-      '<div style="min-width:0;flex:1;">' +
-        '<label class="mc3-setting-label" for="mc3-set-wand-subgroup-click-fix">TauriTavern 魔棒分组点击修复</label>' +
-        '<div id="mc3-wand-subgroup-click-fix-desc" style="font-size:11px;line-height:1.5;opacity:.75;margin-top:4px;">防止展开／收起自建分组时关闭整个魔棒菜单。默认关闭；原版酒馆或已修复此问题的 TauriTavern 可关闭。</div>' +
-      '</div>' +
-      '<input type="checkbox" id="mc3-set-wand-subgroup-click-fix" class="mc3-checkbox" style="flex-shrink:0;" aria-describedby="mc3-wand-subgroup-click-fix-desc" data-action="set-wand-subgroup-click-fix"' + (settings.wandSubgroupClickFixEnabled ? ' checked' : '') + '>' +
-      '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">扩展面板状态</span>' +
       '<div class="mc3-segment-switch">' +
@@ -2621,7 +2613,15 @@
         '</div>' +
       '</div>';
     }
+    
     html += '</div>';
+    html += '<div class="mc3-setting-row" style="gap:12px;">' +
+      '<div style="min-width:0;flex:1;">' +
+        '<label class="mc3-setting-label" for="mc3-set-wand-subgroup-click-fix">TT魔棒子分组补丁</label>' +
+        '<div id="mc3-wand-subgroup-click-fix-desc" style="font-size:11px;line-height:1.5;opacity:.75;margin-top:4px;">修复在TT 2.4.0及以上，展开/收起魔棒内子分组会导致魔棒抽屉收起的问题</div>' +
+      '</div>' +
+      '<input type="checkbox" id="mc3-set-wand-subgroup-click-fix" class="mc3-checkbox" style="flex-shrink:0;" aria-describedby="mc3-wand-subgroup-click-fix-desc" data-action="set-wand-subgroup-click-fix"' + (settings.wandSubgroupClickFixEnabled ? ' checked' : '') + '>' +
+      '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">配置备份与迁移</span>' +
       '<div style="display:flex;gap:8px;align-items:center;">' +

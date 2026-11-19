@@ -527,7 +527,7 @@
       nextSettings.activeTab = curTab;
       Store.normalize(nextSettings);
 
-      // 清理旧配置中的自定义选择器 (customSelectors) 防止残留
+      // 清理旧配置中的自定义selector (customSelectors) 防止残留
       if (typeof doc !== 'undefined' && doc && typeof doc.querySelectorAll === 'function') {
         for (const item of (settings && settings.customSelectors) || []) {
           if (item && item.selector && (typeof isValidCssSelector !== 'function' || isValidCssSelector(item.selector))) {
@@ -622,11 +622,11 @@
 
     add(selector, label) {
       const sel = (selector || '').trim();
-      if (!sel) return { success: false, error: '选择器不能为空喵！' };
-      if (!isValidCssSelector(sel)) return { success: false, error: '选择器格式不合法喵，请输入有效的 CSS Selector！' };
+      if (!sel) return { success: false, error: '输入内容不能为空喵！' };
+      if (!isValidCssSelector(sel)) return { success: false, error: 'selector格式不合法喵，请输入有效的 CSS Selector！' };
       if (!settings.customSelectors) settings.customSelectors = [];
       if (settings.customSelectors.some((it) => it.selector === sel)) {
-        return { success: false, error: '该选择器已经存在了喵！' };
+        return { success: false, error: '该selector已经存在了喵！' };
       }
       const item = { id: CustomSelectors.genId(), selector: sel, label: (label || '').trim() || sel };
       settings.customSelectors.push(item);
@@ -670,9 +670,9 @@
 
     add(selector, label) {
       const sel = typeof selector === 'string' ? selector.trim() : '';
-      if (!sel) return { success: false, error: '选择器不能为空喵！' };
-      if (!isValidCssSelector(sel)) return { success: false, error: '选择器格式不合法喵，请输入有效的 CSS Selector！' };
-      if (settings.excludedSelectors.some((item) => item.selector === sel)) return { success: false, error: '该选择器已经存在了喵！' };
+      if (!sel) return { success: false, error: '输入内容不能为空喵！' };
+      if (!isValidCssSelector(sel)) return { success: false, error: 'selector格式不合法喵，请输入有效的 CSS Selector！' };
+      if (settings.excludedSelectors.some((item) => item.selector === sel)) return { success: false, error: '该selector已经存在了喵！' };
       const item = { id: 'ex_' + Math.random().toString(36).slice(2, 10), selector: sel, label: (label || '').trim() || sel };
       settings.excludedSelectors.push(item);
       saveSettings();
@@ -1994,13 +1994,12 @@
       drawerObs.observe(extBlock, { attributes: true, attributeFilter: ['class'] });
     }
 
+    // 适应tt重写的魔棒菜单的关闭事件监听的策略，在父文档提前处理自己的分组标题
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest) {
         if (settings.wandSubgroupClickFixEnabled && isGroupEnabled('extensionsMenu')) {
           const header = e.target.closest('#extensionsMenu button.mc3-native-subgroup-header[data-action="toggle-native-subgroup"][data-gid="extensionsMenu"]');
           if (header && !isProtected(header.closest('#extensionsMenu')) && Subgroups.getById('extensionsMenu', header.getAttribute('data-sgid'))) {
-            // TT 在菜单容器捕获阶段关闭菜单，必须在父文档提前处理自己的分组标题。
-            // stopPropagation 保留同一文档上的其他捕获监听；原按钮监听不再执行。
             e.preventDefault();
             e.stopPropagation();
             toggleNativeSubgroup(header);
@@ -2574,13 +2573,6 @@
       '<label class="mc3-setting-label" for="mc3-set-enabled"><span>启用插件</span></label>' +
       '<input type="checkbox" id="mc3-set-enabled" class="mc3-checkbox" data-action="set-enabled"' + (settings.enabled ? ' checked' : '') + '>' +
       '</div>';
-    html += '<div class="mc3-setting-row" style="gap:12px;">' +
-      '<div style="min-width:0;flex:1;">' +
-        '<label class="mc3-setting-label" for="mc3-set-wand-subgroup-click-fix">TauriTavern 魔棒分组点击修复</label>' +
-        '<div id="mc3-wand-subgroup-click-fix-desc" style="font-size:11px;line-height:1.5;opacity:.75;margin-top:4px;">防止展开／收起自建分组时关闭整个魔棒菜单。默认关闭；原版酒馆或已修复此问题的 TauriTavern 可关闭。</div>' +
-      '</div>' +
-      '<input type="checkbox" id="mc3-set-wand-subgroup-click-fix" class="mc3-checkbox" style="flex-shrink:0;" aria-describedby="mc3-wand-subgroup-click-fix-desc" data-action="set-wand-subgroup-click-fix"' + (settings.wandSubgroupClickFixEnabled ? ' checked' : '') + '>' +
-      '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">扩展面板状态</span>' +
       '<div class="mc3-segment-switch">' +
@@ -2621,7 +2613,15 @@
         '</div>' +
       '</div>';
     }
+    
     html += '</div>';
+    html += '<div class="mc3-setting-row" style="gap:12px;">' +
+      '<div style="min-width:0;flex:1;">' +
+        '<label class="mc3-setting-label" for="mc3-set-wand-subgroup-click-fix">TT魔棒子分组补丁</label>' +
+        '<div id="mc3-wand-subgroup-click-fix-desc" style="font-size:11px;line-height:1.5;opacity:.75;margin-top:4px;">修复在TT 2.4.0及以上，展开/收起魔棒内子分组会导致魔棒抽屉收起的问题</div>' +
+      '</div>' +
+      '<input type="checkbox" id="mc3-set-wand-subgroup-click-fix" class="mc3-checkbox" style="flex-shrink:0;" aria-describedby="mc3-wand-subgroup-click-fix-desc" data-action="set-wand-subgroup-click-fix"' + (settings.wandSubgroupClickFixEnabled ? ' checked' : '') + '>' +
+      '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">配置备份与迁移</span>' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
@@ -2745,7 +2745,7 @@
         cbody += '<span class="mc3-label mc3-mid-truncate" title="' + escHtml(cItem.selector) + '">' +
                 renderSelectorLabelHtml(cItem.label || cItem.selector, matchedCount) + '</span>';
         cbody += '<button class="mc3-toggle' + (cHidden ? '' : ' on') + '" data-action="toggle-custom-hide" data-custom-id="' + escHtml(cItem.id) + '">' + (cHidden ? '隐藏' : '显示') + '</button>';
-        cbody += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此选择器" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
+        cbody += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此selector" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
         cbody += '</div>';
       }
     }
@@ -2760,7 +2760,7 @@
     const list = settings.excludedSelectors || [];
     let body = '<div style="padding:8px 10px;">' +
       '<div class="mc3-custom-add-row">' +
-        '<input type="text" id="mc3-custom-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，随后插件不会干涉这些元素">' +
+        '<input type="text" id="mc3-excluded-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，随后插件不会干涉这些元素">' +
         '<button type="button" class="mc3-toggle on" data-action="add-excluded-selector" style="padding:4px 12px;font-size:12px;cursor:pointer;">+ 添加</button>' +
       '</div><div class="mc3-list">';
     if (!list.length) body += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px;font-size:12px">暂无排除的 Selector，在上方输入后点击添加喵～</div>';
