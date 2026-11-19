@@ -1,9 +1,9 @@
-// version 1117.0.1
+// version 1117.0.2
 
 (function () {
   'use strict';
 
-  const VERSION = '1117.0.1';
+  const VERSION = '1117.0.2';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -2734,7 +2734,7 @@
     const list = settings.excludedSelectors || [];
     let body = '<div style="padding:8px 10px;">' +
       '<div class="mc3-custom-add-row">' +
-        '<input type="text" id="mc3-custom-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，随后插件不会干涉这些元素">' +
+        '<input type="text" id="mc3-excluded-selector-input" class="mc3-custom-input" placeholder="输入 CSS Selector，随后插件不会干涉这些元素">' +
         '<button type="button" class="mc3-toggle on" data-action="add-excluded-selector" style="padding:4px 12px;font-size:12px;cursor:pointer;">+ 添加</button>' +
       '</div><div class="mc3-list">';
     if (!list.length) body += '<div class="mc3-row" style="opacity:.35;font-style:italic;justify-content:center;padding:10px;font-size:12px">暂无排除的 Selector，在上方输入后点击添加喵～</div>';
