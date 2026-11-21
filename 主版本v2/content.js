@@ -1,9 +1,9 @@
-// version 1117.0.2
+// version 1121.0.0
 
 (function () {
   'use strict';
 
-  const VERSION = '1117.0.2';
+  const VERSION = '1121.0.0';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
