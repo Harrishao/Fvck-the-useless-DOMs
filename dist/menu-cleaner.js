@@ -267,6 +267,7 @@
 
   const defaultSettings = {
     enabled: true,
+    wandSubgroupClickFixEnabled: false, // 可选 TT 魔棒分组点击修复；默认保留原有事件路径
     groupEnabled: {},    // { groupId: boolean } — 各卡片独立介入开关，缺省开启
     hidden: {},          // { key: true }                   — 可见性，无任何预设
     order: {},           // { groupId: { key: slot:int } }  — 全局总序，跨情境一致
@@ -348,6 +349,7 @@
       if (!Array.isArray(s.customSelectors)) s.customSelectors = [];
       if (!Array.isArray(s.excludedSelectors)) s.excludedSelectors = [];
       if (typeof s.customFontColorEnabled !== 'boolean') s.customFontColorEnabled = false;
+      if (typeof s.wandSubgroupClickFixEnabled !== 'boolean') s.wandSubgroupClickFixEnabled = false;
       if (s.customFontColor && typeof s.customFontColor === 'object') {
         s.customFontColor = {
           r: clampRgb(s.customFontColor.r, 238),
@@ -375,6 +377,9 @@
     validate(obj) {
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
         return { valid: false, error: '配置文件必须为一个 JSON 对象喵' };
+      }
+      if (obj.wandSubgroupClickFixEnabled !== undefined && typeof obj.wandSubgroupClickFixEnabled !== 'boolean') {
+        return { valid: false, error: 'wandSubgroupClickFixEnabled 必须为布尔值喵' };
       }
       if (obj.order !== undefined) {
         if (typeof obj.order !== 'object' || obj.order === null || Array.isArray(obj.order)) {
@@ -522,7 +527,7 @@
       nextSettings.activeTab = curTab;
       Store.normalize(nextSettings);
 
-      // 清理旧配置中的自定义选择器 (customSelectors) 防止残留
+      // 清理旧配置中的自定义selector (customSelectors) 防止残留
       if (typeof doc !== 'undefined' && doc && typeof doc.querySelectorAll === 'function') {
         for (const item of (settings && settings.customSelectors) || []) {
           if (item && item.selector && (typeof isValidCssSelector !== 'function' || isValidCssSelector(item.selector))) {
@@ -617,11 +622,11 @@
 
     add(selector, label) {
       const sel = (selector || '').trim();
-      if (!sel) return { success: false, error: '选择器不能为空喵！' };
-      if (!isValidCssSelector(sel)) return { success: false, error: '选择器格式不合法喵，请输入有效的 CSS Selector！' };
+      if (!sel) return { success: false, error: '输入内容不能为空喵！' };
+      if (!isValidCssSelector(sel)) return { success: false, error: 'selector格式不合法喵，请输入有效的 CSS Selector！' };
       if (!settings.customSelectors) settings.customSelectors = [];
       if (settings.customSelectors.some((it) => it.selector === sel)) {
-        return { success: false, error: '该选择器已经存在了喵！' };
+        return { success: false, error: '该selector已经存在了喵！' };
       }
       const item = { id: CustomSelectors.genId(), selector: sel, label: (label || '').trim() || sel };
       settings.customSelectors.push(item);
@@ -665,9 +670,9 @@
 
     add(selector, label) {
       const sel = typeof selector === 'string' ? selector.trim() : '';
-      if (!sel) return { success: false, error: '选择器不能为空喵！' };
-      if (!isValidCssSelector(sel)) return { success: false, error: '选择器格式不合法喵，请输入有效的 CSS Selector！' };
-      if (settings.excludedSelectors.some((item) => item.selector === sel)) return { success: false, error: '该选择器已经存在了喵！' };
+      if (!sel) return { success: false, error: '输入内容不能为空喵！' };
+      if (!isValidCssSelector(sel)) return { success: false, error: 'selector格式不合法喵，请输入有效的 CSS Selector！' };
+      if (settings.excludedSelectors.some((item) => item.selector === sel)) return { success: false, error: '该selector已经存在了喵！' };
       const item = { id: 'ex_' + Math.random().toString(36).slice(2, 10), selector: sel, label: (label || '').trim() || sel };
       settings.excludedSelectors.push(item);
       saveSettings();
@@ -1461,6 +1466,16 @@
     }
   }
 
+  function toggleNativeSubgroup(header) {
+    const subgroup = Subgroups.getById(header.getAttribute('data-gid'), header.getAttribute('data-sgid'));
+    if (!subgroup) return;
+    subgroup.collapsed = !subgroup.collapsed;
+    saveSettings();
+    applyAll();
+    const overlay = doc.getElementById('mc3-overlay');
+    if (overlay && win.getComputedStyle(overlay).display !== 'none') renderPopup();
+  }
+
   // 用隐藏/显示伪装抽屉的收起/展开，保持扁平结构而不做嵌套
   // 扩展面板的标题与成员共同跟随子分组栏位；不包裹也不改动成员的原生抽屉结构。
   function applyPseudoSubgroups(group, records) {
@@ -1504,14 +1519,7 @@
         header.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopImmediatePropagation();
-          const target = e.currentTarget;
-          const targetSg = Subgroups.getById(target.getAttribute('data-gid'), target.getAttribute('data-sgid'));
-          if (!targetSg) return;
-          targetSg.collapsed = !targetSg.collapsed;
-          saveSettings();
-          applyAll();
-          const overlay = doc.getElementById('mc3-overlay');
-          if (overlay && win.getComputedStyle(overlay).display !== 'none') renderPopup();
+          toggleNativeSubgroup(e.currentTarget);
         });
       }
       const headerHtml = '<span class="mc3-native-subgroup-arrow" aria-hidden="true">' + (sg.collapsed ? '▶' : '▼') + '</span>' +
@@ -1986,8 +1994,18 @@
       drawerObs.observe(extBlock, { attributes: true, attributeFilter: ['class'] });
     }
 
+    // 适应tt重写的魔棒菜单的关闭事件监听的策略，在父文档提前处理自己的分组标题
     doc.addEventListener('click', (e) => {
       if (e.target && e.target.closest) {
+        if (settings.wandSubgroupClickFixEnabled && isGroupEnabled('extensionsMenu')) {
+          const header = e.target.closest('#extensionsMenu button.mc3-native-subgroup-header[data-action="toggle-native-subgroup"][data-gid="extensionsMenu"]');
+          if (header && !isProtected(header.closest('#extensionsMenu')) && Subgroups.getById('extensionsMenu', header.getAttribute('data-sgid'))) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleNativeSubgroup(header);
+            return;
+          }
+        }
         if (e.target.closest('.extraMesButtonsHint')) {
           ensureContainersObserved();
           applyAll();
@@ -1996,7 +2014,7 @@
           scheduleApply();
         }
       }
-    }, { capture: true, passive: true });
+    }, { capture: true, passive: false });
 
     try {
       const ctx = getCtx();
@@ -2595,7 +2613,15 @@
         '</div>' +
       '</div>';
     }
+    
     html += '</div>';
+    html += '<div class="mc3-setting-row" style="gap:12px;">' +
+      '<div style="min-width:0;flex:1;">' +
+        '<label class="mc3-setting-label" for="mc3-set-wand-subgroup-click-fix">TT魔棒子分组补丁</label>' +
+        '<div id="mc3-wand-subgroup-click-fix-desc" style="font-size:11px;line-height:1.5;opacity:.75;margin-top:4px;">修复在TT 2.4.0及以上，展开/收起魔棒内子分组会导致魔棒抽屉收起的问题</div>' +
+      '</div>' +
+      '<input type="checkbox" id="mc3-set-wand-subgroup-click-fix" class="mc3-checkbox" style="flex-shrink:0;" aria-describedby="mc3-wand-subgroup-click-fix-desc" data-action="set-wand-subgroup-click-fix"' + (settings.wandSubgroupClickFixEnabled ? ' checked' : '') + '>' +
+      '</div>';
     html += '<div class="mc3-setting-row">' +
       '<span class="mc3-setting-label">配置备份与迁移</span>' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
@@ -2682,7 +2708,7 @@
       body += '</div>';
       if (group.id === 'userSettings') {
         body = '<div class="mc3-user-options mc3-setting-row">' +
-          '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将自定义CSS块从杂项中独立出来</span></label>' +
+          '<label class="mc3-setting-label" for="mc3-set-customcss"><span>将"自定义CSS"从杂项中独立出来</span></label>' +
           '<input type="checkbox" id="mc3-set-customcss" class="mc3-checkbox" data-action="set-customcss"' + (settings.isolateCustomCss ? ' checked' : '') + '>' +
           '</div>' + body;
       }
@@ -2719,7 +2745,7 @@
         cbody += '<span class="mc3-label mc3-mid-truncate" title="' + escHtml(cItem.selector) + '">' +
                 renderSelectorLabelHtml(cItem.label || cItem.selector, matchedCount) + '</span>';
         cbody += '<button class="mc3-toggle' + (cHidden ? '' : ' on') + '" data-action="toggle-custom-hide" data-custom-id="' + escHtml(cItem.id) + '">' + (cHidden ? '隐藏' : '显示') + '</button>';
-        cbody += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此选择器" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
+        cbody += '<button class="mc3-icon-btn" data-action="delete-custom-selector" data-custom-id="' + escHtml(cItem.id) + '" title="删除此selector" style="font-size:14px;padding:2px 6px;margin-left:4px;">✕</button>';
         cbody += '</div>';
       }
     }
@@ -2842,6 +2868,11 @@
 
     'set-enabled': (t) => {
       settings.enabled = t.checked; saveSettings(); applyAll(); renderPopup();
+    },
+
+    'set-wand-subgroup-click-fix': (t) => {
+      settings.wandSubgroupClickFixEnabled = !!t.checked;
+      saveSettings();
     },
 
     'set-colmode': (t) => { setColumnMode(t.getAttribute('data-val')); renderPopup(); },
