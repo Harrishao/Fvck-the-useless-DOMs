@@ -1,16 +1,19 @@
-// version 1121.0.0
+// version 1126.0.0
 
 (function () {
   'use strict';
 
-  const VERSION = '1121.0.0';
+  const VERSION = '1126.0.0';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
   const EXT_KEY = 'menu_cleaner3';              
   const OWN_PREFIX = 'mc3-';
+  const QR_TOGGLE_BTN_ID = 'mc3-qr-toggle-btn';
+  const QR_TOGGLE_BTN_KEY = '#' + QR_TOGGLE_BTN_ID;
 
   function isStableId(id) {
+    if (id === QR_TOGGLE_BTN_ID) return true;
     return !!id
       && id.indexOf(OWN_PREFIX) !== 0
       && id.indexOf('menu-cleaner-auto-') !== 0
@@ -18,7 +21,7 @@
   }
 
   function isSelf(el) {
-    return el.id && el.id.indexOf(OWN_PREFIX) === 0 && el.id.indexOf('mc3-launcher') !== 0;
+    return el.id && el.id.indexOf(OWN_PREFIX) === 0 && el.id.indexOf('mc3-launcher') !== 0 && el.id !== QR_TOGGLE_BTN_ID;
   }
 
   // ─── §1  REGISTRY ────────────────────────────────────────────────────────────
@@ -120,6 +123,7 @@
   const SEND_FORM_DEFAULT_LABELS = {
     '#options_button': '左下选项菜单',
     '#extensionsMenuButton': '扩展魔棒',
+    '#mc3-qr-toggle-btn': '展开/折叠QR面板',
     '#send_but': '发送消息',
     '#mes_impersonate': '让AI为您撰写消息',
     '#mes_continue': '继续上一条消息',
@@ -825,6 +829,13 @@
         if (isProtected(el)) ManagedDom.restore(el);
       }
       for (const el of doc.querySelectorAll('.mc3-native-subgroup-header,.mc3-subgroup-sep,#mc3-qr-toggle-btn,#mc3-launcher-wand,#mc3-launcher-panel')) {
+        if (el.id === QR_TOGGLE_BTN_ID) {
+          if (isExcluded(el) || isExcluded(el.parentElement) || isProtected(doc.querySelector('#qr--bar'))) {
+            ManagedDom.elements.delete(el);
+            el.remove();
+          }
+          continue;
+        }
         if (isExcluded(el) || (!el.id.startsWith('mc3-launcher') && isProtected(el.parentElement))) el.remove();
       }
     },
@@ -1237,12 +1248,16 @@
     return records;
   }
 
+  function scanOneGroup(group) {
+    if (group.curated) return scanCurated(group);
+    if (group.mode === 'mesButtons') return scanMesButtons(group);
+    return scanGroup(group);
+  }
+
   function scanAll() {
     const all = {};
     for (const g of GROUPS) {
-      if (g.curated) all[g.id] = scanCurated(g);
-      else if (g.mode === 'mesButtons') all[g.id] = scanMesButtons(g);
-      else all[g.id] = scanGroup(g);
+      all[g.id] = scanOneGroup(g);
     }
     return all;
   }
@@ -1273,13 +1288,9 @@
       '.mc3-native-subgroup-arrow{width:12px;flex:0 0 12px;font-size:10px;opacity:.72;text-align:center;}',
       '.mc3-native-subgroup-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '.mc3-user-drawer-collapsed{display:none !important;}',
-      '.mc3-qr-toggle-btn{display:inline-flex;align-items:center;justify-content:center;padding:2px 6px;font-size:10px;line-height:1;border-radius:4px;cursor:pointer;user-select:none;background:var(--black30a,rgba(0,0,0,.25));color:inherit;border:1px solid var(--SmartThemeBorderColor,#555);margin-right:4px;flex-shrink:0;order:-999999;}',
-      '.mc3-qr-toggle-btn:hover{background:var(--black50a,rgba(128,128,128,.3));}',
-      '.mc3-qr-toggle-btn .mc3-qr-arrow{font-size:10px;opacity:.85;}',
+      '#mc3-qr-toggle-btn{order:4;padding:1px;user-select:none;cursor:pointer;display:flex;align-items:center;justify-content:center;width:var(--bottomFormBlockSize,1.5em);height:var(--bottomFormBlockSize,1.5em);}',
       '.mc3-qr-content-collapsed{display:none !important;}',
-      '#qr--bar.mc3-qr-bar-collapsed{display:flex !important;justify-content:center !important;align-items:center !important;width:100% !important;margin:0 auto !important;}',
-      '#qr--bar.mc3-qr-bar-collapsed > .mc3-qr-toggle-btn{margin-right:0 !important;}',
-      '@media screen and (max-width:800px){#qr--bar.mc3-qr-bar-collapsed{padding-left:0 !important;padding-right:0 !important;}}',
+      '#send_form #qr--bar.mc3-qr-bar-collapsed,#qr--bar.mc3-qr-bar-collapsed{display:none !important;}',
       '.mc3-user-drawer-header{cursor:pointer;user-select:none;}',
       '#UI-presets-block > h4.mc3-user-drawer-header, #CustomCSS-block > h4.mc3-user-drawer-header{position:relative;}',
       '#UI-presets-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow, #CustomCSS-block > h4.mc3-user-drawer-header > button.mc3-user-drawer-arrow{position:absolute;left:5px;top:50%;transform:translateY(-50%);}',
@@ -1353,6 +1364,22 @@
     if (style.textContent !== css) style.textContent = css;
   }
 
+  function insertSlotAfter(map, anchorKey, newKey) {
+    const anchorSlot = map[anchorKey];
+    for (const k in map) {
+      if (map[k] > anchorSlot) map[k] += 1;
+    }
+    map[newKey] = anchorSlot + 1;
+  }
+
+  function insertSlotBefore(map, anchorKey, newKey) {
+    const anchorSlot = map[anchorKey];
+    for (const k in map) {
+      if (map[k] >= anchorSlot) map[k] += 1;
+    }
+    map[newKey] = anchorSlot;
+  }
+
   function ensureSlots(group, records) {
     const map = settings.order[group.id] || (settings.order[group.id] = {});
     const nat = settings.nativeOrder[group.id] || (settings.nativeOrder[group.id] = {});
@@ -1360,7 +1387,37 @@
     for (const k in map) if (map[k] > maxSlot) maxSlot = map[k];
     let changed = false;
     for (const r of records) {
-      if (!(r.key in map)) { map[r.key] = ++maxSlot; if (!(r.key in nat)) nat[r.key] = map[r.key]; changed = true; }
+      if (r.key in map) continue;
+      if (group.id === 'sendForm' && r.key === QR_TOGGLE_BTN_KEY && '#extensionsMenuButton' in map) {
+        insertSlotAfter(map, '#extensionsMenuButton', QR_TOGGLE_BTN_KEY);
+        if (!(QR_TOGGLE_BTN_KEY in nat)) {
+          if ('#extensionsMenuButton' in nat) insertSlotAfter(nat, '#extensionsMenuButton', QR_TOGGLE_BTN_KEY);
+          else nat[QR_TOGGLE_BTN_KEY] = map[QR_TOGGLE_BTN_KEY];
+        }
+        maxSlot = -1;
+        for (const k in map) if (map[k] > maxSlot) maxSlot = map[k];
+        changed = true;
+        continue;
+      }
+      if (
+        group.id === 'sendForm' &&
+        r.key === '#extensionsMenuButton' &&
+        QR_TOGGLE_BTN_KEY in map &&
+        QR_TOGGLE_BTN_KEY in nat &&
+        map[QR_TOGGLE_BTN_KEY] === nat[QR_TOGGLE_BTN_KEY]
+      ) {
+        insertSlotBefore(map, QR_TOGGLE_BTN_KEY, '#extensionsMenuButton');
+        if (!('#extensionsMenuButton' in nat)) {
+          insertSlotBefore(nat, QR_TOGGLE_BTN_KEY, '#extensionsMenuButton');
+        }
+        maxSlot = -1;
+        for (const k in map) if (map[k] > maxSlot) maxSlot = map[k];
+        changed = true;
+        continue;
+      }
+      map[r.key] = ++maxSlot;
+      if (!(r.key in nat)) nat[r.key] = map[r.key];
+      changed = true;
     }
     if (changed) saveSettings();
     return map;
@@ -1776,14 +1833,25 @@
     }
   }
 
-  // QR 面板原生折叠：内容非空时原位注入极简箭头折叠按钮
+  // QR 面板折叠控制：内容非空时向输入栏（默认魔棒右侧）注入图标按钮
   function applyQrPanelFold() {
     const bar = doc.querySelector('#qr--bar');
-    if (!bar) return;
+    let toggleBtn = doc.getElementById(QR_TOGGLE_BTN_ID);
+    const removeToggleBtn = () => {
+      if (!toggleBtn) return;
+      ManagedDom.elements.delete(toggleBtn);
+      suppressObserver = true;
+      toggleBtn.remove();
+      win.setTimeout(() => { suppressObserver = false; }, 0);
+      toggleBtn = null;
+    };
+    if (!bar) {
+      removeToggleBtn();
+      return;
+    }
 
-    let toggleBtn = doc.getElementById('mc3-qr-toggle-btn');
     const clearFold = () => {
-      if (toggleBtn) toggleBtn.remove();
+      removeToggleBtn();
       ManagedDom.restoreClass(bar, 'mc3-qr-bar-collapsed');
       for (const ch of bar.children) ManagedDom.restoreClass(ch, 'mc3-qr-content-collapsed');
     };
@@ -1791,39 +1859,81 @@
     if (!isGroupEnabled('qrPanel') || isProtected(bar)) { clearFold(); return; }
 
     const contents = [];
-    for (const ch of bar.children) {
-      if (ch.id === 'mc3-qr-toggle-btn' || ch.id === 'qr--popoutTrigger') continue;
-      if (!ch.classList.contains('mc3-hidden')) contents.push(ch);
-    }
+    const collectVisibleQrItems = (node) => {
+      if (!node || node.id === QR_TOGGLE_BTN_ID || node.id === 'qr--popoutTrigger') return;
+      if (node.classList.contains('mc3-hidden')) return;
+      if (node.classList.contains('qr--buttons')) {
+        for (const sub of node.children) collectVisibleQrItems(sub);
+        return;
+      }
+      contents.push(node);
+    };
+    for (const ch of bar.children) collectVisibleQrItems(ch);
     if (contents.length === 0) { clearFold(); return; }
 
+    const leftForm = doc.querySelector('#leftSendForm');
+    const preferRight = isGroupEnabled('sendForm') && settings.column[QR_TOGGLE_BTN_KEY] === 1;
+    const hostForm = doc.querySelector(preferRight ? '#rightSendForm' : '#leftSendForm');
+    if (!hostForm || isExcluded(hostForm)) { clearFold(); return; }
+
     if (!toggleBtn) {
-      toggleBtn = doc.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.id = 'mc3-qr-toggle-btn';
-      toggleBtn.className = 'mc3-qr-toggle-btn';
-      toggleBtn.addEventListener('click', (e) => {
+      toggleBtn = doc.createElement('div');
+      toggleBtn.id = QR_TOGGLE_BTN_ID;
+      toggleBtn.className = 'fa-solid interactable mc3-qr-toggle-btn';
+      toggleBtn.setAttribute('role', 'button');
+      toggleBtn.tabIndex = 0;
+      toggleBtn.setAttribute('aria-controls', 'qr--bar');
+      const onToggleQr = (e) => {
         e.preventDefault();
         e.stopPropagation();
         settings.qrPanelCollapsed = !settings.qrPanelCollapsed;
         saveSettings();
         applyAll();
+      };
+      toggleBtn.addEventListener('click', onToggleQr);
+      toggleBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') onToggleQr(e);
       });
+      if (settings.nativeColumn[QR_TOGGLE_BTN_KEY] === undefined) {
+        settings.nativeColumn[QR_TOGGLE_BTN_KEY] = 0;
+      }
+      const initialParent = (leftForm && !isExcluded(leftForm)) ? leftForm : hostForm;
+      const wandBtn = initialParent.querySelector('#extensionsMenuButton');
       suppressObserver = true;
-      bar.insertBefore(toggleBtn, bar.firstChild);
+      if (wandBtn && wandBtn.parentNode === initialParent) {
+        initialParent.insertBefore(toggleBtn, wandBtn.nextSibling);
+      } else {
+        initialParent.appendChild(toggleBtn);
+      }
       win.setTimeout(() => { suppressObserver = false; }, 0);
+    } else if (!isGroupEnabled('sendForm') && leftForm && !isExcluded(leftForm)) {
+      const wandBtn = leftForm.querySelector('#extensionsMenuButton');
+      if (wandBtn && wandBtn.parentNode === leftForm) {
+        if (toggleBtn.parentNode !== leftForm || toggleBtn.previousElementSibling !== wandBtn) {
+          suppressObserver = true;
+          leftForm.insertBefore(toggleBtn, wandBtn.nextSibling);
+          win.setTimeout(() => { suppressObserver = false; }, 0);
+        }
+      } else if (toggleBtn.parentNode !== leftForm) {
+        suppressObserver = true;
+        leftForm.appendChild(toggleBtn);
+        win.setTimeout(() => { suppressObserver = false; }, 0);
+      }
     }
 
-    toggleBtn.style.display = 'inline-flex';
+    if (isExcluded(toggleBtn)) { clearFold(); return; }
+
     const isCollapsed = !!settings.qrPanelCollapsed;
-    ManagedDom.toggle(bar, 'mc3-qr-bar-collapsed', isCollapsed);
-    const arrowHtml = '<span class="mc3-qr-arrow">' + (isCollapsed ? '▲' : '▼') + '</span>';
-    if (toggleBtn.innerHTML !== arrowHtml) toggleBtn.innerHTML = arrowHtml;
+    toggleBtn.classList.toggle('fa-angles-up', isCollapsed);
+    toggleBtn.classList.toggle('fa-angles-down', !isCollapsed);
+    const expanded = isCollapsed ? 'false' : 'true';
+    if (toggleBtn.getAttribute('aria-expanded') !== expanded) toggleBtn.setAttribute('aria-expanded', expanded);
     const titleText = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
     if (toggleBtn.title !== titleText) toggleBtn.title = titleText;
 
+    ManagedDom.toggle(bar, 'mc3-qr-bar-collapsed', isCollapsed);
     for (const child of bar.children) {
-      if (child.id === 'mc3-qr-toggle-btn' || child.id === 'qr--popoutTrigger') continue;
+      if (child.id === 'qr--popoutTrigger') continue;
       ManagedDom.toggle(child, 'mc3-qr-content-collapsed', isCollapsed);
     }
   }
@@ -1859,13 +1969,15 @@
     applyAlwaysHidden(settings.enabled);
     applySeparatorHides(settings.enabled);
     applyCustomSelectors(isGroupEnabled('customSelectors'));
-    const all = scanAll();
+    const all = {};
     for (const group of GROUPS) {
-      const recs = all[group.id] || [];
+      if (group.id === 'sendForm') applyQrPanelFold();
+      const recs = scanOneGroup(group);
+      all[group.id] = recs;
       if (isGroupEnabled(group.id)) applyGroup(group, recs);
       else { clearGroup(group, recs); clearPseudoSubgroups(group); }
     }
-    applyQrPanelFold();
+    if (win.__mc3) win.__mc3.records = all;
     return all;
   }
 
