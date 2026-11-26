@@ -1,9 +1,9 @@
-// version 1126.0.0
+// version 1126.0.1
 
 (function () {
   'use strict';
 
-  const VERSION = '1126.0.0';
+  const VERSION = '1126.0.1';
   const doc = window.frameElement ? window.parent.document : document;
   const win = window.frameElement ? window.parent : window;
   const STORAGE_KEY = 'menu_cleaner3_settings'; 
@@ -132,6 +132,35 @@
     '#stscript_pause': '暂停执行脚本',
     '#stscript_stop': '中止执行脚本',
   };
+
+  // 输入框区域同位/联动按钮绑定组（方案 A）
+  const SEND_FORM_BOUND_GROUPS = [
+    {
+      key: '#send_but',
+      anchorId: 'send_but',
+      label: '发送/停止键',
+      members: [
+        { id: 'send_but', offset: 0 },
+        { id: 'mes_stop', offset: 0 },
+      ],
+    },
+    {
+      key: '#stscript_pause',
+      anchorId: 'stscript_pause',
+      label: '暂停/继续/中止脚本',
+      members: [
+        { id: 'stscript_continue', offset: 0 },
+        { id: 'stscript_pause', offset: 0 },
+        { id: 'stscript_stop', offset: 1 },
+      ],
+    },
+  ];
+  const SEND_FORM_BOUND_BY_ID = Object.create(null);
+  for (const bg of SEND_FORM_BOUND_GROUPS) {
+    bg.members.forEach((m, index) => {
+      SEND_FORM_BOUND_BY_ID[m.id] = { groupDef: bg, memberDef: m, index };
+    });
+  }
 
   // 预设面板打包隐藏
   function presetRange(prefix, a, b, suffix) {
@@ -374,6 +403,37 @@
       }
       for (const gid of SUBGROUP_GROUP_IDS) {
         if (!s.subgroups[gid]) s.subgroups[gid] = [];
+      }
+      const boundPairs = [
+        ['#send_but', ['#mes_stop']],
+        ['#stscript_pause', ['#stscript_continue', '#stscript_stop']],
+      ];
+      for (const orderMap of [s.order && s.order.sendForm, s.nativeOrder && s.nativeOrder.sendForm]) {
+        if (!orderMap || typeof orderMap !== 'object') continue;
+        for (const [primaryKey, secondaryKeys] of boundPairs) {
+          if (orderMap[primaryKey] === undefined) {
+            for (const sk of secondaryKeys) {
+              if (orderMap[sk] !== undefined) { orderMap[primaryKey] = orderMap[sk]; break; }
+            }
+          }
+          for (const sk of secondaryKeys) delete orderMap[sk];
+        }
+      }
+      for (const colMap of [s.column, s.nativeColumn]) {
+        if (!colMap || typeof colMap !== 'object') continue;
+        for (const [primaryKey, secondaryKeys] of boundPairs) {
+          if (colMap[primaryKey] === undefined) {
+            for (const sk of secondaryKeys) {
+              if (colMap[sk] !== undefined) { colMap[primaryKey] = colMap[sk]; break; }
+            }
+          }
+          for (const sk of secondaryKeys) delete colMap[sk];
+        }
+      }
+      if (s.hidden && typeof s.hidden === 'object') {
+        for (const [, secondaryKeys] of boundPairs) {
+          for (const sk of secondaryKeys) delete s.hidden[sk];
+        }
       }
       return s;
     },
@@ -1110,6 +1170,31 @@
         const unit = cand.fallbackUnit || unitOf(el, container);
         if (isProtected(el) || isProtected(unit)) continue;
 
+        if (group.id === 'sendForm' && el.id && SEND_FORM_BOUND_BY_ID[el.id]) {
+          const boundInfo = SEND_FORM_BOUND_BY_ID[el.id];
+          const bg = boundInfo.groupDef;
+          const bKey = bg.key;
+          let rec = byKey[bKey];
+          if (!rec) {
+            rec = {
+              key: bKey, el, els: [], unit, units: [], elOffsets: [],
+              _boundMembers: [], _placed: false,
+              groupId: group.id, container: containerSel, label: bg.label, column,
+            };
+            byKey[bKey] = rec;
+          }
+          rec._boundMembers.push({
+            index: boundInfo.index, offset: boundInfo.memberDef.offset,
+            el, unit, column, containerSel,
+          });
+          if (el.id === bg.anchorId && !rec._placed) {
+            rec.el = el; rec.unit = unit; rec.column = column; rec.container = containerSel;
+            rec._placed = true;
+            records.push(rec);
+          }
+          continue;
+        }
+
         let key = cand.key;
         if (!key) {
           if (isStableId(el.id)) {
@@ -1141,6 +1226,24 @@
         if (group.id === 'extensionsSettings' && unit && unit.id) {
           extensionRecordsCache.set(key, { key, label, unitId: unit.id, el, containerSel });
         }
+      }
+    }
+    if (group.id === 'sendForm') {
+      for (const bg of SEND_FORM_BOUND_GROUPS) {
+        const rec = byKey[bg.key];
+        if (!rec || !rec._boundMembers || !rec._boundMembers.length) continue;
+        rec._boundMembers.sort((a, b) => a.index - b.index);
+        rec.els = rec._boundMembers.map((m) => m.el);
+        rec.units = rec._boundMembers.map((m) => m.unit);
+        rec.elOffsets = rec._boundMembers.map((m) => m.offset);
+        if (!rec._placed) {
+          const first = rec._boundMembers[0];
+          rec.el = first.el; rec.unit = first.unit;
+          rec.column = first.column; rec.container = first.containerSel;
+          records.push(rec);
+        }
+        delete rec._boundMembers;
+        delete rec._placed;
       }
     }
     return records;
@@ -1273,7 +1376,7 @@
       for (let e = 0; e < r.els.length; e++) {
         const el = r.els[e];
         const unit = (r.units && r.units[e]) ? r.units[e] : (r.unit || el);
-        if (!isProtected(el) && !isProtected(unit)) fn(el, unit, r);
+        if (!isProtected(el) && !isProtected(unit)) fn(el, unit, r, e);
       }
     }
   }
@@ -1309,6 +1412,19 @@
     }
     if (isGroupEnabled('extensionsMenu') && !isProtected(doc.querySelector('#extensionsMenu'))) {
       rules.push('#extensionsMenu > .extension_container' + ExcludedSelectors.cssGuard() + '{display:contents !important;}');
+    }
+    if (isGroupEnabled('sendForm') && !isExcluded(doc.querySelector('#leftSendForm'))) {
+      const g = ExcludedSelectors.cssGuard();
+      rules.push(
+        '#leftSendForm > div:not(.mes_send).stscript_btn' + g + '{padding-right:2px;place-self:center;cursor:pointer;transition:var(--animation-duration-2x);opacity:1;display:none;}',
+        '#leftSendForm > div:not(.mes_send).stscript_btn' + g + ' > .fa-solid{--toastInfoColor:#2F96B4;--progColor:rgba(0,128,0,0.839);border-radius:35%;border:0 solid var(--progColor);aspect-ratio:1/1;display:flex;color:rgb(24 24 24);font-size:0.5em;height:var(--bottomFormIconSize);justify-content:center;align-items:center;}',
+        '#leftSendForm > div:not(.mes_send).stscript_btn.stscript_pause' + g + ' > .fa-solid,#leftSendForm > div:not(.mes_send).stscript_btn.stscript_continue' + g + ' > .fa-solid{background-color:rgb(146,190,252);}',
+        '#leftSendForm > div:not(.mes_send).stscript_btn.stscript_stop' + g + ' > .fa-solid{background-color:rgb(215,136,114);}',
+        '#form_sheld.isExecutingCommandsFromChatInput #leftSendForm > div:not(.mes_send).stscript_btn.stscript_pause' + g + ',#form_sheld.isExecutingCommandsFromChatInput #leftSendForm > div:not(.mes_send).stscript_btn.stscript_stop' + g + '{display:flex;}',
+        '#form_sheld.isExecutingCommandsFromChatInput.script_paused #leftSendForm > div:not(.mes_send).stscript_btn.stscript_pause' + g + '{display:none;}',
+        '#form_sheld.isExecutingCommandsFromChatInput.script_paused #leftSendForm > div:not(.mes_send).stscript_btn.stscript_continue' + g + '{display:flex;}',
+        'body[data-generating="true"][data-agent-guidance-ready="true"] #leftSendForm > #send_but:not(.mc3-hidden)' + g + '{display:flex !important;}'
+      );
     }
     if (!st) {
       st = doc.createElement('style'); st.id = 'mc3-style';
@@ -1427,11 +1543,13 @@
   function applyOrder(group, records) {
     const map = ensureSlots(group, records);
     const hasPseudoHeaders = supportsPseudoSubgroups(group);
+    const useDoubleStride = hasPseudoHeaders || group.id === 'sendForm';
     const unitSlot = new Map();
-    forEachElUnit(records, (el, unit, r) => {
+    forEachElUnit(records, (el, unit, r, idx) => {
       const slot = map[r.key];
       if (slot === undefined) return;
-      const displaySlot = hasPseudoHeaders ? slot * 2 + 1 : slot;
+      const offset = (r.elOffsets && r.elOffsets[idx]) || 0;
+      const displaySlot = useDoubleStride ? (hasPseudoHeaders ? slot * 2 + 1 : slot * 2 + offset) : slot;
       if (unit && (!unitSlot.has(unit) || displaySlot < unitSlot.get(unit))) unitSlot.set(unit, displaySlot);
       if (el && el !== unit) ManagedDom.style(el, 'order', String(displaySlot));
     });
@@ -1924,8 +2042,8 @@
     if (isExcluded(toggleBtn)) { clearFold(); return; }
 
     const isCollapsed = !!settings.qrPanelCollapsed;
-    toggleBtn.classList.toggle('fa-angles-up', isCollapsed);
-    toggleBtn.classList.toggle('fa-angles-down', !isCollapsed);
+    toggleBtn.classList.toggle('fa-chevron-up', isCollapsed);
+    toggleBtn.classList.toggle('fa-chevron-down', !isCollapsed);
     const expanded = isCollapsed ? 'false' : 'true';
     if (toggleBtn.getAttribute('aria-expanded') !== expanded) toggleBtn.setAttribute('aria-expanded', expanded);
     const titleText = isCollapsed ? '展开QR面板 (' + contents.length + '个条目)' : '折叠QR面板';
