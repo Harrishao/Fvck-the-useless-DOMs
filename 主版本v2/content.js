@@ -2394,7 +2394,17 @@
 
   const POPUP_CSS =
     '#mc3-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;width:100dvw;height:100dvh;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);}' +
-    '#mc3-popup{display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;background:var(--SmartThemeBlurTintColor,#1e1e1e);color:var(--mc3-font-color,var(--SmartThemeBodyColor,#eee));border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;}' +
+    // 半透明主题色铺在不透明底色上，避免酒馆内容透进弹窗。
+    '#mc3-popup{' +
+      '--mc3-popup-tint:var(--SmartThemeBlurTintColor,#1e1e1e);' +
+      'display:flex;flex-direction:column;width:min(600px,94vw);max-height:86vh;' +
+      'background:#1e1e1e linear-gradient(var(--mc3-popup-tint),var(--mc3-popup-tint));' +
+      'color:var(--mc3-font-color,var(--SmartThemeBodyColor,#eee));border:1px solid var(--SmartThemeBorderColor,#555);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;' +
+    '}' +
+    // 主题色完全透明时，按文字明暗选择浅底或深底。
+    '@supports (color:oklch(from #eee l c h)){' +
+      '#mc3-popup{background-color:oklch(from var(--mc3-font-color,var(--SmartThemeBodyColor,#eee)) clamp(.12,calc((.56 - l) * 100),.97) 0 0 / 1);}' +
+    '}' +
     '#mc3-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--SmartThemeBorderColor,#555);font-weight:bold;}' +
     '#mc3-head .mc3-head-title{display:flex;align-items:center;gap:12px;}' +
     '#mc3-head .mc3-x{cursor:pointer;background:none;border:none;color:inherit;font-size:18px;}' +
